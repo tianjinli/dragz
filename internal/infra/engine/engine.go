@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/gzip"
@@ -66,7 +67,9 @@ func NewEngineService(
 			"realip":  ctx.ClientIP(),
 		})
 	}
-	webEngine.GET("/", handleVersion)
+	conf.BasePath = strings.TrimSuffix(conf.BasePath, "/")
+	rootGroup := webEngine.Group(conf.BasePath)
+	rootGroup.GET("/", handleVersion)
 	handleGenerate := func(ctx *gin.Context) {
 		ip := ctx.ClientIP()
 		if ip != "127.0.0.1" && ip != "::1" {
@@ -94,7 +97,6 @@ func NewEngineService(
 		webEngine.POST(conf.TokenPath, handleGenerate)
 	}
 
-	rootGroup := webEngine.Group(conf.BasePath)
 	publicGroup := rootGroup.Group("/")
 	protectedGroup := rootGroup.Group("/")
 	protectedGroup.Use(middle.HandleAuth())

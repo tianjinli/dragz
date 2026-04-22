@@ -56,7 +56,7 @@ type (
 		// Deprecated: If timeout is 10s but a DB operation takes 31s,
 		// this may trigger 3 consecutive timeout responses.
 		Timeout   time.Duration  // request timeout (default: 0s - means no timeout)
-		BasePath  string         `yaml:"base-path"`  // base URL path (don't end with a '/')
+		BasePath  string         `yaml:"base-path"`  // Base URL path (the trailing '/' will be removed)
 		Locale    string         `yaml:"locale"`     // supported locales: en_US, zh_Hans, zh_Hant (default: en_US)
 		Expose    *TunnelConfig  `yaml:"expose"`     // expose the web service through an SSH tunnel
 		Socks5    *TunnelConfig  `yaml:"socks5"`     // use a remote machine as a network proxy (e.g., HTTP).

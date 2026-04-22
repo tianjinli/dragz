@@ -22,7 +22,7 @@ expose: &expose
 server:
   port: ${SERVER_PORT:5280}
   timeout: ${SERVER_TIMEOUT:5s}
-  base-path: ${SERVER_BASE_PATH} # don't end with a '/'
+  base-path: ${SERVER_BASE_PATH} # the trailing '/' will be removed
   locale: ${SERVER_LOCALE:en_US} # supported locales: en_US, zh_Hans, zh_Hant
   public: # static resource for public access
     - name: assets

@@ -14,30 +14,31 @@ type PrometheusMiddleware struct {
 }
 
 // NewPrometheusMiddleware creates a new instance of PrometheusMiddleware and registers the metrics.
-// middle := NewPrometheusMiddleware()
-// rootGroup.Use(middle.HandlePrometheus())
-// rootGroup.GET("/metrics", gin.WrapH(promhttp.Handler()))
+// middle := middleware.NewPrometheusMiddleware()
+// OR wire.NewSet(middleware.NewPrometheusMiddleware)
+// publicGroup.Use(middle.HandlePrometheus())
+// publicGroup.GET("/metrics", gin.WrapH(promhttp.Handler()))
 func NewPrometheusMiddleware() *PrometheusMiddleware {
-	middleware := &PrometheusMiddleware{
-		httpRequestsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "http_requests_total",
-				Help: "Total number of HTTP requests",
-			},
-			[]string{"method", "path", "status"},
-		),
-		httpRequestDuration: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "http_request_duration_seconds",
-				Help:    "HTTP request latency in seconds",
-				Buckets: prometheus.DefBuckets,
-			},
-			[]string{"method", "path", "status"},
-		),
+	httpRequestsTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+	httpRequestDuration := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "HTTP request latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path", "status"},
+	)
+	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration)
+	return &PrometheusMiddleware{
+		httpRequestsTotal:   httpRequestsTotal,
+		httpRequestDuration: httpRequestDuration,
 	}
-	prometheus.MustRegister(middleware.httpRequestsTotal)
-	prometheus.MustRegister(middleware.httpRequestDuration)
-	return middleware
 }
 
 func (m *PrometheusMiddleware) HandlePrometheus() gin.HandlerFunc {
