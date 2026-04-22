@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dragz
+  name: redis-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-storage
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "100Mi"
+            limits:
+              cpu: "100m"
+              memory: "256Mi"
+      volumes:
+        - name: redis-storage
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: dragz
+  name: redis-service
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: 6379
+#  type: NodePort
+  type: LoadBalancer
+---

@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dragz
+  name: postgres-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+          envFrom:
+            - secretRef:
+                name: postgres-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql
+            - name: init-script-storage
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-script-storage
+          configMap:
+            name: postgres-config
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: dragz
+  name: postgres-service
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      protocol: TCP
+      targetPort: 5432
+  type: LoadBalancer
+---

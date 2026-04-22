@@ -1,0 +1,18 @@
+dragz:
+  base:
+    unknown_error: "未知错误"
+    unauthorized: "访问未授权"
+    invalid_params: "无效的参数"
+    qrcode_expired: "二维码已过期"
+    localhost_only: "仅允许本机访问"
+    bad_request: "错误的请求"
+
+  token:
+    malformed: "令牌格式错误"
+    not_valid_yet: "令牌尚未生效"
+    expired: "令牌已过期"
+    signature_invalid: "令牌签名无效"
+    unverifiable: "令牌无法验证"
+    invalid_claims: "令牌声明无效"
+    invalid_issuer: "令牌颁发者无效"
+    invalid: "令牌无效"

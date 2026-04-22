@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dragz
+  name: server-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: server
+          image: hub.dragz.io/dragz:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5280
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+          envFrom:
+            - configMapRef:
+                name: server-config
+            - secretRef:
+                name: postgres-secrets
+            - secretRef:
+                name: redis-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "400m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: certs-storage
+              mountPath: /app/certs
+      volumes:
+        - name: certs-storage
+          secret:
+            secretName: server-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: dragz
+  name: server-service
+spec:
+  selector:
+    app: server
+  ports:
+    - port: 5280
+      targetPort: 5280
+  type: NodePort
+#  type: ClusterIP
+---

@@ -1,0 +1,14 @@
+.DS_Store
+.idea
+.env*
+.vscode
+*.exe
+*-dev.*
+
+!.env.dev.tpl
+!air-dev.bat.tpl
+!atlas/*-dev.sh.tpl
+
+/bin
+/log
+/cache

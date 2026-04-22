@@ -1,0 +1,90 @@
+forward: &forward
+  host: ${FORWARD_HOST} # tunnel host
+  port: ${FORWARD_PORT:22} # tunnel port (default: 22)
+  username: ${FORWARD_USER:root}
+  password: ${FORWARD_PASSWORD} # (2nd priority)
+  timeout: ${FORWARD_TIMEOUT:10s}
+  known-hosts: ${FORWARD_KNOWN_HOSTS:~/.ssh/known_hosts} # known hosts path (default: "%USERPROFILE%\.ssh\known_hosts")
+  # at least one of username or private key must be provided
+  private-key: ${FORWARD_PRIVATE_KEY} # private key path (1st priority)
+  passphrase: ${FORWARD_PASSPHRASE} # passphrase of private key
+expose: &expose
+  host: ${EXPOSE_HOST} # tunnel host
+  port: ${EXPOSE_PORT:22} # tunnel port (default: 22)
+  username: ${EXPOSE_USER:root}
+  password: ${EXPOSE_PASSWORD} # (2nd priority)
+  timeout: ${EXPOSE_TIMEOUT:10s}
+  known-hosts: ${EXPOSE_KNOWN_HOSTS:~/.ssh/known_hosts} # known hosts path (default: "%USERPROFILE%\.ssh\known_hosts")
+  # at least one of username or private key must be provided
+  private-key: ${EXPOSE_PRIVATE_KEY} # private key path (1st priority)
+  passphrase: ${EXPOSE_PASSPHRASE} # passphrase of private key
+
+server:
+  port: ${SERVER_PORT:5280}
+  timeout: ${SERVER_TIMEOUT:5s}
+  base-path: ${SERVER_BASE_PATH} # don't end with a '/'
+  locale: ${SERVER_LOCALE:en_US} # supported locales: en_US, zh_Hans, zh_Hant
+  public: # static resource for public access
+    - name: assets
+      uri-path: /assets
+      fs-path: assets
+  protected: # static resource for protected access
+    - name: manifest
+      uri-path: /manifest
+      fs-path: manifest
+  expose:
+    scheme: ${SERVER_EXPOSE_SCHEME:noop}  # supported schemes: noop, ssh
+    <<: *expose
+  socks5:
+    scheme: ${SERVER_SOCKS5_SCHEME:noop}  # supported schemes: noop, ssh
+    <<: *expose
+  token-path: ${SERVER_TOKEN_PATH} # Internal Access Token generator available only in Debug environment
+
+token:
+  access-secret-key: ${TOKEN_ACCESS_SECRET_KEY:Ucng-8OjvUIAFPFOlXjtvfIpv8Xcv4vzFq70whssWkQ} # access token secret key
+  access-expires-in: ${TOKEN_ACCESS_EXPIRES_IN:30m} # access token expires in (range: 1m - 24h)
+  refresh-secret-key: ${TOKEN_REFRESH_SECRET_KEY:n_yKmK4uERY9K_m5eWd_4lU8wvPPMa89f0-yRRkQM60} # refresh token secret key
+  refresh-expires-in: ${TOKEN_REFRESH_EXPIRES_IN:168h} # refresh token expires in (range: 1d/24h - 90d/2160h)
+  issuer-uri: ${TOKEN_ISSUER_URI} # token issuer uri
+database:
+  primary: ${DB_PRIMARY:master}
+  log-level: ${DB_LOG_LEVEL:info}
+  slow-threshold: ${DB_SLOW_THRESHOLD:100}
+  table-prefix: ${DB_TABLE_PREFIX}
+  sources:
+    master:
+      driver: ${DB_MASTER_DRIVER:postgres}
+      host: ${DB_MASTER_HOST:127.0.0.1}
+      port: ${DB_MASTER_PORT:5432}
+      user: ${DB_MASTER_USER:postgres}
+      password: ${DB_MASTER_PASSWORD:1hhoAYjkW5TArKFmkfxf}
+      db-name: ${DB_MASTER_DBNAME:dragz}
+      params: sslmode=disable TimeZone=Asia/Shanghai
+    cluster:
+      driver: ${DB_CLUSTER_DRIVER:mysql}
+      host: ${DB_CLUSTER_HOST:127.0.0.1}
+      port: ${DB_CLUSTER_PORT:3306}
+      user: ${DB_CLUSTER_USER:root}
+      password: ${DB_CLUSTER_PASSWORD:Z4qNaaxZ2yPUP4tVOETA}
+      db-name: ${DB_CLUSTER_DBNAME:dragz}
+      params: charset=utf8mb4&parseTime=True&loc=Local
+  proxy:
+    scheme: ${DB_PROXY_SCHEME:noop}  # supported schemes: noop, ssh
+    <<: *forward
+
+redis:
+  host: ${REDIS_HOST:127.0.0.1}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD}
+  db: ${REDIS_DB:0}
+  proxy:
+    scheme: ${REDIS_PROXY_SCHEME:noop}  # supported schemes: noop, ssh
+    <<: *forward
+
+logger:
+  path: ${LOG_PATH:logs/app.log}
+  level: ${LOG_LEVEL:info}
+# Here are some configuration items that can be dynamically modified.
+captcha:
+  method: noop
+  expire: 5m

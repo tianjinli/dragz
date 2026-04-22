@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: dragz
+  name: migrate-job
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: hub.dragz.io/dragz-db:1.0.0
+          envFrom:
+            - secretRef:
+                name: postgres-secrets
+            - configMapRef:
+                name: server-config
+          command:
+            - "atlas"
+            - "migrate"
+            - "apply"
+            - "--url"
+            - "postgres://${DB_MASTER_USER}:${DB_MASTER_PASSWORD}@${DB_MASTER_HOST}:${DB_MASTER_PORT}/${DB_MASTER_NAME}?search_path=public&sslmode=disable"
+            - "--dir"
+            - "file:///app/migrations"
+---

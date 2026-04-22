@@ -1,0 +1,23 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Domain-Driven Design (DDD) based RESTful Admin, built with Gin and Zap.",
+        "title": "Dragz Swagger API",
+        "termsOfService": "https://dragz.io/terms/",
+        "contact": {
+            "name": "Dragz Support",
+            "url": "https://dragz.io.io/support",
+            "email": "support@dragz.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "paths": {},
+    "externalDocs": {
+        "description": "OpenAPI",
+        "url": "https://dragz.io/docs/"
+    }
+}

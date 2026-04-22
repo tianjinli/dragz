@@ -1,0 +1,18 @@
+dragz:
+  base:
+    unknown_error: "未知錯誤"
+    unauthorized: "訪問未授權"
+    invalid_params: "無效的參數"
+    qrcode_expired: "二維碼已過期"
+    localhost_only: "僅允許本機訪問"
+    bad_request: "錯誤的請求"
+
+  token:
+    malformed: "令牌格式錯誤"
+    not_valid_yet: "令牌尚未生效"
+    expired: "令牌已過期"
+    signature_invalid: "令牌簽名無效"
+    unverifiable: "令牌不可驗證"
+    invalid_claims: "令牌聲明無效"
+    invalid_issuer: "令牌頒發者無效"
+    invalid: "令牌無效"

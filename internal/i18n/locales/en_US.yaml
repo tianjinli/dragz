@@ -1,0 +1,18 @@
+dragz:
+  base:
+    unknown_error: "Unknown error"
+    unauthorized: "Unauthorized access"
+    invalid_params: "Params is invalid"
+    qrcode_expired: "Qrcode is expired"
+    localhost_only: "Localhost only access"
+    bad_request: "Bad request"
+
+  token:
+    malformed: "Token is malformed"
+    not_valid_yet: "Token is not valid yet"
+    expired: "Token is expired"
+    signature_invalid: "Token signature is invalid"
+    unverifiable: "Token is unverifiable"
+    invalid_claims: "Token has invalid claims"
+    invalid_issuer: "Token has invalid issuer"
+    invalid: "Token is invalid"

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: dragz
+  name: postgres-config
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      -- 1. 创建用户并赋予最小权限
+      CREATE USER $DB_MASTER_USER WITH PASSWORD '$DB_MASTER_PASSWORD' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE;
+      -- 2. 创建数据库并绑定拥有者
+      CREATE DATABASE $DB_MASTER_DBNAME OWNER $DB_MASTER_USER;
+      -- 3. 授予用户对数据库的连接权限
+      REVOKE CONNECT ON DATABASE $POSTGRES_DB FROM $DB_MASTER_USER;
+      GRANT CONNECT ON DATABASE $DB_MASTER_DBNAME TO $DB_MASTER_USER;
+      -- 4. 授予用户在公共模式中创建表的权限
+      GRANT ALL ON SCHEMA public TO $DB_MASTER_DBNAME;
+      -- 6. 确保该用户对未来在 'public' 模式中创建的表、序列、函数等也有权限
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_MASTER_DBNAME;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_MASTER_DBNAME;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO $DB_MASTER_DBNAME;
+      -- GRANT ALL PRIVILEGES ON DATABASE $DB_MASTER_DBNAME TO $DB_MASTER_USER;
+    EOSQL
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: dragz
+  name: server-config
+data:
+  APP_NAME: "dragz"
+  SERVER_PORT: "5280"
+  DB_MASTER_HOST: "postgres-service"
+  DB_MASTER_PORT: "5432"
+  REDIS_HOST: "redis-service"
+---

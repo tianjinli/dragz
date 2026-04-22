@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: dragz
+  name: grafana-service
+spec:
+  type: NodePort
+  ports:
+    - port: 3000
+      nodePort: 32000
+  selector:
+    app: grafana
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dragz
+  name: grafana-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: dragz
+  name: grafana-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - gf.cszqq.top
+      secretName: grafana-tls
+  rules:
+    - host: gf.cszqq.top
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana-service
+                port:
+                  number: 3000
+---

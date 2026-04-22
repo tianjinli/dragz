@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: dragz
+  name: alloy
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alloy
+subjects:
+  - kind: ServiceAccount
+    namespace: dragz
+    name: alloy
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: dragz
+  name: alloy-config
+data:
+  alloy.alloy: |
+    discovery.kubernetes "pods" {
+      role = "pod"
+      //selectors {
+      //  role = "pod"
+      //  field = "spec.nodeName=" + sys.env("HOSTNAME")
+      //}
+    }
+    
+    // =========================
+    // Loki Settings
+    // =========================
+    logging {
+      level = "info"
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki-service.dragz.svc.cluster.local:3100/loki/api/v1/push"
+      }
+    }
+
+    // replace promtail.kubernetes with loki.source.kubernetes
+    loki.source.kubernetes "pod_logs" {
+      //targets    = discovery.kubernetes.pods.targets
+      targets = discovery.relabel.services.output
+      forward_to = [loki.process.k8s_logs.receiver]
+    }
+    
+    discovery.relabel "services" {
+      targets = discovery.kubernetes.pods.targets
+    
+      //rule {
+      //  source_labels = ["__meta_kubernetes_pod_label_app"]
+      //  regex         = "server-service"
+      //  action        = "keep"
+      //}
+    
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex         = "dragz"
+        action        = "keep"
+      }
+    }
+
+    loki.process "k8s_logs" {
+      forward_to = [loki.write.default.receiver]
+
+      stage.cri {}
+    
+      stage.match {
+        //selector = "{app=~\"server-service\"}"
+        selector = "{namespace=\"dragz\"}"
+    
+        // If the selector above does not match, none of the subsequent stages will be executed.
+        pipeline_name = "keep_only_specific_services"
+    
+        stage.json {
+          expressions = {
+            level   = "level",
+            caller  = "caller",
+            message = "message",
+      
+            ip      = "ip",
+            path    = "path",
+            method  = "method",
+            query   = "query",
+            status  = "status",
+            latency = "latency",
+          }
+        }
+  
+        stage.labels {
+          values = {
+            level  = "level",
+            method = "method",
+            status = "status",
+          }
+        }
+  
+        stage.template {
+          source = "output_msg"
+          template = `{{- if .level -}}
+            [{{ .level }}] {{ if .path -}}
+              {{ .method }} {{ .path }}{{ if .query }}?{{ .query }}{{ end }} ({{ .status }}) {{ if .latency }}{{ div .latency 1000000 }}ms{{ end }} - {{ .ip }}
+            {{- else -}}
+              {{ .message }}
+            {{- end }}
+          {{- else -}}
+            {{ .Entry }}
+          {{- end -}}`
+        }
+  
+        stage.output {
+          source = "output_msg"
+        }
+      }
+    }
+    
+    // =========================
+    // Prometheus Settings
+    // =========================
+    prometheus.remote_write "default" {
+      endpoint {
+        url = "http://prometheus-service.dragz.svc.cluster.local:9090/api/v1/write"
+      }
+    }
+
+    prometheus.scrape "node_metrics" {
+      targets    = discovery.relabel.services.output
+      forward_to = [prometheus.remote_write.default.receiver]
+      job_name   = "k8s-pods"
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: dragz
+  name: alloy
+spec:
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - run
+            - /etc/alloy/alloy.alloy
+            - --storage.path=/var/lib/alloy/data
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: varlog
+              mountPath: /var/log
+            - name: varliballoy
+              mountPath: /var/lib/alloy/data
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varliballoy
+          hostPath:
+            path: /var/lib/alloy/data
+            type: DirectoryOrCreate
+---

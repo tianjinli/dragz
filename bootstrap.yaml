@@ -1,0 +1,18 @@
+app:
+  debug: 1
+  name: 2
+  profile: 3
+  source: ${APP_SOURCE:file} # valid values: file, nacos, etcd
+  catalog: ${APP_CATALOG:./assets} # catalog path, only valid when source=file
+# Please create application-${app.profile}.yaml and setting-${app.profile} first in nacos.
+nacos:
+  server-host: ${NACOS_HOST:127.0.0.1}
+  server-port: ${NACOS_PORT:8848} # server port (default: 8848, must be >= 1024)
+  context-path: ${NACOS_PATH:/nacos} # context path (default: /nacos)
+  username: ${NACOS_USER:nacos}
+  password: ${NACOS_PASSWORD:LDkfsM9nj2kZpRTBICQb}
+  namespace: ${NACOS_NAMESPACE:dragz-local} # can not support ${NACOS_NAMESPACE:${app.name}-${app.profile}}
+  group: ${NACOS_GROUP:DEFAULT_GROUP}
+
+# The executable built under the nacos tag is about 20MiB larger than the one built under the file tag.
+# go version: 1.24.0, nacos version: 2.3.5
