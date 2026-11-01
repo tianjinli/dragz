@@ -1,0 +1,55 @@
+/* shared styles for the /__vxe/* demo pages */
+.vxe-demo-page {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--text);
+}
+
+.vxe-demo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.vxe-demo-nav a {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.vxe-demo-nav a.is-active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.vxe-demo-event {
+  padding: 8px 12px;
+  margin: 12px 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.vxe-demo-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.vxe-demo-tag.ok {
+  color: var(--color-success, #52c41a);
+  background: color-mix(in srgb, #52c41a 14%, transparent);
+}
+
+.vxe-demo-tag.off {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}

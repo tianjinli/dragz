@@ -1,0 +1,59 @@
+/* Resizable table headers — drag handles driven by TanStack Table column sizing */
+
+.resizable-table .ant-table-thead > tr > th.resizable-th {
+  position: relative;
+  /* antd adds overflow:hidden via `ant-table-cell-ellipsis`; keep the handle visible */
+  overflow: visible;
+}
+
+.resizable-th-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.resizable-th-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resizable-th-handle {
+  flex: 0 0 8px;
+  align-self: stretch;
+  position: relative;
+  margin-inline-start: 4px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.resizable-th-handle::after {
+  content: '';
+  position: absolute;
+  inset-block: 20%;
+  inset-inline-start: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--primary, #1677ff);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.resizable-th-handle:hover::after,
+.resizable-th-handle[data-resizing='true']::after {
+  opacity: 1;
+}
+
+.resizable-th-handle[data-resizing='true'] {
+  background: color-mix(in srgb, var(--primary, #1677ff) 12%, transparent);
+}
+
+/* While a drag is in flight, lock the cursor and kill text selection. */
+body.is-column-resizing {
+  user-select: none;
+  cursor: col-resize;
+}

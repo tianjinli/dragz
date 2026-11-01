@@ -1,0 +1,263 @@
+
+.list-table-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Radius applies to all buttons; button groups only round the ends */
+.ant-btn { border-radius: var(--radius) !important; }
+.ant-btn.ant-btn-circle,
+.ant-btn-icon-only.ant-btn-circle { border-radius: 50% !important; }
+.ant-btn-group .ant-btn,
+.ant-space-compact > .ant-btn,
+.ant-input-group .ant-btn,
+.ant-input-group-compact > .ant-btn {
+  border-radius: 0 !important;
+}
+.ant-btn-group .ant-btn:first-child,
+.ant-space-compact > .ant-btn:first-child,
+.ant-input-group .ant-btn:first-child,
+.ant-input-group-compact > .ant-btn:first-child {
+  border-radius: var(--radius) 0 0 var(--radius) !important;
+}
+.ant-btn-group .ant-btn:last-child,
+.ant-space-compact > .ant-btn:last-child,
+.ant-input-group .ant-btn:last-child,
+.ant-input-group-compact > .ant-btn:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0 !important;
+}
+.ant-btn-group .ant-btn:only-child,
+.ant-space-compact > .ant-btn:only-child {
+  border-radius: var(--radius) !important;
+}
+
+/* Radius 0: show gaps between grouped ant buttons */
+[data-radius='0'] .ant-btn-group,
+[data-radius='0'] .ant-space-compact {
+  gap: 4px;
+}
+[data-radius='0'] .ant-btn-group .ant-btn,
+[data-radius='0'] .ant-space-compact > .ant-btn,
+[data-radius='0'] .ant-input-group-compact > .ant-btn {
+  border-radius: 0 !important;
+  margin-inline-start: 0 !important;
+}
+[data-radius='0'] .ant-btn-group .ant-btn + .ant-btn,
+[data-radius='0'] .ant-space-compact > .ant-btn + .ant-btn {
+  margin-inline-start: 0 !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select-selector,
+.ant-picker {
+  border-radius: var(--radius) !important;
+}
+.ant-input-affix-wrapper > .ant-input,
+.ant-input-affix-wrapper > textarea.ant-input,
+.ant-input-password > .ant-input,
+.ant-input-number .ant-input-number-input,
+.ant-picker .ant-picker-input > input,
+.ant-select-selection-search-input,
+.ant-select-selection-item {
+  border-radius: 0 !important;
+}
+.ant-input-group .ant-input:first-child,
+.ant-input-group .ant-input-affix-wrapper:first-child,
+.ant-space-compact > .ant-input:first-child,
+.ant-space-compact > .ant-input-affix-wrapper:first-child,
+.ant-space-compact > .ant-select:first-child .ant-select-selector {
+  border-radius: var(--radius) 0 0 var(--radius) !important;
+}
+.ant-input-group .ant-input:last-child,
+.ant-input-group .ant-input-affix-wrapper:last-child,
+.ant-space-compact > .ant-input:last-child,
+.ant-space-compact > .ant-input-affix-wrapper:last-child,
+.ant-space-compact > .ant-select:last-child .ant-select-selector {
+  border-radius: 0 var(--radius) var(--radius) 0 !important;
+}
+
+.mobile-menu { display: none !important; }
+.notification-list { width: 360px; max-height: 430px; overflow: auto; }
+.notification-list small { display: block; color: var(--muted); margin-top: 3px; }
+.user-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+  color: var(--text);
+}
+.user-avatar-face {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 14%, var(--surface));
+  color: var(--text);
+}
+.user-avatar-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.user-avatar-face svg {
+  color: var(--text);
+  stroke: currentColor;
+}
+.user-avatar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: #22c55e;
+  box-sizing: content-box;
+}
+.user-avatar-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  padding: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.user-avatar-trigger:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.user-dropdown-overlay {
+  padding: 0;
+}
+.user-dropdown {
+  min-width: 240px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 8%);
+}
+.user-dropdown .ant-dropdown-menu {
+  padding: 4px 0;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: inherit;
+}
+.user-dropdown .ant-dropdown-menu-item,
+.user-dropdown .ant-dropdown-menu-submenu-title {
+  color: var(--text) !important;
+}
+.user-dropdown-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.user-dropdown-profile .user-avatar::after {
+  right: 4px;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+}
+.user-dropdown-meta {
+  min-width: 0;
+}
+.user-dropdown-name {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--text);
+}
+.user-dropdown-tag {
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: #4ade80;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.user-dropdown-desc {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-modal .ant-list { max-height: 400px; overflow: auto; margin-top: 12px; }
+.search-result { cursor: pointer; padding-inline: 10px !important; border-radius: 8px; }
+.search-result:hover { background: var(--surface-soft); }
+.lock-screen {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 15% 15%, #28427d, #101525 50%, #070912);
+  backdrop-filter: blur(20px);
+}
+.lock-card {
+  width: 340px;
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+  align-items: center;
+  border: 1px solid #ffffff24;
+  border-radius: 20px;
+  background: #ffffff12;
+  box-shadow: 0 30px 80px #0008;
+}
+.lock-card .ant-input-affix-wrapper,
+.lock-card .ant-btn { width: 100%; }
+
+.pref-float {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  z-index: 1200;
+  display: inline-flex !important;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 !important;
+  border: 1px solid var(--border) !important;
+  border-right: 0 !important;
+  border-radius: 8px 0 0 8px !important;
+  background: var(--surface) !important;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+  color: var(--text) !important;
+  transform: translateY(-50%);
+}
+.pref-float:hover,
+.pref-float:focus {
+  background: color-mix(in srgb, var(--text) 6%, var(--surface)) !important;
+  color: var(--text) !important;
+}
+/* Width follows preference / drag via --mobile-drawer-width (set on drawer root). */

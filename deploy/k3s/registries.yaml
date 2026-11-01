@@ -1,0 +1,14 @@
+# containerd registry mirrors for the China mainland server.
+# Docker Hub is unreachable; quay.io/ghcr.io are slow. Installed to
+# /etc/rancher/k3s/registries.yaml by bootstrap-server.sh, then k3s restarts.
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://mirror.ccs.tencentyun.com"
+      - "https://docker.m.daocloud.io"
+  quay.io:
+    endpoint:
+      - "https://quay.m.daocloud.io"
+  ghcr.io:
+    endpoint:
+      - "https://ghcr.m.daocloud.io"

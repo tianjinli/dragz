@@ -1,0 +1,9 @@
+FROM nginx:alpine
+# The base image's 10-listen-on-ipv6-by-default.sh compares default.conf against
+# the packaged default via `apk manifest nginx`. We replace that file outright, so
+# the check can never fire — and when apk stalls (it does on some Docker Desktop
+# setups) the script blocks the entrypoint and nginx never starts. The prod image
+# already drops it; this keeps local and prod on the same startup path.
+RUN rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+COPY frontend/admin/dist/ /usr/share/nginx/html/
+COPY deploy/nginx.admin.conf /etc/nginx/conf.d/default.conf

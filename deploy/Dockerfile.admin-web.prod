@@ -1,0 +1,4 @@
+FROM nginx:alpine
+RUN rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+COPY frontend/admin/dist/ /usr/share/nginx/html/
+COPY deploy/nginx.admin.prod.conf /etc/nginx/conf.d/default.conf

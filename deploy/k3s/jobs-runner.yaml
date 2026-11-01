@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobs-runner
+  namespace: dragz-prod
+  labels:
+    app: jobs-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jobs-runner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: jobs-runner
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: hub-registry
+      containers:
+        - name: jobs-runner
+          image: hub.cszqq.top/dragz/jobs-runner:v1.0.3
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: dragz-app-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /app/etc/jobs-runner.yaml
+              subPath: jobs-runner.yaml
+              readOnly: true
+            - name: uploads
+              mountPath: /app/data/uploads
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+      volumes:
+        - name: config
+          configMap:
+            name: dragz-config
+        - name: uploads
+          hostPath:
+            path: /data/dragz/uploads
+            type: DirectoryOrCreate

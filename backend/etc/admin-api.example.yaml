@@ -1,0 +1,49 @@
+# Example production-oriented config. Copy and inject real secrets via env/secret mounts.
+# Do not commit real production secrets.
+
+Name: admin-api
+Host: 0.0.0.0
+Port: 5280
+Timeout: 10000
+
+# AllowDevSecrets: false  # reject development default secrets (default)
+
+Database:
+  Driver: postgres
+  DataSource: postgres://USER:PASSWORD@postgres:5432/dragz_admin?sslmode=require
+
+Redis:
+  Host: redis:6379
+  Type: node
+
+Asynq:
+  Concurrency: 10
+  Queues:
+    default: 3
+
+Auth:
+  AccessSecret: REPLACE_WITH_LONG_RANDOM_SECRET_AT_LEAST_32_CHARS
+  AccessExpire: 900
+  RefreshExpire: 604800
+  Issuer: dragz-admin
+  RefreshCookieName: ua_refresh_token
+  CookieSecure: true
+  CookieDomain: ""
+
+Bootstrap:
+  AdminUsername: admin
+  AdminPassword: REPLACE_WITH_STRONG_PASSWORD
+
+Security:
+  ConfigMasterKey: REPLACE_WITH_BASE64_ENCODED_32_BYTE_KEY
+
+# Free machine translation behind the translation management page. Both
+# providers need no key; they are tried in order until one answers, so list the
+# one reachable from your network first. Omitting this whole section keeps the
+# defaults (mymemory, then google, 8s per attempt); "google" is unreachable from
+# mainland China, "mymemory" has a small daily quota per IP.
+# Translate:
+#   Providers:
+#     - mymemory
+#     - google
+#   TimeoutMs: 8000

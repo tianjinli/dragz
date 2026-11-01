@@ -1,0 +1,628 @@
+:root {
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color-scheme: light;
+  --primary: hsl(212 100% 45%);
+  --primary-foreground: #fafafa;
+  --radius: 0.5rem;
+  --font-size-base: 16px;
+  --menu-font-size: calc(var(--font-size-base) * 0.875);
+  --surface: #fff;
+  --surface-soft: #f5f6f8;
+  --border: #e5e7eb;
+  --text: #1f2937;
+  --muted: #6b7280;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; height: 100%; }
+html { font-size: var(--font-size-base); }
+body {
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+/* Tooltip tip enter animation (Vben-like fade + zoom) */
+.ant-tooltip .ant-tooltip-inner {
+  transform-origin: center;
+  animation: tip-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ant-tooltip .ant-tooltip-arrow::before {
+  animation: tip-fade 0.18s ease-out;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tip-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #141414;
+  --surface-soft: #090909;
+  --border: #303030;
+  --text: #f3f4f6;
+  --muted: #9ca3af;
+}
+html.invert-mode { filter: invert(1); }
+html.grayscale-mode { filter: grayscale(1); }
+html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
+
+/* Autohide vertical scrollbar: thumb hidden when idle, shown while scrolling, no arrow buttons */
+.admin-content,
+.workspace.header-mode-static,
+.workspace-scroll,
+.pref-scroll,
+.mixed-rail-dots,
+.notification-list,
+.search-modal .ant-list {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.admin-content.is-scrolling,
+.workspace.header-mode-static.is-scrolling,
+.workspace-scroll.is-scrolling,
+.pref-scroll.is-scrolling,
+.mixed-rail-dots.is-scrolling,
+.notification-list.is-scrolling,
+.search-modal .ant-list.is-scrolling {
+  scrollbar-color: color-mix(in srgb, var(--text) 38%, transparent) transparent;
+}
+.admin-content::-webkit-scrollbar,
+.workspace.header-mode-static::-webkit-scrollbar,
+.workspace-scroll::-webkit-scrollbar,
+.pref-scroll::-webkit-scrollbar,
+.mixed-rail-dots::-webkit-scrollbar,
+.notification-list::-webkit-scrollbar,
+.search-modal .ant-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.admin-content::-webkit-scrollbar-button,
+.workspace.header-mode-static::-webkit-scrollbar-button,
+.workspace-scroll::-webkit-scrollbar-button,
+.pref-scroll::-webkit-scrollbar-button,
+.mixed-rail-dots::-webkit-scrollbar-button,
+.notification-list::-webkit-scrollbar-button,
+.search-modal .ant-list::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment,
+*::-webkit-scrollbar-button:start:decrement,
+*::-webkit-scrollbar-button:end:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+.admin-content::-webkit-scrollbar-track,
+.workspace.header-mode-static::-webkit-scrollbar-track,
+.workspace-scroll::-webkit-scrollbar-track,
+.pref-scroll::-webkit-scrollbar-track,
+.mixed-rail-dots::-webkit-scrollbar-track,
+.notification-list::-webkit-scrollbar-track,
+.search-modal .ant-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.admin-content::-webkit-scrollbar-thumb,
+.workspace.header-mode-static::-webkit-scrollbar-thumb,
+.workspace-scroll::-webkit-scrollbar-thumb,
+.pref-scroll::-webkit-scrollbar-thumb,
+.mixed-rail-dots::-webkit-scrollbar-thumb,
+.notification-list::-webkit-scrollbar-thumb,
+.search-modal .ant-list::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.admin-content.is-scrolling::-webkit-scrollbar-thumb,
+.workspace.header-mode-static.is-scrolling::-webkit-scrollbar-thumb,
+.workspace-scroll.is-scrolling::-webkit-scrollbar-thumb,
+.pref-scroll.is-scrolling::-webkit-scrollbar-thumb,
+.mixed-rail-dots.is-scrolling::-webkit-scrollbar-thumb,
+.notification-list.is-scrolling::-webkit-scrollbar-thumb,
+.search-modal .ant-list.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text) 38%, transparent);
+}
+.admin-content.is-scrolling::-webkit-scrollbar-thumb:hover,
+.workspace.header-mode-static.is-scrolling::-webkit-scrollbar-thumb:hover,
+.workspace-scroll.is-scrolling::-webkit-scrollbar-thumb:hover,
+.pref-scroll.is-scrolling::-webkit-scrollbar-thumb:hover,
+.mixed-rail-dots.is-scrolling::-webkit-scrollbar-thumb:hover,
+.notification-list.is-scrolling::-webkit-scrollbar-thumb:hover,
+.search-modal .ant-list.is-scrolling::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+/* Keep the same responsibility boundaries as VXE's render/layout/viewport
+   wrappers while Ant Design continues to own table semantics and scrolling. */
+.query-card,
+.table-card {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.table-card.ant-card {
+  padding: 0;
+}
+.table-card {
+  min-height: 200px;
+}
+.department-resource-table .ant-table-tbody > tr > td:first-child {
+  /* Keep table-cell display so column width stays locked to the header col.
+     Tree indent + antd native expand icon live in this cell. */
+  text-align: left;
+  vertical-align: middle;
+  overflow: hidden;
+}
+.page-shell:has(.table-card) .table-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.page-shell:has(.table-card) .table-card > .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+/* ListPagePanel: transparent chrome so the gap between search and panel shows the page background. */
+.page-shell:has(.table-card) .table-card:has(> .ant-card-body > .list-table-render-wrapper) {
+  background: transparent;
+  border: 0;
+}
+.page-shell:has(.table-card) .table-card > .ant-card-body:has(> .list-table-render-wrapper) {
+  padding: 0;
+  background: transparent;
+}
+.resource-grid-card > .ant-card-body {
+  padding: 0 8px 8px !important;
+}
+/* Side-by-side list (user-list-main): drop the card/table inner L/R/B inset. */
+.user-list-main > .resource-grid-card > .ant-card-body,
+.user-list-main > .table-card > .ant-card-body {
+  padding: 0 !important;
+}
+.list-table-render-wrapper {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 200px;
+  overflow: hidden;
+  background: transparent;
+}
+.page-shell:has(.table-card) .table-card > .ant-card-body > .list-table-render-wrapper {
+  min-height: 0;
+}
+.list-table-render-wrapper > .list-table-toolbar-search {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border: 0px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.list-table-toolbar,
+.list-table-toolbar-left {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.list-table-toolbar-divider {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+.list-table-toolbar-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.list-table-toolbar-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+.list-table-tool-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.list-table-tool-button:hover {
+  border-color: color-mix(in srgb, var(--primary, #1677ff) 55%, var(--border));
+  color: var(--primary, #1677ff);
+}
+.list-table-tool-button.is-active,
+.list-table-tool-button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--primary, #1677ff) 62%, var(--border));
+  background: color-mix(in srgb, var(--primary, #1677ff) 10%, var(--surface));
+  color: var(--primary, #1677ff);
+}
+.list-table-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 0px solid var(--border);
+  border-radius: var(--radius);
+}
+.list-table-panel-actions {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.list-table-panel-actions .list-table-toolbar-actions {
+  margin-inline-end: auto;
+}
+.list-table-panel-header {
+  display: flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+}
+.list-table-panel-title {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.list-table-render-wrapper.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  border-radius: 0;
+  /* Soft page chrome (not --surface) so the gap between search and panel stays visible. */
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.list-table-render-wrapper.is-fullscreen > .list-table-toolbar-search,
+.list-table-render-wrapper.is-fullscreen > .list-table-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.list-table-main-wrapper {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  /* Always inset from panel: left / right / bottom. */
+  padding: 0 6px 6px;
+  box-sizing: border-box;
+  /* Constrain height so the table can use height:100% + scroll.y (not grow the wrapper). */
+  overflow: hidden;
+}
+.list-table-main-wrapper > .ant-table-wrapper {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+/* The vertical and horizontal layers are viewport siblings, matching VXE's
+   layout rather than becoming part of the fixed 操作 column. */
+.list-table-scroll-y-virtual {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+.list-table-scroll-y-top-corner,
+.list-table-scroll-y-wrapper,
+.list-table-scroll-y-bottom-corner {
+  position: absolute;
+  inset-inline: 0;
+}
+.list-table-scroll-y-top-corner {
+  inset-block-start: 0;
+  border-block-end: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.list-table-scroll-y-wrapper {
+  overflow: hidden;
+  background: transparent;
+}
+.list-table-scroll-y-handle,
+.list-table-scroll-y-space,
+.list-table-scroll-y-handle-appearance {
+  width: 100%;
+}
+.list-table-scroll-y-handle,
+.list-table-scroll-y-handle-appearance {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+.list-table-scroll-x-virtual {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+}
+.list-table-scroll-x-left-corner,
+.list-table-scroll-x-wrapper,
+.list-table-scroll-x-right-corner {
+  position: absolute;
+  inset-block: 0;
+}
+.list-table-scroll-x-left-corner {
+  inset-inline-start: 0;
+  width: 0;
+}
+.list-table-scroll-x-wrapper {
+  inset-inline-start: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.list-table-scroll-x-right-corner {
+  inset-inline-end: 0;
+  border-block-start: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.list-table-scroll-x-handle,
+.list-table-scroll-x-space,
+.list-table-scroll-x-handle-appearance {
+  height: 100%;
+}
+.list-table-scroll-x-handle,
+.list-table-scroll-x-handle-appearance {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+/* TablePanel 列表与表头使用直角：覆盖 antd 表格默认圆角（含 sticky holder）。 */
+.table-card .list-page-table.ant-table-wrapper .ant-table,
+.table-card .list-page-table.ant-table-wrapper .ant-table-title,
+.table-card .list-page-table.ant-table-wrapper .ant-table-header,
+.table-card .list-page-table.ant-table-wrapper .ant-table-header.ant-table-sticky-holder,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container::before,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container::after,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container > .ant-table-content,
+.table-card .list-page-table.ant-table-wrapper .ant-table table,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container table > thead > tr:first-child > *:first-child,
+.table-card .list-page-table.ant-table-wrapper .ant-table-container table > thead > tr:first-child > *:last-child,
+.table-card .list-page-table.ant-table-wrapper .ant-table-header table > thead > tr:first-child > th:first-child,
+.table-card .list-page-table.ant-table-wrapper .ant-table-header table > thead > tr:first-child > th:last-child {
+  border-radius: 0 !important;
+  border-start-start-radius: 0 !important;
+  border-start-end-radius: 0 !important;
+}
+
+/* Ant Design draws the bordered table's start edge on the full-height scroll
+   container. Keep that edge on the actual table instead, so it ends with the
+   rows just like the other column borders when the panel has spare height. */
+.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container {
+  border-inline-start: 0;
+}
+.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-content > table,
+.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-header > table,
+.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-body > table,
+.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-summary > table {
+  border-inline-start: 1px solid var(--border);
+}
+
+.list-page-table .ant-table-header.ant-table-sticky-holder {
+  z-index: 3;
+  background: var(--surface-soft);
+}
+.list-page-table .ant-table-sticky-scroll {
+  z-index: 4;
+}
+
+.table-card .ant-table-tbody > tr > td.list-table-actions-cell {
+  z-index: 2;
+  background: var(--surface);
+  text-align: center;
+}
+/* 后台操作列：表头和数据居中。 */
+.list-page-table .ant-table-thead > tr > th.list-table-actions-header,
+.list-page-table .ant-table-tbody > tr > td.list-table-actions-cell,
+.ant-table-wrapper .ant-table-thead > tr > th.list-table-actions-header,
+.ant-table-wrapper .ant-table-tbody > tr > td.list-table-actions-cell {
+  text-align: center;
+}
+.list-table-actions-cell .ant-space {
+  justify-content: center;
+  width: 100%;
+}
+.table-card .ant-table-thead > tr > th.list-table-fixed-start,
+.table-card .ant-table-thead > tr > th.list-table-fixed-end:not(.list-table-actions-header) {
+  z-index: 3;
+}
+/* Remove Ant Design's full-height fixed-column separator. */
+.table-card .ant-table-cell-fix-left-last::after,
+.table-card .ant-table-cell-fix-right-first::after {
+  display: none !important;
+}
+.table-card .ant-table-thead > tr > th {
+  background: var(--surface-soft) !important;
+}
+
+.table-card .list-table-resize-guide {
+  position: absolute;
+  z-index: 30;
+  width: 2px;
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+.table-card .list-table-resize-guide::after {
+  position: absolute;
+  inset: 0;
+  background: var(--ant-color-primary, var(--primary));
+  content: '';
+}
+.table-card .list-table-resize-guide:hover::after,
+.table-card .list-table-resize-guide:focus-visible::after {
+  background: var(--ant-color-primary, var(--primary));
+}
+.table-card .list-table-resize-size {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--ant-color-primary, var(--primary));
+  color: var(--primary-foreground);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 18%, transparent);
+}
+
+/* 操作 is the table edge: no header split line on the right. */
+
+/* Theme view-transition (circular wipe) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+/* 切浅色时收缩的是旧层（深色快照），必须叠在新层之上才能看见 */
+[data-theme='light']::view-transition-old(root) {
+  z-index: 2;
+}
+[data-theme='light']::view-transition-new(root) {
+  z-index: 1;
+}
+
+.theme-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.theme-mode-button .theme-mode-icon {
+  display: block;
+  color: currentColor;
+}
+.theme-mode-button.is-light .theme-mode-icon {
+  fill: currentColor;
+}
+.theme-mode-button.is-dark .theme-mode-icon {
+  fill: none;
+}
+.header-theme-toggle .theme-mode-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.header-theme-toggle .theme-mode-button:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.full-width { width: 100%; }
+.number-stepper { display: flex; align-items: center; gap: 8px; }
+.number-stepper > div {
+  display: grid;
+  box-sizing: border-box;
+  width: 165px;
+  height: 32px;
+  flex: 0 0 165px;
+  grid-template-columns: 34px 1fr 34px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 13%, transparent);
+  border-radius: var(--radius);
+}
+.number-stepper button { display: grid; place-items: center; border: 0; border-radius: 0; background: transparent; color: inherit; cursor: pointer; }
+.number-stepper button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.number-stepper button:last-of-type { border-radius: 0 var(--radius) var(--radius) 0; }
+.number-stepper button:disabled { opacity: .35; cursor: default; }
+.number-stepper.is-disabled { opacity: .5; pointer-events: none; }
+.number-stepper input { min-width: 0; border: 0; border-inline: 1px solid color-mix(in srgb, currentColor 10%, transparent); outline: 0; background: transparent; color: inherit; text-align: center; -moz-appearance: textfield; }
+.number-stepper input::-webkit-inner-spin-button { display: none; }
+.number-stepper > span { color: color-mix(in srgb, currentColor 55%, transparent); font-size: 11px; }
+/* 参数配置「参数值」列：控件水平居中、宽度统一 */
+.config-value-cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+}
+.config-value-cell .config-value-input,
+.config-value-cell .config-value-stepper {
+  width: 80%;
+}
+.config-value-cell .config-value-stepper > div {
+  width: 100%;
+  flex: 0 0 100%;
+  height: 32px;
+}
+.config-value-cell .config-value-input.ant-input,
+.config-value-cell .config-value-input.ant-input-password,
+.config-value-cell .ant-input-affix-wrapper.config-value-input {
+  width: 180px;
+  height: 32px;
+}
+/* 必选取值下拉框：分段选择器，配色与圆角跟随主题（选中背景由 ConfigProvider Segmented token 提供），按钮宽度按文字自适应 */

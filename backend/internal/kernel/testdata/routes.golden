@@ -1,0 +1,135 @@
+# routes.golden - P0 路由基线（122 条 = 11 公开 + 111 受保护）
+# 2026-11-01: 新增 POST /api/system/translations/translate（翻译管理自动翻译），
+#            复用 system:translation:manage，不产生新的权限按钮。
+# 2026-10-30: 新增 DELETE /api/system/plugins/:id（插件卸载），复用
+#            system:plugin:manage，不产生新的权限按钮。
+# 2026-10-29: 接口管理模块整体移除（5 条 /api/system/api-permissions 路由），
+#            权限码改为菜单按钮节点（sys_menu.type=button），详见 CONVENTIONS.md。
+# 列: METHOD|PATH|AUTH|FEATURE|AUDIT|SCOPE
+#   AUTH    = 鉴权要求（requirePermission / AnyOf[0]；- = 仅需登录）
+#   FEATURE = requireFeature 开关键（- = 无）
+#   AUDIT   = 审计归属码（旧 routePermissionIndex；- = 现状无归属）
+# AUDIT 列为目标态：8 条 /status PUT 在旧 routePermissionIndex 中无归属，
+#       注册表落地后由 AuditPermission 回退到 Permission 补上（预期修复，已写入本文件）。
+POST|/api/auth/login|-|-|-|public
+GET|/api/auth/captcha|-|-|-|public
+GET|/api/auth/login-challenge|-|-|-|public
+POST|/api/auth/refresh|-|-|-|public
+GET|/api/auth/providers|-|-|-|public
+GET|/api/auth/oauth/:id/start|-|-|-|public
+GET|/api/auth/oauth/:id/callback|-|-|-|public
+POST|/api/auth/oauth/exchange|-|-|-|public
+GET|/api/health|-|-|-|public
+GET|/api/ready|-|-|-|public
+GET|/api/system/files/:id/content|-|-|-|public
+POST|/api/auth/logout|-|-|-|protected
+GET|/api/auth/profile|-|-|-|protected
+PUT|/api/auth/profile|-|-|-|protected
+POST|/api/auth/change-password|-|-|-|protected
+GET|/api/auth/codes|-|-|-|protected
+GET|/api/auth/menus|-|-|-|protected
+GET|/api/dashboard|-|-|-|protected
+GET|/api/system/users|system:user:query|-|-|protected
+GET|/api/system/users/:id|system:user:query|-|-|protected
+POST|/api/system/users|system:user:create|-|system:user:create|protected
+PUT|/api/system/users/:id|system:user:update|-|system:user:update|protected
+PUT|/api/system/users/:id/status|system:user:update|-|system:user:update|protected
+DELETE|/api/system/users/:id|system:user:delete|-|system:user:delete|protected
+POST|/api/system/users/:id/reset-password|system:user:reset-password|-|system:user:reset-password|protected
+POST|/api/system/users/:id/logout|system:user:force-logout|-|system:user:force-logout|protected
+GET|/api/system/departments|system:department:query|-|-|protected
+POST|/api/system/departments|system:department:create|-|system:department:create|protected
+PUT|/api/system/departments/:id|system:department:update|-|system:department:update|protected
+PUT|/api/system/departments/:id/status|system:department:update|-|system:department:update|protected
+DELETE|/api/system/departments/:id|system:department:delete|-|system:department:delete|protected
+GET|/api/system/positions|system:position:query|-|-|protected
+POST|/api/system/positions|system:position:create|-|system:position:create|protected
+PUT|/api/system/positions/:id|system:position:update|-|system:position:update|protected
+PUT|/api/system/positions/:id/status|system:position:update|-|system:position:update|protected
+DELETE|/api/system/positions/:id|system:position:delete|-|system:position:delete|protected
+GET|/api/system/roles|system:role:query|-|-|protected
+POST|/api/system/roles|system:role:create|-|system:role:create|protected
+PUT|/api/system/roles/:id|system:role:update|-|system:role:update|protected
+PUT|/api/system/roles/:id/status|system:role:update|-|system:role:update|protected
+DELETE|/api/system/roles/:id|system:role:delete|-|system:role:delete|protected
+GET|/api/system/roles/:id/grants|system:role:query|-|-|protected
+PUT|/api/system/roles/:id/grants|system:role:grant|-|system:role:grant|protected
+GET|/api/system/menus|system:menu:query|-|-|protected
+POST|/api/system/menus|system:menu:manage|-|system:menu:manage|protected
+PUT|/api/system/menus/:id|system:menu:manage|-|system:menu:manage|protected
+PUT|/api/system/menus/:id/status|system:menu:manage|-|system:menu:manage|protected
+DELETE|/api/system/menus/:id|system:menu:manage|-|system:menu:manage|protected
+GET|/api/system/translations|system:translation:query|-|-|protected
+GET|/api/system/translations/candidates|system:translation:query|-|-|protected
+POST|/api/system/translations|system:translation:manage|-|system:translation:manage|protected
+PUT|/api/system/translations/:id|system:translation:manage|-|system:translation:manage|protected
+DELETE|/api/system/translations/:id|system:translation:manage|-|system:translation:manage|protected
+POST|/api/system/translations/translate|system:translation:manage|-|system:translation:manage|protected
+GET|/api/system/configs|system:config:query|-|-|protected
+PUT|/api/system/configs/:key|system:config:update|-|system:config:update|protected
+GET|/api/system/auth-providers|system:config:auth-provider|-|-|protected
+POST|/api/system/auth-providers|system:config:auth-provider|-|system:config:auth-provider|protected
+PUT|/api/system/auth-providers/:id|system:config:auth-provider|-|system:config:auth-provider|protected
+PUT|/api/system/auth-providers/:id/status|system:config:auth-provider|-|system:config:auth-provider|protected
+DELETE|/api/system/auth-providers/:id|system:config:auth-provider|-|system:config:auth-provider|protected
+GET|/api/system/storage-configs|system:config:storage|-|-|protected
+POST|/api/system/storage-configs|system:config:storage|-|system:config:storage|protected
+PUT|/api/system/storage-configs/:id|system:config:storage|-|system:config:storage|protected
+DELETE|/api/system/storage-configs/:id|system:config:storage|-|system:config:storage|protected
+POST|/api/system/storage-configs/:id/test|system:config:storage|-|system:config:storage|protected
+GET|/api/system/dictionaries|system:dict:query|-|-|protected
+POST|/api/system/dictionaries|system:dict:create|-|system:dict:create|protected
+PUT|/api/system/dictionaries/:id|system:dict:update|-|system:dict:update|protected
+DELETE|/api/system/dictionaries/:id|system:dict:delete|-|system:dict:delete|protected
+GET|/api/system/dictionaries/:id/items|system:dict:query|-|-|protected
+POST|/api/system/dictionaries/:id/items|system:dict:item:create|-|system:dict:item:create|protected
+PUT|/api/system/dictionary-items/:id|system:dict:item:update|-|system:dict:item:update|protected
+DELETE|/api/system/dictionary-items/:id|system:dict:item:delete|-|system:dict:item:delete|protected
+GET|/api/system/dictionary-values/:code|-|-|-|protected
+GET|/api/system/notices|system:notice:query|-|-|protected
+GET|/api/system/notices/:id|system:notice:query|-|-|protected
+POST|/api/system/notices|system:notice:manage|-|system:notice:manage|protected
+PUT|/api/system/notices/:id|system:notice:manage|-|system:notice:manage|protected
+POST|/api/system/notices/:id/publish|system:notice:manage|feature.notice.enabled|system:notice:manage|protected
+POST|/api/system/notices/:id/revoke|system:notice:manage|-|system:notice:manage|protected
+DELETE|/api/system/notices/:id|system:notice:manage|-|system:notice:manage|protected
+GET|/api/system/my-notices|-|feature.notice.enabled|-|protected
+GET|/api/system/my-notices/:id|-|feature.notice.enabled|-|protected
+POST|/api/system/my-notices/:id/read|-|feature.notice.enabled|-|protected
+GET|/api/system/files|system:file:query|-|-|protected
+GET|/api/system/files/:id|system:file:query|-|-|protected
+POST|/api/system/files/upload|system:file:upload|feature.fileUpload.enabled|system:file:upload|protected
+GET|/api/system/files/:id/download|system:file:query|-|-|protected
+DELETE|/api/system/files/:id|system:file:delete|-|system:file:delete|protected
+POST|/api/system/files/:id/restore|system:file:delete|-|system:file:delete|protected
+DELETE|/api/system/files/:id/purge|system:file:delete|-|system:file:delete|protected
+POST|/api/system/files/:id/references|system:file:upload|-|system:file:upload|protected
+DELETE|/api/system/file-references/:id|system:file:delete|-|system:file:delete|protected
+GET|/api/system/sessions|system:token:manage|-|-|protected
+POST|/api/system/sessions/:id/revoke|system:token:manage|-|system:token:manage|protected
+GET|/api/system/tokens|system:token:manage|-|-|protected
+POST|/api/system/tokens|system:token:manage|feature.apiToken.enabled|system:token:manage|protected
+POST|/api/system/tokens/:id/revoke|system:token:manage|-|system:token:manage|protected
+GET|/api/system/logs/login|system:login-log:query|-|-|protected
+GET|/api/system/logs/operation|system:operation-log:query|-|-|protected
+GET|/api/system/logs/error|system:error-log:query|-|-|protected
+POST|/api/system/logs/error/:id/resolve|system:error-log:manage|-|system:error-log:manage|protected
+GET|/api/system/jobs|system:job:manage|-|-|protected
+POST|/api/system/jobs|system:job:manage|-|system:job:manage|protected
+PUT|/api/system/jobs/:id|system:job:manage|-|system:job:manage|protected
+DELETE|/api/system/jobs/:id|system:job:manage|-|system:job:manage|protected
+POST|/api/system/jobs/:id/run|system:job:manage|feature.scheduler.enabled|system:job:manage|protected
+GET|/api/system/jobs/:id/logs|system:job:manage|-|-|protected
+GET|/api/system/webhooks|system:webhook:manage|-|-|protected
+POST|/api/system/webhooks|system:webhook:manage|-|system:webhook:manage|protected
+PUT|/api/system/webhooks/:id|system:webhook:manage|-|system:webhook:manage|protected
+PUT|/api/system/webhooks/:id/status|system:webhook:manage|-|system:webhook:manage|protected
+DELETE|/api/system/webhooks/:id|system:webhook:manage|-|system:webhook:manage|protected
+POST|/api/system/webhooks/:id/test|system:webhook:manage|-|system:webhook:manage|protected
+GET|/api/system/cache|system:cache:manage|-|-|protected
+DELETE|/api/system/cache/:key|system:cache:manage|-|system:cache:manage|protected
+POST|/api/system/cache/clear|system:cache:manage|-|system:cache:manage|protected
+GET|/api/system/plugins|system:plugin:query|-|-|protected
+PUT|/api/system/plugins/:id/status|system:plugin:manage|-|system:plugin:manage|protected
+DELETE|/api/system/plugins/:id|system:plugin:manage|-|system:plugin:manage|protected
+GET|/api/example/ping|example:ping|-|-|protected

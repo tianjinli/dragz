@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-api
+  namespace: dragz-prod
+  labels:
+    app: admin-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: admin-api
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: hub-registry
+      containers:
+        - name: admin-api
+          image: hub.cszqq.top/dragz/admin-api:v1.0.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5280
+          envFrom:
+            - secretRef:
+                name: dragz-app-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /app/etc/admin-api.yaml
+              subPath: admin-api.yaml
+              readOnly: true
+            - name: uploads
+              mountPath: /app/data/uploads
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5280
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5280
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: dragz-config
+        - name: uploads
+          hostPath:
+            path: /data/dragz/uploads
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api
+  namespace: dragz-prod
+  labels:
+    app: admin-api
+spec:
+  selector:
+    app: admin-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5280
+      targetPort: 5280

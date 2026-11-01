@@ -1,0 +1,32 @@
+# --- editors / tooling ---
+.idea/
+.vscode/
+.workbuddy*/
+
+# --- dependencies ---
+node_modules/
+.pnpm-store/
+
+# --- build output ---
+dist/
+coverage/
+*.tsbuildinfo
+backend/bin/
+backend/data/
+backend/logs/
+.gocache/
+
+# --- local scratch ---
+.codex-tmp/
+.review-worktrees/
+_attic/
+*.log
+
+# --- secrets / env ---
+.env
+.env.local
+.env.*.local
+deploy/.env
+deploy/.env.prod
+# Machine-specific port remap (see deploy/ports.override.example.yml).
+deploy/ports.override.yml

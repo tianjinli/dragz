@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dragz-web
+  namespace: dragz-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - diy.cszqq.top
+      secretName: dragz-tls
+  rules:
+    - host: diy.cszqq.top
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-web
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dragz-api
+  namespace: dragz-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - diy.cszqq.top
+      secretName: dragz-tls
+  rules:
+    - host: diy.cszqq.top
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-api
+                port:
+                  number: 5280

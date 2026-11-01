@@ -1,0 +1,15 @@
+# PostgreSQL with the bootstrap migrations baked in.
+#
+# Why an image instead of bind-mounting backend/migrations/*.sql:
+# bind mounts require Docker Desktop "File Sharing" to include the repo path,
+# which is not the case on every developer machine (and never on a locked-down
+# CI runner). Baking the scripts in makes `docker compose up` work everywhere
+# with no host-path configuration.
+#
+# The scripts only run when the data directory is empty (first boot), exactly
+# like /docker-entrypoint-initdb.d bind mounts did.
+#
+# Build context: repository root (see docker-compose*.yml).
+FROM postgres:16-alpine
+
+COPY backend/migrations/001_system_init.sql /docker-entrypoint-initdb.d/001_system_init.sql

@@ -1,0 +1,43 @@
+# Infrastructure only — run API and worker on the host:
+#   bash deploy/dev-infra.sh
+#   cd backend && go run ./cmd/admin-api -f etc/admin-api.yaml
+# Must match docker-compose.yml so infra-only and full-stack runs share volumes.
+name: dragz
+
+services:
+  postgres:
+    # Same bootstrap image as docker-compose.yml — see deploy/Dockerfile.postgres.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.postgres
+    image: dragz-postgres:local
+    environment:
+      POSTGRES_DB: dragz_admin
+      POSTGRES_USER: dragz_admin
+      POSTGRES_PASSWORD: dragz_admin
+      TZ: Asia/Taipei
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragz_admin -d dragz_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres-data:
+  redis-data:

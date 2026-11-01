@@ -1,0 +1,23 @@
+# Optional port remap for the local stack.
+#
+#   cp deploy/ports.override.example.yml deploy/ports.override.yml
+#   DRAGZ_EXTRA_COMPOSE="$PWD/deploy/ports.override.yml" bash deploy/up.sh
+#
+# Use this when 5432 / 6379 / 5280 / 5279 are already taken on the host — for
+# example when another Postgres/Redis stack is running locally.
+#
+# `!override` replaces the base `ports` list instead of appending to it, which
+# plain Compose merging would do (leaving the conflicting mapping in place).
+services:
+  postgres:
+    ports: !override
+      - "25432:5432"
+  redis:
+    ports: !override
+      - "26379:6379"
+  admin-api:
+    ports: !override
+      - "25280:5280"
+  admin-web:
+    ports: !override
+      - "25279:80"

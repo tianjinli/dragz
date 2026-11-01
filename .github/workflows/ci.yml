@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: Import boundary check
+        run: bash scripts/check-imports.sh
+
+      - name: API error i18n key check
+        run: bash scripts/check_fail_i18n.sh
+
+      - name: OpenAPI zero drift
+        run: |
+          go run ./cmd/gen-api
+          if ! git diff --exit-code -- api/openapi/openapi.json; then
+            echo "::error file=backend/api/openapi/openapi.json::openapi.json 与路由注册表不一致：请在 backend 下执行 go run ./cmd/gen-api 后提交"
+            exit 1
+          fi
+
+  frontend:
+    name: Frontend (admin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/admin/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: i18n key check
+        run: pnpm run check:i18n
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build

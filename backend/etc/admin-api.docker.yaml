@@ -1,0 +1,40 @@
+Name: admin-api
+Host: 0.0.0.0
+Port: 5280
+Timeout: 10000
+MaxBytes: 8388608
+
+# Compose stack is development-oriented.
+AllowDevSecrets: true
+
+Database:
+  Driver: postgres
+  DataSource: postgres://dragz_admin:dragz_admin@postgres:5432/dragz_admin?sslmode=disable
+
+Redis:
+  Host: redis:6379
+  Type: node
+
+Asynq:
+  Concurrency: 10
+  Queues:
+    default: 3
+
+Auth:
+  AccessSecret: development-only-replace-before-production-123456
+  AccessExpire: 900
+  RefreshExpire: 604800
+  Issuer: dragz-admin
+  RefreshCookieName: ua_refresh_token
+  CookieSecure: false
+  CookieDomain: ""
+
+Bootstrap:
+  AdminUsername: admin
+  # Must equal the password hashed in migrations/001_system_init.sql, which is
+  # what actually seeds the account (Dragz!7xZ). Keep in sync with
+  # jobs-runner.docker.yaml so both processes agree.
+  AdminPassword: Dragz!7xZ
+
+Security:
+  ConfigMasterKey: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=

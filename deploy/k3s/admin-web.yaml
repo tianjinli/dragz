@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-web
+  namespace: dragz-prod
+  labels:
+    app: admin-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-web
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: admin-web
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: hub-registry
+      containers:
+        - name: admin-web
+          image: hub.cszqq.top/dragz/admin-web:v1.0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 150m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-web
+  namespace: dragz-prod
+  labels:
+    app: admin-web
+spec:
+  selector:
+    app: admin-web
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80

@@ -1,0 +1,73 @@
+# Explicit project name. Compose otherwise derives it from the directory name
+# ("deploy"), which other stacks on the same machine also use — `down` would
+# then remove THEIR containers, because it deletes by project label.
+name: dragz
+
+services:
+  postgres:
+    # Bootstrap SQL is baked into the image (deploy/Dockerfile.postgres) instead
+    # of bind-mounted, so no Docker Desktop file sharing is required.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.postgres
+    image: dragz-postgres:local
+    environment:
+      POSTGRES_DB: dragz_admin
+      POSTGRES_USER: dragz_admin
+      POSTGRES_PASSWORD: dragz_admin
+      TZ: Asia/Taipei
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragz_admin -d dragz_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  admin-api:
+    build:
+      context: ../backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5280:5280"
+    volumes:
+      - upload-data:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:5280/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  jobs-runner:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.jobs-runner
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  upload-data:

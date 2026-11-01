@@ -1,0 +1,12 @@
+.form-drawer-maximized .icon-picker-item {
+  flex-direction: column;
+  height: auto;
+  padding: 6px 0;
+}
+.form-drawer-maximized .icon-picker-item-name {
+  display: block;
+}
+.department-leader-option-outside-current.ant-select-item-option-active,
+.department-leader-option-outside-current:hover {
+  background: transparent !important;
+}

@@ -1,0 +1,7 @@
+**
+!frontend/
+!frontend/admin/
+!frontend/admin/dist/
+!frontend/admin/dist/**
+!deploy/
+!deploy/nginx.admin.conf

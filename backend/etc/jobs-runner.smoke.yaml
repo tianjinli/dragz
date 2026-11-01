@@ -1,0 +1,36 @@
+Name: jobs-runner
+Host: 127.0.0.1
+Port: 8891
+
+AllowDevSecrets: true
+
+Database:
+  Driver: postgres
+  DataSource: postgres://dragz_admin:dragz_admin@127.0.0.1:5432/dragz_admin_p0?sslmode=disable
+
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
+
+Asynq:
+  Concurrency: 10
+  Queues:
+    default: 3
+
+Auth:
+  AccessSecret: development-only-replace-before-production-123456
+  AccessExpire: 900
+  RefreshExpire: 604800
+  Issuer: dragz-admin
+  RefreshCookieName: ua_refresh_token
+  CookieSecure: false
+  CookieDomain: ""
+
+Bootstrap:
+  AdminUsername: admin
+  # Must equal the password hashed in migrations/001_system_init.sql.
+  AdminPassword: Dragz!7xZ
+
+Security:
+  ConfigMasterKey: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+

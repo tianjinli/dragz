@@ -1,0 +1,43 @@
+Name: jobs-runner
+Host: 127.0.0.1
+Port: 8890
+
+# Production: never allow development default secrets.
+AllowDevSecrets: false
+
+Log:
+  ServiceName: jobs-runner
+  Mode: console
+  Level: info
+  Encoding: plain
+
+Database:
+  Driver: postgres
+  DataSource: ${JOBS_DB_DSN}
+
+Redis:
+  Host: ${REDIS_ADDR}
+  Type: node
+  Pass: ${REDIS_PASSWORD}
+
+Asynq:
+  Concurrency: 10
+  Queues:
+    default: 3
+
+Auth:
+  AccessSecret: ${ADMIN_AUTH_SECRET}
+  AccessExpire: 900
+  RefreshExpire: 604800
+  Issuer: dragz-admin
+  RefreshCookieName: ua_refresh_token
+  CookieSecure: true
+  CookieDomain: diy.cszqq.top
+
+Bootstrap:
+  AdminUsername: ${BOOTSTRAP_ADMIN_USERNAME}
+  AdminPassword: ${BOOTSTRAP_ADMIN_PASSWORD}
+
+Security:
+  ConfigMasterKey: ${CONFIG_MASTER_KEY}
+

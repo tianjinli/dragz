@@ -1,0 +1,164 @@
+/* vxe-table style clone — light/dark aware via theme CSS variables */
+.vxe-table {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.vxe-table--header-wrapper {
+  overflow: hidden; /* horizontal scroll is driven by the body via scrollLeft sync */
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
+  background: var(--surface-soft);
+}
+
+.vxe-table--body-wrapper {
+  overflow: auto; /* vertical (and horizontal) scrollbars live here only */
+  flex: 1;
+  min-height: 0;
+}
+
+.vxe-table table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+}
+
+/* header */
+.vxe-table--header th {
+  position: relative;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-weight: 600;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.vxe-table--header th.is-sortable {
+  cursor: pointer;
+}
+
+.vxe-table--header th.is-group {
+  text-align: center;
+}
+
+.vxe-cell {
+  padding: 10px 12px;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vxe-cell--ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.vxe-cell--empty {
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  padding: 32px 12px;
+}
+
+.is-align-left .vxe-cell { justify-content: flex-start; text-align: left; }
+.is-align-center .vxe-cell { justify-content: center; text-align: center; }
+.is-align-right .vxe-cell { justify-content: flex-end; text-align: right; }
+
+/* body */
+.vxe-table--body td {
+  padding: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.vxe-body--row { transition: background-color 0.15s ease; }
+.vxe-body--row:hover { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.vxe-table--stripe .vxe-body--row.row--stripe { background: color-mix(in srgb, var(--text) 3%, transparent); }
+.vxe-table--stripe .vxe-body--row.row--stripe:hover { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.vxe-body--row.row--current { background: color-mix(in srgb, var(--primary) 12%, transparent) !important; }
+
+/* fixed cells need an opaque background to hide scrolling content */
+.vxe-table th.is-fixed,
+.vxe-table td.is-fixed {
+  background: var(--surface);
+  z-index: 1;
+}
+.vxe-table th.is-fixed { background: var(--surface-soft); }
+.vxe-table--stripe .vxe-body--row.row--stripe td.is-fixed { background: color-mix(in srgb, var(--text) 3%, transparent); }
+.vxe-table tbody tr:hover td.is-fixed { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.vxe-table .vxe-body--row.row--current td.is-fixed { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+
+/* border mode */
+.vxe-table--border { border: 1px solid var(--border); }
+.vxe-table--border th:not(:last-child),
+.vxe-table--border td:not(:last-child) { border-right: 1px solid var(--border); }
+
+/* sort marks */
+.vxe-sort--wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1;
+  font-size: 8px;
+  gap: 1px;
+  color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+.vxe-sort--asc,
+.vxe-sort--desc { display: block; }
+.vxe-sort--wrapper.is-active { color: var(--primary); }
+.vxe-sort--asc[data-active='true'],
+.vxe-sort--desc[data-active='true'] { color: var(--primary); font-weight: 700; }
+
+/* resize handle */
+.vxe-header--resizable {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.vxe-header--resizable::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  right: 3px;
+  height: 60%;
+  width: 1px;
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+}
+.vxe-header--resizable[data-resizing='true']::after,
+.vxe-header--resizable:hover::after { background: var(--primary); }
+th.is-resizing { box-shadow: inset -1px 0 0 var(--primary); }
+
+/* loading overlay */
+.vxe-table--loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  z-index: 5;
+}
+.vxe-loading--spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: vxe-spin 0.7s linear infinite;
+}
+@keyframes vxe-spin {
+  to { transform: rotate(360deg); }
+}
