@@ -18,6 +18,51 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9]{2,15}$`)
 // plugin store and the HTTP layer must agree on exactly one definition.
 func ValidID(id string) bool { return idPattern.MatchString(id) }
 
+// Menu is a declarative menu contribution.
+//
+// The platform owns the sys_menu row: it assigns the id, resolves ParentCode
+// to a parent id, and re-applies the structure on every boot and every enable.
+// A plugin therefore never writes sys_menu.id, and no two plugins can collide
+// on one.
+//
+// Menus are declared here rather than seeded from a migration for the same
+// reason permission buttons moved to Route.Permission: a migration runs once
+// and is then frozen by its checksum, so a mistake inside it — a clashing id,
+// a wrong component path — is permanent. A declaration is re-applied, which
+// makes it correctable.
+type Menu struct {
+	// Code is sys_menu.code and the stable business key of the menu. It must
+	// be unique across the whole table, core menus included. A collision with
+	// another owner fails the sync loudly; it is never skipped silently.
+	Code string
+	// ParentCode is the Code of another menu, core or plugin-owned.
+	// Empty means a top-level menu.
+	ParentCode string
+	// Type is "page" (default when empty) or "directory".
+	Type string
+	// Name is the label seeded into sys_menu.name on first insert. An
+	// administrator rename is never overwritten by a later sync.
+	Name string
+	// NameEn seeds sys_translation as menu.<Code> on first insert, absent-on-
+	// conflict, so an edited translation survives too.
+	NameEn string
+
+	// The remaining fields describe the route the menu points at.
+	RouteName string
+	RoutePath string
+	Component string
+	Redirect  string
+	Icon      string
+	// Sort is the first-insert ordinal within the parent. Like Name, it is an
+	// initial value; an administrator's reorder is not clobbered.
+	Sort int
+	// Hidden maps to sys_menu.visible = 0. The zero value means visible,
+	// which is what a plugin almost always wants.
+	Hidden bool
+	// KeepAlive maps to sys_menu.keep_alive.
+	KeepAlive bool
+}
+
 // Meta describes a plugin. ID doubles as directory name, table prefix and
 // config namespace; it must match ^[a-z][a-z0-9]{2,15}$.
 type Meta struct {
@@ -25,6 +70,10 @@ type Meta struct {
 	Name        string
 	Version     string
 	Description string
+	// Menus are the plugin's sidebar entries. Their ids are assigned by the
+	// platform, so declaring a menu cannot collide with another plugin. The
+	// plugin_id column is set from ID automatically.
+	Menus []Menu
 	// DependsOn lists plugin IDs that must be initialized first.
 	DependsOn []string
 	// Order is a same-level sort tiebreaker only; it carries no semantics.

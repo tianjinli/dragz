@@ -85,12 +85,26 @@ func New(repo store.PluginStore, metas []plugin.Meta, sources []plugin.Migration
 		sources: make(map[string]migrate.Source, len(sources)),
 	}
 
+	// Menu codes share one global namespace with the core menus, so they are
+	// checked here rather than on the first enable: a typo or a copy-pasted
+	// code should fail the boot, not a later click.
+	menuOwner := make(map[string]string, len(metas))
 	for _, meta := range metas {
 		if !plugin.ValidID(meta.ID) {
 			return nil, fmt.Errorf("plugincenter: invalid plugin ID %q", meta.ID)
 		}
 		if _, dup := service.byID[meta.ID]; dup {
 			return nil, fmt.Errorf("plugincenter: duplicate plugin ID %q", meta.ID)
+		}
+		if _, err := menuperm.OrderMenus(menuNodes(meta.ID, meta.Menus)); err != nil {
+			return nil, fmt.Errorf("plugincenter: plugin %q menus: %w", meta.ID, err)
+		}
+		for _, menu := range meta.Menus {
+			if owner, taken := menuOwner[menu.Code]; taken {
+				return nil, fmt.Errorf("plugincenter: plugin %q declares menu %q, which plugin %q already declares",
+					meta.ID, menu.Code, owner)
+			}
+			menuOwner[menu.Code] = meta.ID
 		}
 		service.byID[meta.ID] = meta
 		service.metas = append(service.metas, meta)
@@ -219,6 +233,12 @@ func (s *Service) RunStartup(ctx context.Context) error {
 		}
 	}
 
+	// Declared menus come after the migrations (an older plugin may still seed
+	// its page from SQL) and before the buttons, which attach to the page rows
+	// this call creates.
+	if err := s.syncPluginMenus(ctx, ""); err != nil {
+		return err
+	}
 	// Runs after every migration so a plugin page created by 001_init.sql
 	// already exists when its buttons are attached to it.
 	if err := s.syncPermissionMenus(ctx); err != nil {
@@ -339,9 +359,15 @@ func (s *Service) Enable(ctx context.Context, pluginID string) error {
 		}
 	}
 
-	// Before the flag flips: a button sync failure must leave the plugin off
-	// rather than half enabled. The migration above may have just created the
-	// page these buttons hang under.
+	// Before the flag flips: a menu or button sync failure must leave the
+	// plugin off rather than half enabled. The migration above may have just
+	// created the page these buttons hang under.
+	//
+	// enabling carries this plugin explicitly: its flag is still false, so
+	// "every live plugin" does not include it yet.
+	if err := s.syncPluginMenus(ctx, pluginID); err != nil {
+		return err
+	}
 	if err := s.syncPermissionMenus(ctx); err != nil {
 		return err
 	}
@@ -496,6 +522,63 @@ func permissionRoutes(bounds []kernel.Bound, builtin map[string]bool) []menuperm
 		})
 	}
 	return routes
+}
+
+// syncPluginMenus upserts the menus every live plugin declares in Meta.Menus
+// and retires the ones a plugin dropped from its declarations.
+//
+// enabling names a plugin that is about to be switched on: its flag is still
+// false at this point, so it has to be included by hand. Pass "" when nothing
+// is being enabled.
+//
+// Only live plugins are in scope. A menu row is an installation artifact, like
+// the plugin's tables: it appears when the plugin is enabled and stays behind
+// when it is disabled, where the menu queries already filter it out by
+// plugin_id.
+func (s *Service) syncPluginMenus(ctx context.Context, enabling string) error {
+	ids := make([]string, 0, len(s.order))
+	nodes := make([]menuperm.MenuNode, 0, len(s.order))
+	for _, id := range s.order {
+		if !s.Enabled(id) && id != enabling {
+			continue
+		}
+		ids = append(ids, id)
+		nodes = append(nodes, menuNodes(id, s.byID[id].Menus)...)
+	}
+	// The ids matter even when nothing is declared: an empty batch is how a
+	// plugin tells the platform it has no menus left.
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := s.repo.SyncPluginMenus(ctx, ids, nodes); err != nil {
+		return fmt.Errorf("sync plugin menus: %w", err)
+	}
+	return nil
+}
+
+// menuNodes projects the plugin contract onto the neutral type this package
+// and the store agree on.
+func menuNodes(pluginID string, menus []plugin.Menu) []menuperm.MenuNode {
+	nodes := make([]menuperm.MenuNode, 0, len(menus))
+	for _, menu := range menus {
+		nodes = append(nodes, menuperm.MenuNode{
+			Code:       menu.Code,
+			ParentCode: menu.ParentCode,
+			Type:       menu.Type,
+			Name:       menu.Name,
+			NameEn:     menu.NameEn,
+			RouteName:  menu.RouteName,
+			RoutePath:  menu.RoutePath,
+			Component:  menu.Component,
+			Redirect:   menu.Redirect,
+			Icon:       menu.Icon,
+			Sort:       menu.Sort,
+			Hidden:     menu.Hidden,
+			KeepAlive:  menu.KeepAlive,
+			PluginID:   pluginID,
+		})
+	}
+	return nodes
 }
 
 // syncPermissionMenus makes the button nodes match the route table.

@@ -40,9 +40,14 @@ var (
 	ErrMenuCycle = errors.New("menu cannot be its own parent")
 	// ErrMenuDescendant means a menu was moved below one of its own descendants.
 	ErrMenuDescendant = errors.New("menu cannot be moved below its descendant")
-	// ErrMenuCodeTaken means a declared permission code collides with an
-	// existing non-button menu. The sync refuses to take the row over.
-	ErrMenuCodeTaken = errors.New("permission code already used by a non-button menu")
+	// ErrMenuCodeTaken means a declared code collides with a row the declaring
+	// owner may not take over: a permission code that a page already uses, or a
+	// menu code that belongs to another plugin. The sync refuses either one
+	// instead of silently skipping it.
+	ErrMenuCodeTaken = errors.New("menu code already taken by another owner")
+	// ErrMenuParentMissing means a declared menu points at a parent code that
+	// does not exist, which is almost always a typo.
+	ErrMenuParentMissing = errors.New("declared menu parent does not exist")
 	// ErrMenuButtonManaged means the caller tried to change a field the
 	// startup sync owns.
 	ErrMenuButtonManaged = errors.New("permission buttons are managed by the route table")

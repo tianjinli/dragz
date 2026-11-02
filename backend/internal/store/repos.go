@@ -92,6 +92,10 @@ type PluginStore interface {
 	// the compiled route table.
 	MenuCodeIndex(ctx context.Context) (map[string]uint64, error)
 	SyncPermissionMenus(ctx context.Context, buttons []menuperm.Button) error
+	// SyncPluginMenus upserts the menus declared in plugin.Meta.Menus and
+	// retires the ones a plugin stopped declaring. Ids are allocated by the
+	// sequence, never written by a plugin.
+	SyncPluginMenus(ctx context.Context, pluginIDs []string, nodes []menuperm.MenuNode) error
 }
 
 // Ensure AuthRepository satisfies the expanded store interfaces.

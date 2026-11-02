@@ -294,7 +294,10 @@ Layers: `plugins/ → platform/ → kernel/`. Dependencies point one way only;
 - A file may contain **multiple statements** (executed with no bind parameters,
   which makes pgx use the simple protocol) but must not contain `$1`-style
   placeholders.
-- Plugin-owned menus use IDs **1000+** and must set `plugin_id` explicitly.
+- Plugin menus are declared in `Meta.Menus`, never inserted from a migration.
+  `Code` is the key and is unique table-wide; the platform assigns the id, so
+  a plugin never reserves or writes one. A menu a plugin stops declaring is
+  soft deleted with its grants kept, so it can be revived later.
 - All schema changes are serialised by a session-level `pg_advisory_lock`
   (bootstrap, seed, catalog sync, startup migrations, enable, disable).
 - **`admin-api` is the only migration owner.** `jobs-runner` must start after it

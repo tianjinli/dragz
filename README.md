@@ -118,7 +118,7 @@ Machines with `make` can run `make verify` (the backend group above).
 - New plugins **ship dark**: compiled in with `enabled = false`, migrations do not run, and nothing takes effect until an administrator enables it in System Settings → Plugin Center.
 - Disabling only flips the flag — **no table is dropped** — and re-enabling is instant and lossless.
 - Only uninstall deletes data, and only for a plugin that is already **disabled**: one transaction drops the tables declared in `Meta.DropTables`, deletes the plugin's menus and migration bookkeeping, and the plugin is back to "never installed".
-- A plugin's own menus use IDs `1000+`; migrations live in `plugins/<id>/migrations/NNN_*.sql` (append-only, checksum-verified).
+- A plugin's menus are declared in `Meta.Menus` and keyed by `code`; the platform assigns the id, so a plugin never writes one. Migrations live in `plugins/<id>/migrations/NNN_*.sql` (append-only, checksum-verified).
 
 Writing a plugin: [backend/docs/PLUGIN.md](backend/docs/PLUGIN.md).
 

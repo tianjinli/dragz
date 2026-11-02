@@ -118,7 +118,7 @@ pnpm typecheck && pnpm lint && pnpm check:i18n && pnpm test && pnpm build
 - 新插件**出厂即暗**：编译进来默认 `enabled = false`，迁移不跑，管理员在「系统设置 → 插件中心」打开才生效。
 - 停用只翻开关，**不 DROP 任何表**，重新启用即时无损。
 - 卸载才删数据：只对**已停用**的插件开放，一个事务里 DROP 掉 `Meta.DropTables` 声明的表、删菜单和迁移记录，插件回到"从未安装"。
-- 插件自己的菜单用 ID `1000+`，迁移放 `plugins/<id>/migrations/NNN_*.sql`（只增不改，checksum 校验）。
+- 插件自己的菜单写在 `Meta.Menus` 里、以 `code` 为键，id 由平台分配，插件不写；迁移放 `plugins/<id>/migrations/NNN_*.sql`（只增不改，checksum 校验）。
 
 写一个插件见 [backend/docs/PLUGIN_CN.md](backend/docs/PLUGIN_CN.md)。
 

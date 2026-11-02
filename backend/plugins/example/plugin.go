@@ -33,6 +33,26 @@ func (Plugin) Meta() plugin.Meta {
 		DependsOn:   []string{"system"},
 		Order:       10,
 		Builtin:     false,
+		// The sidebar entry. Declared here rather than seeded from 001_init.sql
+		// because the platform assigns the row id: a plugin never writes
+		// sys_menu.id, so two plugins cannot collide on one.
+		//
+		// 001_init.sql still contains the original INSERT with a hard-coded id
+		// 1000. It is kept byte for byte (an applied migration is immutable and
+		// checksum-verified) and this declaration takes the row over, keeping
+		// its id and its grants.
+		Menus: []plugin.Menu{
+			{
+				Code:      "example_page",
+				Name:      "示例插件",
+				NameEn:    "Example Plugin",
+				RouteName: "ExamplePage",
+				RoutePath: "/example",
+				Component: "/example/index",
+				Icon:      "lucide:box",
+				Sort:      900,
+			},
+		},
 		// The one table 001_init.sql creates. Uninstall drops exactly this, so
 		// re-enabling the plugin replays the migration against a clean slate.
 		DropTables: []string{"sys_example_item"},

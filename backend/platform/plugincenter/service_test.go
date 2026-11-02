@@ -28,6 +28,9 @@ type fakeRepo struct {
 	menuCodes     map[string]uint64
 	syncedButtons []menuperm.Button
 	syncCalls     int
+	// syncedMenus records the last declared-menu upsert.
+	syncedMenus       []menuperm.MenuNode
+	syncedMenuPlugins []string
 	// uninstallCalls and droppedTables record the last Uninstall request.
 	uninstallCalls int
 	droppedTables  []string
@@ -49,6 +52,12 @@ func (f *fakeRepo) MenuCodeIndex(context.Context) (map[string]uint64, error) {
 func (f *fakeRepo) SyncPermissionMenus(_ context.Context, buttons []menuperm.Button) error {
 	f.syncCalls++
 	f.syncedButtons = buttons
+	return nil
+}
+
+func (f *fakeRepo) SyncPluginMenus(_ context.Context, pluginIDs []string, nodes []menuperm.MenuNode) error {
+	f.syncedMenuPlugins = pluginIDs
+	f.syncedMenus = nodes
 	return nil
 }
 
@@ -528,5 +537,111 @@ func TestRunStartupSkipsPluginPermissionWithoutMenu(t *testing.T) {
 	}
 	if len(repo.syncedButtons) != 0 {
 		t.Fatalf("expected no buttons, got %d", len(repo.syncedButtons))
+	}
+}
+
+// A disabled plugin contributes no menus: the row is an installation artifact,
+// created when the plugin is enabled.
+func TestRunStartupSkipsMenusOfDisabledPlugins(t *testing.T) {
+	repo := newFakeRepo()
+	service, err := New(repo, []plugin.Meta{
+		{ID: "system", Name: "系统管理", Version: "1.0.0", Builtin: true},
+		{ID: "demo", Name: "示例插件", Version: "0.1.0", DependsOn: []string{"system"},
+			Menus: []plugin.Menu{{Code: "demo_page", Name: "示例"}}},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := service.RunStartup(context.Background()); err != nil {
+		t.Fatalf("RunStartup: %v", err)
+	}
+	if len(repo.syncedMenus) != 0 {
+		t.Fatalf("synced %d menus for a disabled plugin, want 0", len(repo.syncedMenus))
+	}
+	for _, id := range repo.syncedMenuPlugins {
+		if id == "demo" {
+			t.Fatal("a disabled plugin must not be in the menu sync scope")
+		}
+	}
+}
+
+// Enabling must upsert the declared menus before the flag flips, so the menu
+// exists by the time the plugin is live.
+func TestEnableSyncsDeclaredMenus(t *testing.T) {
+	repo := newFakeRepo()
+	service, err := New(repo, []plugin.Meta{
+		{ID: "system", Name: "系统管理", Version: "1.0.0", Builtin: true},
+		{ID: "demo", Name: "示例插件", Version: "0.1.0", DependsOn: []string{"system"},
+			Menus: []plugin.Menu{{
+				Code:       "demo_page",
+				Name:       "示例",
+				RouteName:  "Demo",
+				RoutePath:  "/demo",
+				Component:  "/demo/index",
+				ParentCode: "",
+				KeepAlive:  true,
+				Hidden:     false,
+				Icon:       "lucide:box",
+				Sort:       10,
+				Type:       "",
+				NameEn:     "Demo",
+				Redirect:   "",
+			}}},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	if err := service.RunStartup(ctx); err != nil {
+		t.Fatalf("RunStartup: %v", err)
+	}
+	if err := service.Enable(ctx, "demo"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if len(repo.syncedMenus) != 1 {
+		t.Fatalf("synced %d menus, want 1", len(repo.syncedMenus))
+	}
+	node := repo.syncedMenus[0]
+	if node.Code != "demo_page" || node.PluginID != "demo" || node.RoutePath != "/demo" {
+		t.Fatalf("node = %+v", node)
+	}
+	if !node.KeepAlive || node.Hidden {
+		t.Fatalf("flags not carried over: %+v", node)
+	}
+	scoped := false
+	for _, id := range repo.syncedMenuPlugins {
+		if id == "demo" {
+			scoped = true
+		}
+	}
+	if !scoped {
+		t.Fatalf("sync scope %v does not include the plugin being enabled", repo.syncedMenuPlugins)
+	}
+}
+
+// A menu declared by two plugins is a programming error and must fail New,
+// not silently overwrite one of them at enable time.
+func TestNewRejectsMenuCodeDeclaredTwice(t *testing.T) {
+	repo := newFakeRepo()
+	_, err := New(repo, []plugin.Meta{
+		{ID: "system", Name: "系统管理", Version: "1.0.0", Builtin: true},
+		{ID: "demo", Name: "示例插件", Version: "0.1.0", Menus: []plugin.Menu{{Code: "shared_page"}}},
+		{ID: "extra", Name: "另一个插件", Version: "0.1.0", Menus: []plugin.Menu{{Code: "shared_page"}}},
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "shared_page") {
+		t.Fatalf("err = %v, want a duplicate-menu-code error", err)
+	}
+}
+
+// A menu that is its own parent would make the tree query loop; New catches it.
+func TestNewRejectsMenuCycle(t *testing.T) {
+	repo := newFakeRepo()
+	_, err := New(repo, []plugin.Meta{
+		{ID: "system", Name: "系统管理", Version: "1.0.0", Builtin: true},
+		{ID: "demo", Name: "示例插件", Version: "0.1.0",
+			Menus: []plugin.Menu{{Code: "a", ParentCode: "b"}, {Code: "b", ParentCode: "a"}}},
+	}, nil, nil)
+	if err == nil {
+		t.Fatal("New: want a menu-cycle error")
 	}
 }

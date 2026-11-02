@@ -50,6 +50,7 @@ func (Plugin) Meta() plugin.Meta {
         DependsOn: []string{"system"},   // 依赖的插件必须先初始化
         Order:     10,                   // 同层排序的 tiebreaker，无语义
         DropTables: []string{"sys_example_item"}, // 卸载时 DROP 的表
+        Menus:     []plugin.Menu{{Code: "example_page", Name: "示例插件", /* 见第 6 节 */}},
         Builtin:   false,                // true = 不可停用
     }
 }
@@ -98,23 +99,49 @@ func All() []plugin.Plugin {
 
 ## 6. 菜单与权限
 
-插件自己的菜单写在迁移里，注意三点：
+### 菜单：在 `Meta.Menus` 里声明，不要写 SQL
 
-1. **ID 用 1000+**，避开核心保留段（1–99、82–86）。
-2. **必须显式写 `plugin_id`**，这是停用插件时菜单跟着消失的依据。
-3. **不要 seed 权限码**。权限码由启动同步从 `Route.Permission` / `AnyOf` 生成，挂到 `MenuCode` 指定的页面上：
-
-```sql
-INSERT INTO sys_menu
-  (id, parent_id, type, name, code, route_name, route_path, component,
-   sort, status, visible, plugin_id)
-VALUES
-  (1000, 0, 'page', '示例插件', 'example_page', 'ExamplePage',
-   '/example', '/example/index', 900, 1, 1, 'example')
-ON CONFLICT DO NOTHING;
+```go
+Menus: []plugin.Menu{
+    {
+        Code:      "example_page",     // sys_menu.code，全局唯一
+        Name:      "示例插件",          // 中文名，首次插入时写入
+        NameEn:    "Example Plugin",   // 首次插入时写入 sys_translation
+        RouteName: "ExamplePage",
+        RoutePath: "/example",
+        Component: "/example/index",
+        Icon:      "lucide:box",
+        Sort:      900,
+        ParentCode: "",                // 空 = 顶级；也可以指向核心菜单
+    },
+},
 ```
 
-对应路由：
+四条规则：
+
+1. **不要写 `sys_menu.id`。** id 由序列分配，插件既不用预留号段，也不会和别的插件撞号。`plugin_id` 由平台按 `Meta.ID` 自动填。
+2. **`Code` 是唯一键**，和核心菜单共用同一个命名空间。撞了会在启动或启用时**直接报错**（`ErrMenuCodeTaken`），而不是像 `ON CONFLICT DO NOTHING` 那样静默跳过、留下一个"启用成功但没菜单"的插件。
+3. **结构字段每次同步，展示字段只写一次。** 父级、类型、路由、图标随声明更新；`Name` / `NameEn` / `Sort` / `Hidden` / `KeepAlive` 只在首次插入时写入，管理员改过之后不会被回写。
+4. **声明就是全部真相。** 从 `Menus` 里删掉一个 `Code`，下次启用时那一行会被软删（侧边栏消失），但 `sys_role_menu` 的授权保留；再加回来时复活的是同一行，id 和授权都不变。后台手工建的菜单 `plugin_id` 恒为空，不在任何插件的回收范围里，不会被误删。
+
+`ParentCode` 可以指向核心菜单或另一个插件的菜单，所以插件也能挂进核心目录树。指向不存在的 code 会报 `ErrMenuParentMissing`——拼错不会悄悄变成顶级菜单。
+
+为什么不再写在迁移里：迁移只跑一次，之后被 checksum 冻结，写错一个 id 就永久错下去（只能再补一个迁移去修，而旧行已经占了坑）。声明在每次启用时重放，改代码就修好了。
+
+> 历史遗留：`plugins/example/migrations/001_init.sql` 里还有一条硬编码 `id 1000` 的插入，为了不破坏 checksum 保持原样。声明同步会接管那一行（同 code、同 plugin_id），id 和授权都不变。新插件不要照抄它。
+
+### 从旧写法迁移
+
+已有的插件如果菜单写在迁移的 `INSERT INTO sys_menu` 里，按插件在**目标库**里的状态分两种：
+
+- **从未启用过**（`sys_plugin_migration` 里没有它的记录）：直接改 `001`，把菜单 INSERT 删掉、改成 `Meta.Menus` 声明。没有 checksum 记录，改文件是安全的。
+- **已经启用过**：`001` 一个字节都不能动。只需要在 `Meta.Menus` 里补上**同样的 code**，启用一次即可——同步会接管原来的行，id 和授权都保留。迁移里那句 INSERT 留在那里无害，它只在首次安装时跑一次。
+
+无论哪种，都建议先部署声明、确认菜单正常，再考虑清理迁移。反过来（先删 SQL 再补声明）会让侧边栏空一个版本。
+
+### 权限：从 `Route` 生成，不要 seed
+
+权限码由启动同步从 `Route.Permission` / `AnyOf` 生成，挂到 `MenuCode` 指定的页面上：
 
 ```go
 {
@@ -128,14 +155,14 @@ ON CONFLICT DO NOTHING;
 
 推导规则：把权限码最后一段当动作丢掉，剩下的部分连字符转下划线，从长到短取第一个真实存在的非 button 菜单。`example:ping` 的候选只有 `example`，而页面码是 `example_page`，所以要显式声明。
 
-**核心插件的权限码解析不到页面会让启动失败**（这是编程错误）；**普通插件的会跳过并打日志**，等它的迁移把页面建出来，启用时再补。
+**核心插件的权限码解析不到页面会让启动失败**（这是编程错误）；**普通插件的会跳过并打日志**，等它的菜单建出来，启用时再补。
 
 ## 7. 启用与停用
 
 | 动作 | 发生什么 |
 |------|----------|
 | 编译进来 | 插进 `sys_plugin`，`enabled = is_builtin`，即**默认停用** |
-| 启用 | 跑待执行迁移 → 同步权限按钮 → 翻 `enabled = true` → 重载路由闸门与 Casbin |
+| 启用 | 跑待执行迁移 → 同步声明菜单 → 同步权限按钮 → 翻 `enabled = true` → 重载路由闸门与 Casbin |
 | 停用 | 只翻开关。不跑 DDL、不删数据、不退役按钮 |
 
 停用的效果是**三层同时消失**：路由返回 404（与路径不存在逐字节相同）、菜单在 SQL 层被裁掉、权限码从 `/api/auth/codes` 和 Casbin 里消失。重新启用即时无损。
@@ -193,7 +220,7 @@ func pingHandler(*app.Context) http.HandlerFunc {
 - [ ] `plugins/all/all.go` 加了一行，`go build ./...` 通过
 - [ ] `bash scripts/check-imports.sh` 通过（插件之间没有互相 import）
 - [ ] 迁移文件名是 `NNN_name.sql`，没有 `$1`
-- [ ] 菜单 ID ≥ 1000，`plugin_id` 写对了
+- [ ] 菜单写在 `Meta.Menus` 里，`Code` 全局唯一，没有在迁移里写 `sys_menu.id`
 - [ ] 建了表就把表名写进 `Meta.DropTables`
 - [ ] 没有手工 seed 权限码
 - [ ] `go run ./cmd/gen-api` 之后 `api/openapi/openapi.json` 有对应路径
@@ -220,7 +247,9 @@ docker stop dragz-verify-pg
 |------|------|
 | 启动报 `permission "x:y" has no owning menu` | 核心路由的权限码推导不到页面，补 `Route.MenuCode` |
 | 启用失败 `ErrChecksumMismatch` | 改了一个已经应用过的迁移文件。加新文件，或手工恢复原文件 |
-| 启用成功但按钮没出现 | 迁移里的页面 `plugin_id` 写错，或页面还没建出来就同步了 |
+| 启用成功但按钮没出现 | `Route.MenuCode` 指向的页面没在 `Meta.Menus` 里声明，或 `Code` 拼错 |
+| 启动/启用报 `menu code already taken` | 两个插件声明了同一个 `Code`，或撞了核心菜单的 code |
+| 报 `declared menu parent does not exist` | `ParentCode` 拼错了，或者父菜单属于一个还没启用的插件 |
 | 停用后接口返回 401 而不是 404 | 路由闸门被放到了认证内层。`Gate` 必须在 `Authenticate` 外层 |
 | 菜单出现了但侧边栏不显示 | 菜单 `status != 1`、`visible = 0`，或父菜单被停用 |
 | 插件按钮被重启"删掉"了 | 手工建的按钮 `managed = 0` 不会被退役；同步建的才会。检查是不是码被同步接管了 |
