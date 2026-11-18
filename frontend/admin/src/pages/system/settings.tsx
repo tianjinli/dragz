@@ -238,7 +238,6 @@ export function DictionaryPage() {
               bordered
               sticky
               scroll={{ x: "max-content" }}
-              size="small"
               rowKey="id"
               dataSource={types}
               pagination={false}

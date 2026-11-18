@@ -254,6 +254,12 @@
   （bootstrap、seed、目录同步、启动迁移、启用、停用）。
 - **`admin-api` 是唯一的迁移执行者。** `jobs-runner` 必须在它完成启动之后再启动。
 
+### 跨插件通信
+
+- 插件禁止互 import（`scripts/check-imports.sh`）。
+- 异步通知用 `platform/eventbus`（挂在 `app.Context.Bus`）；同步能力走 platform / `app.Context` 共享依赖。
+- 新建官方插件可用 `go run ./cmd/new-plugin -id ...`（见 `PLUGIN_CN.md`）。
+
 ### 停用
 
 停用只翻开关：从不跑 DDL，从不删行。表和迁移记账都留着，

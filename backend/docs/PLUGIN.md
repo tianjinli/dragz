@@ -85,7 +85,25 @@ func All() []plugin.Plugin {
 }
 ```
 
-One import + one slice element is all it takes; `// scaffold:insert` is where the scaffolding appends automatically. **There is no hot reload**: enabling/disabling changes behavior, not the binary.
+One import + one slice element is all it takes. **Prefer the generator** (it patches `// scaffold:insert`):
+
+```bash
+cd backend
+go run ./cmd/new-plugin -id demo -name "Demo" -with-frontend -with-migration
+```
+
+**There is no hot reload**: enabling/disabling changes behaviour, not the binary. Disabled plugin routes must return **404** (Gate outside Authenticate).
+
+See also [`SYSTEM_MIGRATION.md`](SYSTEM_MIGRATION.md).
+
+## 4.1 Cross-plugin communication (eventbus)
+
+Plugins **must not** import each other (`scripts/check-imports.sh`). Collaborate via:
+
+- **Sync**: platform interfaces / shared deps on `app.Context`
+- **Async**: in-process `platform/eventbus` on `app.Context.Bus`
+
+`plugins/example` publishes `example.pinged` from its ping handler.
 
 ## 5. Migrations
 
@@ -210,7 +228,8 @@ When you need the database, cache or translator, take them from `*app.Context`; 
 
 Before committing a new plugin:
 
-- [ ] `plugins/all/all.go` has one more line, `go build ./...` passes
+- [ ] Prefer `go run ./cmd/new-plugin ...`, or hand-edit `plugins/all/all.go`; `go build ./...` passes
+- [ ] Every `Meta.Menus[].Component` is registered in `frontend/admin/src/router/page-map.tsx` (`go test ./plugins/all -run TestPluginMenuComponentsMapped`)
 - [ ] `bash scripts/check-imports.sh` passes (plugins do not import each other)
 - [ ] Migration file names are `NNN_name.sql`, with no `$1`
 - [ ] Menus are declared in `Meta.Menus` with a table-wide unique `Code`; no `sys_menu.id` in a migration

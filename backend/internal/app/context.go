@@ -19,6 +19,7 @@ import (
 	"dragz-admin/backend/internal/pluginstate"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
+	"dragz-admin/backend/platform/eventbus"
 	redisstore "github.com/zeromicro/go-zero/core/stores/redis"
 )
 
@@ -42,6 +43,9 @@ type Context struct {
 	// test or a misconfigured binary degrades to the pre-plugin behaviour
 	// instead of 404ing the whole API.
 	Plugins pluginstate.Runtime
+	// Bus is the process-local event bus for cross-plugin collaboration.
+	// Plugins must not import each other; they publish/subscribe here instead.
+	Bus *eventbus.Bus
 
 	// closers holds the cleanups registered through Defer, run by Close.
 	closers []func()
@@ -116,6 +120,7 @@ func NewContext(c config.Config) (*Context, error) {
 		Translator:      translator,
 		Translate:       translateClient,
 		Casbin:          enforcer,
+		Bus:             eventbus.New(),
 	}
 	// Authorization is NOT loaded here. The policy query reads sys_plugin,
 	// which only exists after the plugin bootstrap DDL runs (it is not in

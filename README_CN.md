@@ -114,11 +114,12 @@ pnpm typecheck && pnpm lint && pnpm check:i18n && pnpm test && pnpm build
 
 ## 插件模型（30 秒版）
 
-- 注册是**编译期**的：`plugins/all/all.go` 是唯一的开关，没有热加载。
+- 注册是**编译期**的：`plugins/all/all.go` 是唯一的开关，没有热加载。可用 `go run ./cmd/new-plugin -id ...` 生成骨架并注册。
 - 新插件**出厂即暗**：编译进来默认 `enabled = false`，迁移不跑，管理员在「系统设置 → 插件中心」打开才生效。
-- 停用只翻开关，**不 DROP 任何表**，重新启用即时无损。
+- 停用只翻开关，**不 DROP 任何表**，重新启用即时无损；停用后 API **404**。
 - 卸载才删数据：只对**已停用**的插件开放，一个事务里 DROP 掉 `Meta.DropTables` 声明的表、删菜单和迁移记录，插件回到"从未安装"。
 - 插件自己的菜单写在 `Meta.Menus` 里、以 `code` 为键，id 由平台分配，插件不写；迁移放 `plugins/<id>/migrations/NNN_*.sql`（只增不改，checksum 校验）。
+- 跨插件通信走 `platform/eventbus`（`app.Context.Bus`）或 platform 接口，禁止互 import。
 
 写一个插件见 [backend/docs/PLUGIN_CN.md](backend/docs/PLUGIN_CN.md)。
 
@@ -129,7 +130,8 @@ pnpm typecheck && pnpm lint && pnpm check:i18n && pnpm test && pnpm build
 | 文档 | 内容 |
 |------|------|
 | [backend/docs/CONVENTIONS_CN.md](backend/docs/CONVENTIONS_CN.md) | 分层、错误与 i18n、sqlc、授权、权限按钮、插件、启动 DDL 与迁移 |
-| [backend/docs/PLUGIN_CN.md](backend/docs/PLUGIN_CN.md) | 插件开发指南：目录、契约、迁移、菜单、权限、自检清单 |
+| [backend/docs/PLUGIN_CN.md](backend/docs/PLUGIN_CN.md) | 插件开发指南：目录、契约、迁移、菜单、权限、生成器、eventbus、自检清单 |
+| [backend/docs/SYSTEM_MIGRATION_CN.md](backend/docs/SYSTEM_MIGRATION_CN.md) | system / httpapi 迁移边界与停用闸门口径 |
 | [backend/docs/COMPONENTS_CN.md](backend/docs/COMPONENTS_CN.md) | 组件与依赖清单 |
 | [backend/docs/NORMS_GAP_CN.md](backend/docs/NORMS_GAP_CN.md) | 已拍板的规范与多库扩展 playbook |
 | [frontend/admin/README_CN.md](frontend/admin/README_CN.md) | 前端开发指南：菜单驱动路由、权限码、请求层、CRUD 脚手架、测试 |

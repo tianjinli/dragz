@@ -16,6 +16,7 @@ import (
 
 	"dragz-admin/backend/internal/app"
 	"dragz-admin/backend/internal/plugin"
+	"dragz-admin/backend/platform/eventbus"
 )
 
 //go:embed migrations/*.sql
@@ -111,8 +112,17 @@ func (Plugin) Migrations() []plugin.Migration {
 
 // pingHandler answers with the standard envelope. A plugin cannot reach
 // internal/httpapi helpers, which is the point: it owns its own response.
-func pingHandler(*app.Context) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+// It also publishes example.pinged on the process event bus so other plugins
+// can subscribe without importing this package.
+func pingHandler(ctx *app.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if ctx != nil && ctx.Bus != nil {
+			_ = ctx.Bus.Publish(r.Context(), eventbus.Event{
+				Name:    "example.pinged",
+				Source:  "example",
+				Payload: map[string]any{"pong": true},
+			})
+		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"pong":true,"plugin":"example"}}`))

@@ -128,7 +128,7 @@
 .profile-settings .ant-form { max-width: 520px; }
 .split-page { display: grid; grid-template-columns: minmax(330px, .8fr) minmax(500px, 1.4fr); gap: 16px; }
 .dictionary-split-page {
-  grid-template-columns: minmax(420px, .95fr) minmax(620px, 1.45fr);
+  grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
   gap: 8px;
 }
 .dictionary-table-card.ant-card {
@@ -137,6 +137,15 @@
 }
 .page-shell:has(.dictionary-split-page) .dictionary-table-card > .ant-card-body {
   padding: 8px 10px 8px;
+}
+/* Keep header and data rows the same height across every admin list.
+   The dictionary page uses these values; apply them to all table cards so
+   every list shares one header/row height (47px including padding + border). */
+.table-card .ant-table-thead > tr > th,
+.table-card .ant-table-tbody > tr > td {
+  box-sizing: border-box;
+  height: 47px;
+  padding-block: 8px;
 }
 .dictionary-table-card .ant-table-tbody > tr.ant-table-row-selected > td {
   background: color-mix(in srgb, var(--primary) 12%, var(--surface)) !important;

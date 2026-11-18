@@ -87,7 +87,33 @@ func All() []plugin.Plugin {
 }
 ```
 
-加一个 import + 一个 slice 元素即可，`// scaffold:insert` 是脚手架自动追加的位置。**没有热加载**：启用/停用改变的是行为，不是二进制。
+加一个 import + 一个 slice 元素即可。**推荐用生成器**（会改到 `// scaffold:insert`）：
+
+```bash
+cd backend
+go run ./cmd/new-plugin -id demo -name "演示" -with-frontend -with-migration
+```
+
+**没有热加载**：启用/停用改变的是行为，不是二进制。停用后业务路由必须 **404**（Gate 在 Authenticate 外层），与路径不存在不可区分。
+
+相关：[`SYSTEM_MIGRATION_CN.md`](SYSTEM_MIGRATION_CN.md)（system / httpapi 边界）。
+
+## 4.1 跨插件通信（eventbus）
+
+插件**禁止**互相 import（`scripts/check-imports.sh`）。协作方式：
+
+- **同步能力**：调用 `platform/` 提供的接口（或 `app.Context` 上的共享依赖）
+- **异步通知**：使用进程内总线 `platform/eventbus`（已挂在 `app.Context.Bus`）
+
+```go
+ctx.Bus.Publish(r.Context(), eventbus.Event{
+    Name: "example.pinged", Source: "example", Payload: map[string]any{"pong": true},
+})
+// 另一插件在初始化或首次请求时：
+ctx.Bus.Subscribe("example.pinged", func(ctx context.Context, ev eventbus.Event) error { ... })
+```
+
+参考：`plugins/example` 的 ping 会发布 `example.pinged`。
 
 ## 5. 迁移
 
@@ -217,7 +243,8 @@ func pingHandler(*app.Context) http.HandlerFunc {
 
 新增插件提交前：
 
-- [ ] `plugins/all/all.go` 加了一行，`go build ./...` 通过
+- [ ] 优先 `go run ./cmd/new-plugin ...`，或手改 `plugins/all/all.go`；`go build ./...` 通过
+- [ ] `Meta.Menus[].Component` 已出现在 `frontend/admin/src/router/page-map.tsx`（`go test ./plugins/all -run TestPluginMenuComponentsMapped`）
 - [ ] `bash scripts/check-imports.sh` 通过（插件之间没有互相 import）
 - [ ] 迁移文件名是 `NNN_name.sql`，没有 `$1`
 - [ ] 菜单写在 `Meta.Menus` 里，`Code` 全局唯一，没有在迁移里写 `sys_menu.id`

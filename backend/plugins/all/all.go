@@ -1,4 +1,4 @@
-// Package all registers every compiled-in plugin. Adding a plugin = adding
+﻿// Package all registers every compiled-in plugin. Adding a plugin = adding
 // one import + one slice entry here (the new-plugin scaffold appends
 // automatically at the //scaffold:insert marker).
 package all

@@ -114,7 +114,8 @@ Machines with `make` can run `make verify` (the backend group above).
 
 ## Plugin model (30 seconds)
 
-- Registration is **compile time**: `plugins/all/all.go` is the only switch; there is no hot loading.
+- Registration is **compile time**: `plugins/all/all.go` is the only switch; scaffold with `go run ./cmd/new-plugin -id ...`. There is no hot loading.
+- Cross-plugin talk goes through `platform/eventbus` (`app.Context.Bus`) or platform interfaces — never plugin-to-plugin imports.
 - New plugins **ship dark**: compiled in with `enabled = false`, migrations do not run, and nothing takes effect until an administrator enables it in System Settings → Plugin Center.
 - Disabling only flips the flag — **no table is dropped** — and re-enabling is instant and lossless.
 - Only uninstall deletes data, and only for a plugin that is already **disabled**: one transaction drops the tables declared in `Meta.DropTables`, deletes the plugin's menus and migration bookkeeping, and the plugin is back to "never installed".

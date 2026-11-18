@@ -6,5 +6,6 @@
 //   - platform 不得 import plugins（kernel 同样不得）；
 //   - plugins 之间禁止互相 import，跨插件通信走 platform 接口或事件总线。
 //
-// P0 阶段此包尚无实现；openapi / eventbus / feature 等在 P3 落地。
+// 已落地：migrate、plugincenter、eventbus（进程内 pub/sub）。
+// 后续：更完整的 feature / 开放能力面等。
 package platform

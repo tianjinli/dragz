@@ -1,4 +1,4 @@
-.PHONY: verify build vet test gen-api gen-api-check check-imports check-i18n
+.PHONY: verify build vet test gen-api gen-api-check check-imports check-i18n new-plugin
 
 # verify = 每阶段验收的机器可执行部分（人工冒烟见 docs/PLUGIN.md）
 verify: vet build test check-imports check-i18n gen-api-check
@@ -32,3 +32,11 @@ check-imports:
 
 check-i18n:
 	bash scripts/check_fail_i18n.sh
+
+# 用法: make new-plugin ID=demo NAME=演示 FRONTEND=1 MIGRATION=1
+new-plugin:
+	@test -n "$(ID)" || (echo "usage: make new-plugin ID=<id> [NAME=...] [FRONTEND=1] [MIGRATION=1]" && exit 1)
+	go run ./cmd/new-plugin -id "$(ID)" \
+		$(if $(NAME),-name "$(NAME)",) \
+		$(if $(FRONTEND),-with-frontend,) \
+		$(if $(MIGRATION),-with-migration,)

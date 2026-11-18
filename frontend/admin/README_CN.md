@@ -72,11 +72,12 @@ src/
 
 - 在 `pages/<模块>/` 下写组件并具名导出；
 - 在 `router/page-map.tsx` 里登记 `'/system/xxx/index': named(() => import('@/pages/...'), 'XxxPage')`；
-- 在「菜单管理」里加一条页面菜单，`component` 填同一个路径；
+- **官方插件**：菜单 `Component` 写在后端 `Meta.Menus`，必须与 page-map 的 key **逐字相同**；
+- 也可用后端生成器一次打通：`go run ./cmd/new-plugin -id demo -with-frontend`；
 - 页面里用到的按钮权限码，由后端路由同步生成，角色授权页勾选即可。
 
-`page-map.test.tsx` 里维护了后端菜单用到的全部 `component` 清单，并断言它们在
-`pageMap` 中都有登记。新增菜单忘了登记，这个用例会直接失败。
+`page-map.test.tsx` 维护种子/核心菜单的 `component` 清单。  
+后端另有 `go test ./plugins/all -run TestPluginMenuComponentsMapped`，断言**插件声明的** `Meta.Menus[].Component` 都已登记到 page-map。
 
 ## 通用 CRUD 脚手架
 
