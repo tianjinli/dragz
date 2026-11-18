@@ -177,6 +177,9 @@ func Routes() []plugin.Route {
 		// Destructive: drops the plugin's tables. Guarded by the same manage
 		// code, and the handler refuses a plugin that is still enabled.
 		{Method: http.MethodDelete, Path: "/api/system/plugins/:id", Permission: "system:plugin:manage", Handler: uninstallPluginHandler},
+		// Install runs migrations and stamps installed_at without enabling.
+		// Reuses system:plugin:manage; no new permission button.
+		{Method: http.MethodPost, Path: "/api/system/plugins/:id/install", Permission: "system:plugin:manage", Handler: installPluginHandler},
 	}
 }
 

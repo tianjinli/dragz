@@ -58,6 +58,43 @@ func listPluginsHandler(ctx *app.Context) http.HandlerFunc {
 	}
 }
 
+// installPluginHandler runs migrations and marks the plugin installed without
+// enabling it. Enable remains a separate click via updatePluginStatusHandler.
+func installPluginHandler(ctx *app.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if ctx.Plugins == nil {
+			fail(w, r, http.StatusInternalServerError, apierrors.CodeInternal, "errors.internal")
+			return
+		}
+
+		pluginID := strings.TrimSpace(pathvarValue(r, "id"))
+		if !plugin.ValidID(pluginID) {
+			fail(w, r, http.StatusBadRequest, apierrors.CodeValidation, "errors.plugin.invalid_id")
+			return
+		}
+
+		err := ctx.Plugins.Install(r.Context(), pluginID)
+		switch {
+		case err == nil:
+			ok(w, r, map[string]bool{"success": true})
+		case errors.Is(err, pluginstate.ErrNotFound):
+			fail(w, r, http.StatusNotFound, apierrors.CodeNotFound, "errors.plugin.not_found")
+		case errors.Is(err, pluginstate.ErrBuiltin):
+			fail(w, r, http.StatusConflict, apierrors.CodeConflict, "errors.plugin.builtin_protected")
+		case errors.Is(err, pluginstate.ErrDependencyDisabled):
+			fail(w, r, http.StatusConflict, apierrors.CodeConflict, "errors.plugin.dependency_disabled")
+		case errors.Is(err, pluginstate.ErrMigrationBusy):
+			fail(w, r, http.StatusConflict, apierrors.CodeConflict, "errors.plugin.migration_busy")
+		case errors.Is(err, pluginstate.ErrMigrationFailed):
+			logx.WithContext(r.Context()).Errorf("plugin %q install migration failed: %v", pluginID, err)
+			fail(w, r, http.StatusInternalServerError, apierrors.CodeInternal, "errors.plugin.migration_failed")
+		default:
+			logx.WithContext(r.Context()).Errorf("install plugin %q: %v", pluginID, err)
+			fail(w, r, http.StatusInternalServerError, apierrors.CodeInternal, "errors.plugin.install_failed")
+		}
+	}
+}
+
 // uninstallPluginHandler drops a disabled plugin's tables, menus and catalog
 // row. The service refuses an enabled plugin, so the destructive path is always
 // two deliberate steps: disable, then uninstall.

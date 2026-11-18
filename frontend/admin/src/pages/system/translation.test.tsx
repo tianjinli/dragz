@@ -112,6 +112,27 @@ describe('TranslationPage', () => {
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
   });
 
+  it('filters the list by namespace through the toolbar select', async () => {
+    apiMocks.listResourceApi.mockResolvedValue({ items: [translatedRow], total: 1 });
+    render(<StrictMode><TranslationPage /></StrictMode>);
+
+    await waitFor(() => expect(apiMocks.listResourceApi).toHaveBeenCalled());
+    apiMocks.listResourceApi.mockClear();
+    apiMocks.listResourceApi.mockResolvedValue({ items: [translatedRow], total: 1 });
+
+    const select = (await screen.findByText('全部分组')).closest('.ant-select');
+    expect(select).not.toBeNull();
+    fireEvent.mouseDown(within(select as HTMLElement).getByRole('combobox'));
+    fireEvent.click(await screen.findByText('菜单'));
+
+    await waitFor(() =>
+      expect(apiMocks.listResourceApi).toHaveBeenCalledWith(
+        '/system/translations',
+        expect.objectContaining({ namespace: 'menu' }),
+      ),
+    );
+  });
+
   it('saves both languages in one request, whatever the interface language is', async () => {
     void i18n.changeLanguage('en-US');
     apiMocks.listResourceApi.mockResolvedValue({ items: [translatedRow], total: 1 });

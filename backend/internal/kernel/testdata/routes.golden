@@ -1,4 +1,6 @@
-# routes.golden - P0 路由基线（122 条 = 11 公开 + 111 受保护）
+# routes.golden - P0 路由基线（123 条 = 11 公开 + 112 受保护）
+# 2026-11-18: 新增 POST /api/system/plugins/:id/install（安装且默认停用），
+#            复用 system:plugin:manage，不产生新的权限按钮。
 # 2026-11-01: 新增 POST /api/system/translations/translate（翻译管理自动翻译），
 #            复用 system:translation:manage，不产生新的权限按钮。
 # 2026-10-30: 新增 DELETE /api/system/plugins/:id（插件卸载），复用
@@ -132,4 +134,5 @@ POST|/api/system/cache/clear|system:cache:manage|-|system:cache:manage|protected
 GET|/api/system/plugins|system:plugin:query|-|-|protected
 PUT|/api/system/plugins/:id/status|system:plugin:manage|-|system:plugin:manage|protected
 DELETE|/api/system/plugins/:id|system:plugin:manage|-|system:plugin:manage|protected
+POST|/api/system/plugins/:id/install|system:plugin:manage|-|system:plugin:manage|protected
 GET|/api/example/ping|example:ping|-|-|protected

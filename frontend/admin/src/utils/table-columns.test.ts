@@ -58,7 +58,7 @@ describe('normalizeListColumns', () => {
   it('defaults ellipsis.showTitle for text and width-constrained rendered columns', () => {
     const columns = normalizeListColumns([
       { title: '名称', dataIndex: 'name' },
-      { title: '状态', dataIndex: 'status', width: 60, render: () => null },
+      { title: '编码', dataIndex: 'code', width: 60, render: () => null },
       { title: '操作', key: 'actions', render: () => null },
     ]);
     expect(columns[0]).toMatchObject({
@@ -75,6 +75,14 @@ describe('normalizeListColumns', () => {
       ellipsis: false,
       fixed: 'end',
     });
+  });
+
+  it('does not ellipsize status columns that already have a render (Switch/Tag)', () => {
+    const columns = normalizeListColumns([
+      { title: '状态', dataIndex: 'status', width: 80, render: () => null },
+    ]);
+    expect(columns[0]).toMatchObject({ align: 'center', width: 80 });
+    expect(columns[0].ellipsis).toBeUndefined();
   });
 
   it('preserves explicit alignment and ellipsis overrides', () => {

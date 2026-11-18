@@ -1339,6 +1339,24 @@
         ]
       }
     },
+    "/api/system/plugins/:id/install": {
+      "post": {
+        "operationId": "post_api_system_plugins__id_install",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/system/plugins/:id/status": {
       "put": {
         "operationId": "put_api_system_plugins__id_status",

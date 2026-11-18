@@ -2,6 +2,33 @@ package store
 
 import "testing"
 
+func TestNormalizeTranslationNamespace(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+		ok   bool
+	}{
+		{raw: "", want: "", ok: true},
+		{raw: "  ", want: "", ok: true},
+		{raw: "menu", want: "menu", ok: true},
+		{raw: " perm ", want: "perm", ok: true},
+		{raw: "role", want: "role", ok: true},
+		{raw: "dept", want: "dept", ok: true},
+		{raw: "post", want: "post", ok: true},
+		{raw: "job", want: "job", ok: true},
+		{raw: "storage", want: "storage", ok: true},
+		{raw: "unknown", want: "unknown", ok: false},
+		{raw: "Menu", want: "Menu", ok: false},
+	}
+	for _, tt := range tests {
+		got, ok := NormalizeTranslationNamespace(tt.raw)
+		if got != tt.want || ok != tt.ok {
+			t.Fatalf("NormalizeTranslationNamespace(%q) = %q, %v; want %q, %v",
+				tt.raw, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
 func TestSplitTranslationKey(t *testing.T) {
 	tests := []struct {
 		entityKey string

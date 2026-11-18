@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -124,6 +125,44 @@ function withAutoHeightStyles<RecordType extends object>(
   return merge(styles) as TableStyles<RecordType>;
 }
 
+/**
+ * Height of the row content that scroll.y must cover. When Ant Design has
+ * already split the body, read the inner table; otherwise read the flat tbody.
+ */
+export function measureBodyContentHeight(
+  root: HTMLElement | null | undefined,
+): number {
+  if (!root) return 0;
+  const body = root.querySelector<HTMLElement>(".ant-table-body");
+  if (body) {
+    const table = body.querySelector("table");
+    return table?.scrollHeight ?? body.scrollHeight;
+  }
+  const tbody = root.querySelector<HTMLElement>(".ant-table-tbody");
+  return tbody ? tbody.getBoundingClientRect().height : 0;
+}
+
+/**
+ * How many pixels the sticky header still needs on the inline-end side so its
+ * column borders line up with the body. Zero when Ant Design already reserved
+ * a matching `.ant-table-cell-scrollbar`.
+ */
+export function measureHeaderGutterPad(
+  root: HTMLElement | null | undefined,
+): number {
+  if (!root) return 0;
+  const body = root.querySelector<HTMLElement>(".ant-table-body");
+  const header = root.querySelector<HTMLElement>(".ant-table-header");
+  if (!body || !header) return 0;
+  const scrollbar = Math.max(0, body.offsetWidth - body.clientWidth);
+  if (scrollbar <= 0) return 0;
+  const gutterCell = header.querySelector<HTMLElement>(
+    ".ant-table-cell-scrollbar",
+  );
+  const gutter = gutterCell ? gutterCell.getBoundingClientRect().width : 0;
+  return Math.max(0, Math.round(scrollbar - gutter));
+}
+
 function TablePanelInner<RecordType extends object>(
   props: TablePanelProps<RecordType>,
   ref: Ref<TableRef>,
@@ -134,6 +173,12 @@ function TablePanelInner<RecordType extends object>(
   const [sectionHeight, setSectionHeight] = useState(0);
   const hasExplicitY = scroll?.y != null;
   const boundedScroll = withBoundedHorizontalScroll(scroll, restProps.columns);
+  const activeScrollY = hasExplicitY
+    ? boundedScroll
+    : scrollY > 0
+      ? { ...boundedScroll, y: scrollY }
+      : boundedScroll;
+  const bodyScrollActive = hasExplicitY || scrollY > 0;
 
   useEffect(() => {
     if (hasExplicitY) {
@@ -163,22 +208,74 @@ function TablePanelInner<RecordType extends object>(
       }
       const headerHeight = getOuterHeight(MEASURE_HEADER, element);
       const paginationHeight = getOuterHeight(MEASURE_PAGINATION, element);
-      setScrollY(
-        Math.max(0, Math.floor(totalHeight - headerHeight - paginationHeight)),
+      const available = Math.max(
+        0,
+        Math.floor(totalHeight - headerHeight - paginationHeight),
       );
       setSectionHeight(Math.max(0, totalHeight - paginationHeight));
+
+      // Only enable scroll.y when rows actually overflow. Ant Design's scroll.y
+      // always paints a vertical scrollbar gutter; forcing it on short lists is
+      // what misaligns header/body borders (and a CSS overflow:auto override
+      // breaks fixed columns — see ant-design#56479).
+      const contentHeight = measureBodyContentHeight(element);
+      const nextY = contentHeight > available + 1 ? available : 0;
+      setScrollY((previous) => (previous === nextY ? previous : nextY));
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(container);
     if (container !== element) observer.observe(element);
+    const body = element.querySelector(".ant-table-body");
+    const tbody = element.querySelector(".ant-table-tbody");
+    if (body) observer.observe(body);
+    if (tbody) observer.observe(tbody);
     return () => observer.disconnect();
   }, [
     hasExplicitY,
     restProps.dataSource,
     restProps.loading,
     restProps.pagination,
+    restProps.columns,
+    scrollY,
+  ]);
+
+  useLayoutEffect(() => {
+    const element = rootRef.current?.nativeElement;
+    const header = element?.querySelector<HTMLElement>(".ant-table-header");
+    if (!element || !header || !bodyScrollActive) {
+      if (header) header.style.paddingInlineEnd = "";
+      return;
+    }
+
+    // Keep Ant Design's overflow-y: scroll. Only pad the sticky holder when its
+    // gutter cell is shorter than the real body scrollbar (common when y is
+    // enabled after mount and rc-table's one-shot measure stayed at 0).
+    const syncGutter = () => {
+      const next = measureHeaderGutterPad(element);
+      const value = next > 0 ? `${next}px` : "";
+      if (header.style.paddingInlineEnd !== value) {
+        header.style.paddingInlineEnd = value;
+      }
+    };
+
+    syncGutter();
+    if (typeof ResizeObserver === "undefined") return;
+    const body = element.querySelector(".ant-table-body");
+    const observer = new ResizeObserver(syncGutter);
+    observer.observe(element);
+    if (body) observer.observe(body);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      header.style.paddingInlineEnd = "";
+    };
+  }, [
+    bodyScrollActive,
+    activeScrollY?.y,
+    restProps.dataSource,
+    restProps.loading,
     restProps.columns,
   ]);
 
@@ -191,13 +288,7 @@ function TablePanelInner<RecordType extends object>(
       }}
       classNames={withMeasureClassNames(classNames)}
       tableLayout={restProps.tableLayout ?? (scroll?.x === 'max-content' ? 'fixed' : undefined)}
-      scroll={
-        hasExplicitY
-          ? boundedScroll
-          : scrollY > 0
-            ? { ...boundedScroll, y: scrollY }
-            : boundedScroll
-      }
+      scroll={activeScrollY}
       style={{
         ...style,
         ...(hasExplicitY ? null : { height: "100%" }),
@@ -222,4 +313,3 @@ export const TablePanel = Object.assign(ForwardedTablePanel, {
   SELECTION_NONE: Table.SELECTION_NONE,
   Summary: Table.Summary,
 }) as typeof Table;
-

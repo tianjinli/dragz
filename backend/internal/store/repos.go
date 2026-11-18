@@ -79,6 +79,8 @@ type PluginStore interface {
 	SyncCatalog(ctx context.Context, entries []PluginCatalogEntry) error
 	ListPlugins(ctx context.Context) ([]PluginRecord, error)
 	SetPluginEnabled(ctx context.Context, pluginID string, enabled bool) (bool, error)
+	// MarkPluginInstalled records that Install finished without enabling.
+	MarkPluginInstalled(ctx context.Context, pluginID string) (bool, error)
 	SetPluginError(ctx context.Context, pluginID, message string) error
 	AppliedMigrations(ctx context.Context, pluginID string) (map[string]string, error)
 	ApplyMigration(ctx context.Context, pluginID, version, name, checksum, script string) error

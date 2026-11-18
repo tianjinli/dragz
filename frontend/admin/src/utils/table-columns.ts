@@ -115,7 +115,16 @@ export function normalizeListColumns<T>(columns: TableColumnsType<T>): TableColu
         column.align = column.align ?? 'center';
         const mappedFixed = toAntdColumnFixed(column.fixed);
         if (mappedFixed) column.fixed = mappedFixed;
-        if (column.ellipsis === undefined && (column.render == null || column.width != null)) {
+        const dataKey = Array.isArray(column.dataIndex)
+          ? column.dataIndex.map(String).join('.')
+          : String(column.dataIndex ?? '');
+        // Status cells usually render Switch/Tag; never clip them into "...".
+        const statusControl = dataKey === 'status' && column.render != null;
+        if (
+          column.ellipsis === undefined &&
+          !statusControl &&
+          (column.render == null || column.width != null)
+        ) {
           // Official Column ellipsis; ResourceCrudPage overlays Tooltip + showTitle:false.
           column.ellipsis = { showTitle: true };
         }

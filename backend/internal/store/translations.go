@@ -29,6 +29,24 @@ func translationPattern(keyword string) string {
 //   job.<job code>            sys_scheduled_job
 //   storage.<storage type>    sys_storage_config
 
+// knownTranslationNamespaces is the fixed set the translation page may filter
+// by. An empty filter means "all"; anything outside this set is refused so a
+// typo cannot silently return an empty page.
+var knownTranslationNamespaces = map[string]struct{}{
+	"menu": {}, "perm": {}, "role": {}, "dept": {}, "post": {}, "job": {}, "storage": {},
+}
+
+// NormalizeTranslationNamespace trims a list filter. Empty is valid (no
+// filter); a non-empty value must be one of the known namespaces.
+func NormalizeTranslationNamespace(raw string) (string, bool) {
+	namespace := strings.TrimSpace(raw)
+	if namespace == "" {
+		return "", true
+	}
+	_, ok := knownTranslationNamespaces[namespace]
+	return namespace, ok
+}
+
 // ErrUnknownEntityKey is returned for an entity_key in a namespace that has no
 // source column to write to.
 var ErrUnknownEntityKey = errors.New("unknown translation entity")
@@ -210,10 +228,12 @@ func (r *AuthRepository) ListTranslations(ctx context.Context, lang, keyword str
 // language: each row carries the owning table's text as its value, so the
 // translation page lists Chinese records exactly like it lists the translated
 // ones. These rows are edited through SetSourceText, not sys_translation, so
-// the generated id is a display key only.
-func (r *AuthRepository) ListSourceTranslations(ctx context.Context, keyword string, page, pageSize int) ([]TranslationRow, int64, error) {
+// the generated id is a display key only. An empty namespace lists every
+// namespace; a non-empty one must already have been normalised by the caller.
+func (r *AuthRepository) ListSourceTranslations(ctx context.Context, keyword, namespace string, page, pageSize int) ([]TranslationRow, int64, error) {
 	rows, err := r.queries.ListSourceEntities(ctx, sqlcstore.ListSourceEntitiesParams{
 		Keyword:    translationPattern(keyword),
+		Namespace:  strings.TrimSpace(namespace),
 		PageSize:   int32(pageSize),
 		PageOffset: int32((page - 1) * pageSize),
 	})
@@ -246,10 +266,12 @@ func (r *AuthRepository) ListSourceTranslations(ctx context.Context, keyword str
 // Rows whose translation is missing keep an empty Value instead of dropping out
 // of the list — otherwise a Chinese-only entity could never be given an English
 // text from this page. The id stays the display key ListSourceEntities
-// generates: an edit is addressed by entity_key, never by id.
-func (r *AuthRepository) ListEntityTranslations(ctx context.Context, lang, keyword string, page, pageSize int) ([]TranslationRow, int64, error) {
+// generates: an edit is addressed by entity_key, never by id. namespace is the
+// same prefix filter ListSourceEntities applies; empty means all namespaces.
+func (r *AuthRepository) ListEntityTranslations(ctx context.Context, lang, keyword, namespace string, page, pageSize int) ([]TranslationRow, int64, error) {
 	rows, err := r.queries.ListSourceEntities(ctx, sqlcstore.ListSourceEntitiesParams{
 		Keyword:    translationPattern(keyword),
+		Namespace:  strings.TrimSpace(namespace),
 		PageSize:   int32(pageSize),
 		PageOffset: int32((page - 1) * pageSize),
 	})

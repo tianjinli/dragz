@@ -602,6 +602,9 @@ CREATE TABLE sys_plugin (
   -- the last enable attempt failed. Truncated to 1000 chars by the store.
   last_error TEXT NOT NULL DEFAULT '',
   enabled_at TIMESTAMPTZ NULL,
+  -- Set when Install finishes (migrations applied) without enabling. Enable
+  -- also stamps this via COALESCE so enable-without-prior-install stays consistent.
+  installed_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

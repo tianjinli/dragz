@@ -60,12 +60,20 @@ export interface PluginRecord {
   dependsOn: string[];
   builtin: boolean;
   enabled: boolean;
+  /** False when the plugin was never installed or was fully uninstalled. */
+  installed: boolean;
   lastError: string;
   pendingMigrations: number;
 }
 export const listPluginsApi = () => apiGet<PluginRecord[]>("/system/plugins");
 export const updatePluginStatusApi = (id: string, status: number) =>
   apiPut<void>(`/system/plugins/${encodeURIComponent(id)}/status`, { status });
+/**
+ * Install runs migrations and marks the plugin installed without enabling it.
+ * The administrator must flip the switch separately.
+ */
+export const installPluginApi = (id: string) =>
+  apiPost<void>(`/system/plugins/${encodeURIComponent(id)}/install`);
 /**
  * Uninstall drops the plugin's tables and menus. It is only allowed while the
  * plugin is disabled, so the UI must never offer it on an enabled row.

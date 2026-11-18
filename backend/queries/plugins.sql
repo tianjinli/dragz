@@ -22,21 +22,30 @@ SET name = EXCLUDED.name,
 
 -- name: ListPlugins :many
 SELECT plugin_id, name, version, description, is_builtin, enabled, last_error, enabled_at,
-  created_at, updated_at
+  installed_at, created_at, updated_at
 FROM sys_plugin
 ORDER BY plugin_id;
 
 -- name: GetPlugin :one
 SELECT plugin_id, name, version, description, is_builtin, enabled, last_error, enabled_at,
-  created_at, updated_at
+  installed_at, created_at, updated_at
 FROM sys_plugin
 WHERE plugin_id = $1;
 
 -- name: EnablePlugin :execrows
 -- Builtins are excluded in SQL as well as in Go: defense in depth, so a bug in
--- the service cannot brick the platform plugin.
+-- the service cannot brick the platform plugin. Enabling also marks installed
+-- so the enable-without-prior-install path stays consistent with Install.
 UPDATE sys_plugin
-SET enabled = TRUE, last_error = '', enabled_at = NOW(), updated_at = NOW()
+SET enabled = TRUE, last_error = '', enabled_at = NOW(),
+    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+WHERE plugin_id = $1 AND is_builtin = FALSE;
+
+-- name: MarkPluginInstalled :execrows
+-- Install without enabling: migrations have run (or there were none), data is
+-- ready, but the plugin stays dark until an administrator flips the switch.
+UPDATE sys_plugin
+SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
 WHERE plugin_id = $1 AND is_builtin = FALSE;
 
 -- name: DisablePlugin :execrows

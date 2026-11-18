@@ -25,10 +25,16 @@ type Info struct {
 	// Builtin plugins cannot be disabled; their switch is read-only.
 	Builtin bool `json:"builtin"`
 	Enabled bool `json:"enabled"`
+	// Installed means Install (or Enable) has left a trace that Uninstall would
+	// remove: installed_at, applied migrations, or a prior enable for
+	// migration-less plugins. A compiled-in plugin that was never installed —
+	// or was fully uninstalled — stays listed but is not installed, so the
+	// admin UI must not offer Uninstall.
+	Installed bool `json:"installed"`
 	// LastError is the reason the plugin was auto-disabled, or the reason the
-	// last enable attempt failed. Empty when healthy.
+	// last enable/install attempt failed. Empty when healthy.
 	LastError string `json:"lastError"`
-	// PendingMigrations is how many SQL files would run on the next enable.
+	// PendingMigrations is how many SQL files would run on the next install or enable.
 	PendingMigrations int `json:"pendingMigrations"`
 }
 
@@ -42,7 +48,10 @@ type Runtime interface {
 	Builtin(pluginID string) bool
 	// List returns every compiled-in plugin with its persisted state.
 	List(ctx context.Context) ([]Info, error)
-	// Enable runs any pending migrations, then marks the plugin enabled.
+	// Install runs pending migrations and marks the plugin installed without
+	// enabling it. The administrator must call Enable separately.
+	Install(ctx context.Context, pluginID string) error
+	// Enable runs any pending migrations, syncs menus, then marks the plugin enabled.
 	Enable(ctx context.Context, pluginID string) error
 	// Disable marks the plugin disabled. It never drops data.
 	Disable(ctx context.Context, pluginID string) error

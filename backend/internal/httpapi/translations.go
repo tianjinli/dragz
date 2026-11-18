@@ -236,12 +236,17 @@ func listTranslationsHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		page, pageSize := queryInt(query.Get("page"), 1), queryInt(query.Get("pageSize"), 20)
+		namespace, okNamespace := store.NormalizeTranslationNamespace(query.Get("namespace"))
+		if !okNamespace {
+			fail(w, r, http.StatusBadRequest, 40000, "errors.translation_namespace_unsupported")
+			return
+		}
 		// One row per preset entity, Chinese source next to the primary target
 		// language. The interface language deliberately plays no part: the page
 		// edits both columns, so it must list both regardless of who is logged in.
 		lang := pkgi18n.TargetLanguage()
 		items, total, err := ctx.Auth.ListEntityTranslations(
-			r.Context(), lang, query.Get("keyword"), page, pageSize)
+			r.Context(), lang, query.Get("keyword"), namespace, page, pageSize)
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.translation_list_failed")
 			return

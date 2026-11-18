@@ -24,8 +24,10 @@ type fakeRuntime struct {
 	builtin        map[string]bool
 	infos          []pluginstate.Info
 	listErr        error
+	installErr     error
 	enableErr      error
 	disableErr     error
+	installCalls   []string
 	enableCalls    []string
 	disableCall    []string
 	uninstallErr   error
@@ -40,6 +42,11 @@ func (f *fakeRuntime) List(context.Context) ([]pluginstate.Info, error) {
 		return nil, f.listErr
 	}
 	return f.infos, nil
+}
+
+func (f *fakeRuntime) Install(_ context.Context, id string) error {
+	f.installCalls = append(f.installCalls, id)
+	return f.installErr
 }
 
 func (f *fakeRuntime) Enable(_ context.Context, id string) error {
@@ -209,6 +216,60 @@ func TestUpdatePluginStatusRejectsInvalidID(t *testing.T) {
 	}
 	if len(runtime.enableCalls) != 0 {
 		t.Fatalf("enable must not be called for an invalid ID")
+	}
+}
+
+func installRequest(t *testing.T, pluginID string) *http.Request {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/api/system/plugins/x/install", nil)
+	return pathvar.WithVars(request, map[string]string{"id": pluginID})
+}
+
+func TestInstallPluginHandlerSucceeds(t *testing.T) {
+	runtime := newRuntime()
+	ctx := newTestContext(t, runtime)
+
+	rec := httptest.NewRecorder()
+	installPluginHandler(ctx)(rec, installRequest(t, "demo"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if len(runtime.installCalls) != 1 || runtime.installCalls[0] != "demo" {
+		t.Fatalf("install calls = %v, want [demo]", runtime.installCalls)
+	}
+}
+
+func TestInstallPluginHandlerMapsSentinelErrors(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   int
+	}{
+		{"not found", pluginstate.ErrNotFound, http.StatusNotFound, 40401},
+		{"builtin", pluginstate.ErrBuiltin, http.StatusConflict, 40902},
+		{"dependency disabled", pluginstate.ErrDependencyDisabled, http.StatusConflict, 40902},
+		{"busy", pluginstate.ErrMigrationBusy, http.StatusConflict, 40902},
+		{"migration failed", pluginstate.ErrMigrationFailed, http.StatusInternalServerError, 50000},
+		{"unexpected", errors.New("kaboom"), http.StatusInternalServerError, 50000},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			runtime := newRuntime()
+			runtime.installErr = testCase.err
+			ctx := newTestContext(t, runtime)
+
+			rec := httptest.NewRecorder()
+			installPluginHandler(ctx)(rec, installRequest(t, "demo"))
+
+			if rec.Code != testCase.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, testCase.wantStatus)
+			}
+			if body := decodeEnvelope(t, rec); body.Code != testCase.wantCode {
+				t.Fatalf("code = %d, want %d", body.Code, testCase.wantCode)
+			}
+		})
 	}
 }
 

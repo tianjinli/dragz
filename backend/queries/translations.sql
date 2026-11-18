@@ -60,6 +60,7 @@ LIMIT 200;
 -- starts above anything sys_translation's sequence can reach, and an id that
 -- leaks into a record delete hits no row at all. The window count lets one
 -- query serve both the page and its total.
+-- namespace filters by entity_key prefix (menu/perm/role/...); empty means all.
 SELECT e.entity_key::text AS entity_key,
        e.source::text AS source,
        e.source::text AS value,
@@ -71,6 +72,8 @@ FROM v_preset_entity e
 WHERE (sqlc.arg(keyword)::text = ''
        OR e.entity_key ILIKE sqlc.arg(keyword)::text
        OR e.source ILIKE sqlc.arg(keyword)::text)
+  AND (sqlc.arg(namespace)::text = ''
+       OR e.entity_key LIKE sqlc.arg(namespace)::text || '.%')
 ORDER BY e.entity_key
 LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
 

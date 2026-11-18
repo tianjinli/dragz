@@ -96,6 +96,25 @@ func (f *fakeRepo) SetPluginEnabled(_ context.Context, pluginID string, enabled 
 		return false, nil
 	}
 	record.Enabled = enabled
+	if enabled {
+		now := time.Now()
+		record.EnabledAt = now
+		if record.InstalledAt.IsZero() {
+			record.InstalledAt = now
+		}
+	}
+	f.records[pluginID] = record
+	return true, nil
+}
+
+func (f *fakeRepo) MarkPluginInstalled(_ context.Context, pluginID string) (bool, error) {
+	record, ok := f.records[pluginID]
+	if !ok || record.Builtin {
+		return false, nil
+	}
+	if record.InstalledAt.IsZero() {
+		record.InstalledAt = time.Now()
+	}
 	f.records[pluginID] = record
 	return true, nil
 }
@@ -382,16 +401,40 @@ func TestUninstallDropsDeclaredTablesAndResetsPlugin(t *testing.T) {
 	if len(repo.droppedTables) != 1 || repo.droppedTables[0] != "demo" {
 		t.Fatalf("dropped tables = %v, want [demo]", repo.droppedTables)
 	}
-	// The catalog row and the migration bookkeeping are gone, so the plugin is
-	// back to "never installed": enabling it replays 001 from scratch.
-	if _, exists := repo.records["demo"]; exists {
-		t.Fatal("catalog row must be removed")
-	}
+	// Migration bookkeeping is gone; the catalog row is recreated clean so the
+	// plugin shows as Available (installed_at cleared) without a restart.
 	if len(repo.applied["demo"]) != 0 {
 		t.Fatalf("migration rows = %v, want none", repo.applied["demo"])
 	}
+	record, exists := repo.records["demo"]
+	if !exists {
+		t.Fatal("catalog row must be restored as Available after uninstall")
+	}
+	if !record.InstalledAt.IsZero() || !record.EnabledAt.IsZero() || record.Enabled {
+		t.Fatalf("catalog after uninstall = %+v, want clean Available row", record)
+	}
 	if service.Enabled("demo") {
 		t.Fatal("demo must not be enabled after uninstall")
+	}
+	infos, err := service.List(context.Background())
+	if err != nil {
+		t.Fatalf("List after uninstall: %v", err)
+	}
+	for _, info := range infos {
+		if info.ID == "demo" && info.Installed {
+			t.Fatal("demo must report installed=false after uninstall")
+		}
+	}
+
+	// Install again without a process restart: stamps installed_at, stays disabled.
+	if err := service.Install(context.Background(), "demo"); err != nil {
+		t.Fatalf("Install after uninstall: %v", err)
+	}
+	if service.Enabled("demo") {
+		t.Fatal("demo must stay disabled after Install")
+	}
+	if repo.records["demo"].InstalledAt.IsZero() {
+		t.Fatal("installed_at must be stamped after reinstall")
 	}
 }
 
@@ -441,19 +484,72 @@ func TestListReportsPendingMigrations(t *testing.T) {
 	if byID["demo"].DependsOn == nil {
 		t.Fatal("DependsOn must never be nil in the JSON payload")
 	}
+	// Fresh catalog sync: demo has never been installed, so Uninstall must not
+	// be offered. Builtin system is always installed.
+	if byID["demo"].Installed {
+		t.Fatal("demo must not be installed before the first install")
+	}
+	if !byID["system"].Installed {
+		t.Fatal("system builtin must report installed")
+	}
 
-	// Once applied, nothing is pending.
-	if err := service.Enable(context.Background(), "demo"); err != nil {
-		t.Fatalf("Enable: %v", err)
+	// Install applies migrations without enabling.
+	if err := service.Install(context.Background(), "demo"); err != nil {
+		t.Fatalf("Install: %v", err)
 	}
 	infos, err = service.List(context.Background())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	for _, info := range infos {
-		if info.ID == "demo" && info.PendingMigrations != 0 {
-			t.Fatalf("demo pending after enable = %d, want 0", info.PendingMigrations)
+		if info.ID != "demo" {
+			continue
 		}
+		if info.PendingMigrations != 0 {
+			t.Fatalf("demo pending after install = %d, want 0", info.PendingMigrations)
+		}
+		if !info.Installed {
+			t.Fatal("demo must report installed after Install")
+		}
+		if info.Enabled {
+			t.Fatal("demo must stay disabled after Install")
+		}
+	}
+}
+
+func TestInstallLeavesPluginDisabled(t *testing.T) {
+	service, repo := newService(t)
+	if err := service.RunStartup(context.Background()); err != nil {
+		t.Fatalf("RunStartup: %v", err)
+	}
+	repo.syncedMenuPlugins = nil
+	repo.syncCalls = 0
+
+	if err := service.Install(context.Background(), "demo"); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if service.Enabled("demo") {
+		t.Fatal("demo must stay disabled after Install")
+	}
+	if repo.records["demo"].InstalledAt.IsZero() {
+		t.Fatal("installed_at must be stamped")
+	}
+	if len(repo.applied["demo"]) != 2 {
+		t.Fatalf("applied migrations = %d, want 2", len(repo.applied["demo"]))
+	}
+	// Menus and permission buttons stay unsynced until Enable.
+	if len(repo.syncedMenuPlugins) != 0 {
+		t.Fatalf("Install must not sync menus, got %v", repo.syncedMenuPlugins)
+	}
+	if repo.syncCalls != 0 {
+		t.Fatalf("Install must not sync permission buttons, got %d calls", repo.syncCalls)
+	}
+
+	if err := service.Enable(context.Background(), "demo"); err != nil {
+		t.Fatalf("Enable after Install: %v", err)
+	}
+	if !service.Enabled("demo") {
+		t.Fatal("demo must be enabled after Enable")
 	}
 }
 

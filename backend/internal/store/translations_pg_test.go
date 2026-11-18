@@ -100,3 +100,91 @@ func TestTranslationDeletesReportWhatTheyRemoved(t *testing.T) {
 		t.Fatalf("clear missing = %v, want ErrTranslationNotFound", err)
 	}
 }
+
+// TestListEntityTranslationsFiltersByNamespace covers the list page's group
+// filter: a namespace keeps only matching entity_key prefixes and the window
+// total reflects that filter, not the unfiltered catalog.
+//
+// Skipped unless DRAGZ_VERIFY_DSN is set — same disposable-database rule as
+// TestTranslationDeletesReportWhatTheyRemoved.
+func TestListEntityTranslationsFiltersByNamespace(t *testing.T) {
+	dsn := os.Getenv("DRAGZ_VERIFY_DSN")
+	if dsn == "" {
+		t.Skip("DRAGZ_VERIFY_DSN not set; skipping the real-database translation test")
+	}
+
+	db, err := OpenPostgres(dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	schema := []string{
+		`DROP VIEW IF EXISTS v_preset_entity`,
+		`DROP TABLE IF EXISTS sys_translation`,
+		`CREATE TABLE sys_translation (
+		   id BIGSERIAL PRIMARY KEY,
+		   entity_key VARCHAR(128) NOT NULL,
+		   lang VARCHAR(16) NOT NULL,
+		   value TEXT NOT NULL,
+		   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		   UNIQUE (entity_key, lang)
+		 )`,
+		`CREATE VIEW v_preset_entity AS
+		   SELECT * FROM (VALUES
+		     ('menu.dashboard'::text, '工作台'::text, NOW()),
+		     ('menu.system', '系统管理', NOW()),
+		     ('role.admin', '管理员', NOW())
+		   ) AS t(entity_key, source, updated_at)`,
+	}
+	for _, stmt := range schema {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("schema: %v", err)
+		}
+	}
+
+	repo := NewAuthRepository(db)
+	if err := repo.CreateTranslation(ctx, "menu.dashboard", "en", "Workbench"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	items, total, err := repo.ListEntityTranslations(ctx, "en", "", "menu", 1, 20)
+	if err != nil {
+		t.Fatalf("list menu: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("menu total = %d, want 2", total)
+	}
+	if len(items) != 2 {
+		t.Fatalf("menu items = %d, want 2", len(items))
+	}
+	for _, item := range items {
+		if len(item.EntityKey) < 5 || item.EntityKey[:5] != "menu." {
+			t.Fatalf("unexpected entity key %q under menu filter", item.EntityKey)
+		}
+	}
+	if items[0].Value != "Workbench" {
+		t.Fatalf("dashboard value = %q, want Workbench", items[0].Value)
+	}
+	if items[1].Value != "" {
+		t.Fatalf("system value = %q, want empty", items[1].Value)
+	}
+
+	items, total, err = repo.ListEntityTranslations(ctx, "en", "", "role", 1, 20)
+	if err != nil {
+		t.Fatalf("list role: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].EntityKey != "role.admin" {
+		t.Fatalf("role filter = total %d items %+v, want one role.admin", total, items)
+	}
+
+	_, total, err = repo.ListEntityTranslations(ctx, "en", "", "", 1, 20)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("all total = %d, want 3", total)
+	}
+}

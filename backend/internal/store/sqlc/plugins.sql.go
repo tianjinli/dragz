@@ -36,12 +36,14 @@ func (q *Queries) DisablePlugin(ctx context.Context, pluginID string) (int64, er
 
 const enablePlugin = `-- name: EnablePlugin :execrows
 UPDATE sys_plugin
-SET enabled = TRUE, last_error = '', enabled_at = NOW(), updated_at = NOW()
+SET enabled = TRUE, last_error = '', enabled_at = NOW(),
+    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
 WHERE plugin_id = $1 AND is_builtin = FALSE
 `
 
 // Builtins are excluded in SQL as well as in Go: defense in depth, so a bug in
-// the service cannot brick the platform plugin.
+// the service cannot brick the platform plugin. Enabling also marks installed
+// so the enable-without-prior-install path stays consistent with Install.
 func (q *Queries) EnablePlugin(ctx context.Context, pluginID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, enablePlugin, pluginID)
 	if err != nil {
@@ -52,7 +54,7 @@ func (q *Queries) EnablePlugin(ctx context.Context, pluginID string) (int64, err
 
 const getPlugin = `-- name: GetPlugin :one
 SELECT plugin_id, name, version, description, is_builtin, enabled, last_error, enabled_at,
-  created_at, updated_at
+  installed_at, created_at, updated_at
 FROM sys_plugin
 WHERE plugin_id = $1
 `
@@ -69,6 +71,7 @@ func (q *Queries) GetPlugin(ctx context.Context, pluginID string) (SysPlugin, er
 		&i.Enabled,
 		&i.LastError,
 		&i.EnabledAt,
+		&i.InstalledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -111,7 +114,7 @@ func (q *Queries) ListPluginMigrations(ctx context.Context, pluginID string) ([]
 
 const listPlugins = `-- name: ListPlugins :many
 SELECT plugin_id, name, version, description, is_builtin, enabled, last_error, enabled_at,
-  created_at, updated_at
+  installed_at, created_at, updated_at
 FROM sys_plugin
 ORDER BY plugin_id
 `
@@ -134,6 +137,7 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]SysPlugin, error) {
 			&i.Enabled,
 			&i.LastError,
 			&i.EnabledAt,
+			&i.InstalledAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -148,6 +152,22 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]SysPlugin, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markPluginInstalled = `-- name: MarkPluginInstalled :execrows
+UPDATE sys_plugin
+SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+WHERE plugin_id = $1 AND is_builtin = FALSE
+`
+
+// Install without enabling: migrations have run (or there were none), data is
+// ready, but the plugin stays dark until an administrator flips the switch.
+func (q *Queries) MarkPluginInstalled(ctx context.Context, pluginID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markPluginInstalled, pluginID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const recordPluginMigration = `-- name: RecordPluginMigration :exec

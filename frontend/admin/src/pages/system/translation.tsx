@@ -197,16 +197,36 @@ export function TranslationPage() {
     );
   };
 
+  const namespaces = [
+    "menu",
+    "perm",
+    "role",
+    "dept",
+    "post",
+    "job",
+    "storage",
+  ] as const;
+
   return (
     <ResourceCrudPage
       title={t("system.settings.translation.title")}
-      description={t("system.settings.translation.description")}
       endpoint="/system/translations"
       paged
       createCode="system:translation:manage"
       updateCode="system:translation:manage"
       deleteCode="system:translation:manage"
       searchPlaceholder={t("system.settings.translation.searchPlaceholder")}
+      extraSearchFilters={[
+        {
+          key: "namespace",
+          label: t("system.settings.translation.namespace"),
+          placeholder: t("system.settings.translation.allNamespaces"),
+          options: namespaces.map((value) => ({
+            label: t(`system.settings.translation.namespaces.${value}`),
+            value,
+          })),
+        },
+      ]}
       columns={[
         {
           title: t("system.settings.translation.key"),

@@ -167,3 +167,21 @@ func TestTranslateHandlerRejectsMalformedBody(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestListTranslationsRejectsUnknownNamespace(t *testing.T) {
+	// Validation runs before the store is touched, so a nil Auth is enough.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/system/translations?namespace=nope", nil)
+	listTranslationsHandler(&app.Context{})(rec, req)
+
+	var reply translateReply
+	if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+		t.Fatalf("decode reply: %v (body %s)", err, rec.Body.String())
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if reply.Message != "errors.translation_namespace_unsupported" {
+		t.Fatalf("message = %q, want errors.translation_namespace_unsupported", reply.Message)
+	}
+}

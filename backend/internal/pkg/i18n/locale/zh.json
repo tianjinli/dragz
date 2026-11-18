@@ -22,6 +22,7 @@
   "errors.plugin.invalid_id": "插件标识无效",
   "errors.plugin.enabled_cannot_uninstall": "请先停用插件，再执行卸载",
   "errors.plugin.uninstall_failed": "插件卸载失败",
+  "errors.plugin.install_failed": "插件安装失败",
   "errors.locked": "账号已锁定，请稍后再试",
   "errors.retry_later": "请稍候再试",
   "errors.feature_disabled": "功能已关闭",
@@ -315,6 +316,7 @@
   "errors.translation_value_required": "译文不能为空，如需回退中文原文请删除该条记录",
   "errors.translation_not_found": "翻译记录不存在或已被删除",
   "errors.translation_lang_unsupported": "目前只支持中文和英文两种语言",
+  "errors.translation_namespace_unsupported": "不支持的翻译命名空间",
   "errors.translation_lang_conflict": "该实体已有此语言的译文，请直接编辑已有记录",
   "errors.translation_service_unavailable": "自动翻译暂时不可用，请手动填写译文",
   "errors.translation_text_too_long": "原文过长，自动翻译只支持预设文案这类短文本，请手动填写译文"

@@ -6,6 +6,7 @@ import { Page } from "@/components/Page";
 import { TablePanel } from "@/components/TablePanel";
 import { normalizeListColumns } from "@/utils/table-columns";
 import {
+  installPluginApi,
   listPluginsApi,
   uninstallPluginApi,
   updatePluginStatusApi,
@@ -14,12 +15,15 @@ import {
 import { useAuthStore } from "@/stores/auth";
 
 /**
- * Plugin center.
+ * Plugin center — Available / Installed+Disabled / Installed+Enabled.
  *
- * The switch reflects SERVER state, never an optimistic guess: enabling runs
- * migrations, so the request can fail and leave the plugin off. On failure the
- * request interceptor has already surfaced the localized backend message, and
- * reloading re-reads the truth.
+ * - Status always shows a Switch. Uninstalled and builtin are disabled (off / on).
+ * - Available (!installed): Actions offer Install (migrations, stay disabled).
+ * - Installed: Switch toggles Enable/Disable; Uninstall when disabled.
+ *
+ * The switch and buttons reflect SERVER state, never an optimistic guess:
+ * enabling can fail. On failure the interceptor already surfaced the localized
+ * backend message; reloading re-reads the truth.
  */
 export function PluginPage() {
   const { t } = useTranslation();
@@ -40,6 +44,10 @@ export function PluginPage() {
     void load();
   }, [load]);
 
+  const refreshAccess = () => {
+    void useAuthStore.getState().loadAccess().catch(() => undefined);
+  };
+
   const toggle = async (row: PluginRecord, next: boolean) => {
     setPending(row.id);
     try {
@@ -48,11 +56,23 @@ export function PluginPage() {
         next ? t("system.plugins.pluginEnabled") : t("system.plugins.pluginDisabled"),
       );
       await load();
-      // Enabling/disabling changes which menus the backend sends back.
-      void useAuthStore.getState().loadAccess().catch(() => undefined);
+      refreshAccess();
     } catch {
-      // The interceptor already showed the backend message; re-read so the
-      // switch shows what actually happened.
+      await load();
+    } finally {
+      setPending(undefined);
+    }
+  };
+
+  // Install materialises schema and stamps installed; the switch stays off
+  // until the administrator enables explicitly.
+  const install = async (row: PluginRecord) => {
+    setPending(row.id);
+    try {
+      await installPluginApi(row.id);
+      void message.success(t("system.plugins.installed"));
+      await load();
+    } catch {
       await load();
     } finally {
       setPending(undefined);
@@ -63,11 +83,18 @@ export function PluginPage() {
     setPending(row.id);
     try {
       await uninstallPluginApi(row.id);
+      // Flip to Available immediately so Status never keeps a disabled Switch
+      // while the list refetch is in flight.
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === row.id
+            ? { ...item, installed: false, enabled: false, lastError: "" }
+            : item,
+        ),
+      );
       void message.success(t("system.plugins.uninstalled"));
       await load();
-      // The plugin's menus and permission buttons are gone; the sidebar has to
-      // be rebuilt or the pages would still be listed.
-      void useAuthStore.getState().loadAccess().catch(() => undefined);
+      refreshAccess();
     } catch {
       await load();
     } finally {
@@ -110,24 +137,29 @@ export function PluginPage() {
               {
                 title: t("common.status"),
                 dataIndex: "enabled",
-                width: 100,
+                width: 120,
                 ellipsis: false,
-                render: (_: boolean, row: PluginRecord) => (
-                  <Tooltip
-                    title={
-                      row.builtin
-                        ? t("system.plugins.builtinCannotDisable")
-                        : row.lastError || undefined
-                    }
-                  >
-                    <Switch
-                      checked={row.enabled}
-                      disabled={row.builtin || pending === row.id}
-                      loading={pending === row.id}
-                      onChange={(next) => void toggle(row, next)}
-                    />
-                  </Tooltip>
-                ),
+                render: (_: boolean, row: PluginRecord) => {
+                  const notInstalled = !row.builtin && !row.installed;
+                  return (
+                    <Tooltip
+                      title={
+                        row.builtin
+                          ? t("system.plugins.builtinCannotDisable")
+                          : notInstalled
+                            ? t("system.plugins.installFirst")
+                            : row.lastError || undefined
+                      }
+                    >
+                      <Switch
+                        checked={row.enabled}
+                        disabled={row.builtin || notInstalled || pending === row.id}
+                        loading={pending === row.id}
+                        onChange={(next) => void toggle(row, next)}
+                      />
+                    </Tooltip>
+                  );
+                },
               },
               {
                 title: t("system.plugins.lastError"),
@@ -142,17 +174,28 @@ export function PluginPage() {
               {
                 title: t("common.actions"),
                 key: "actions",
-                width: 110,
+                width: 120,
                 ellipsis: false,
                 render: (_: unknown, row: PluginRecord) => {
-                  // Uninstall drops tables. The backend refuses an enabled
-                  // plugin, so the button is disabled rather than failing on
-                  // click; a builtin has no data to throw away at all.
-                  const blocked = row.builtin
-                    ? t("system.plugins.builtinCannotUninstall")
-                    : row.enabled
-                      ? t("system.plugins.disableFirst")
-                      : undefined;
+                  if (row.builtin) {
+                    return "-";
+                  }
+                  if (!row.installed) {
+                    return (
+                      <Button
+                        type="link"
+                        size="small"
+                        loading={pending === row.id}
+                        disabled={pending === row.id}
+                        onClick={() => void install(row)}
+                      >
+                        {t("system.plugins.install")}
+                      </Button>
+                    );
+                  }
+                  const blocked = row.enabled
+                    ? t("system.plugins.disableFirst")
+                    : undefined;
                   return (
                     <Tooltip title={blocked}>
                       <Popconfirm

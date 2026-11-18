@@ -285,6 +285,7 @@ type SysPlugin struct {
 	Enabled     bool         `json:"enabled"`
 	LastError   string       `json:"last_error"`
 	EnabledAt   sql.NullTime `json:"enabled_at"`
+	InstalledAt sql.NullTime `json:"installed_at"`
 	CreatedAt   time.Time    `json:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at"`
 }

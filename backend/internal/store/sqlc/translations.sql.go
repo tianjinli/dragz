@@ -154,12 +154,15 @@ FROM v_preset_entity e
 WHERE ($1::text = ''
        OR e.entity_key ILIKE $1::text
        OR e.source ILIKE $1::text)
+  AND ($2::text = ''
+       OR e.entity_key LIKE $2::text || '.%')
 ORDER BY e.entity_key
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListSourceEntitiesParams struct {
 	Keyword    string `json:"keyword"`
+	Namespace  string `json:"namespace"`
 	PageOffset int32  `json:"page_offset"`
 	PageSize   int32  `json:"page_size"`
 }
@@ -181,8 +184,14 @@ type ListSourceEntitiesRow struct {
 // starts above anything sys_translation's sequence can reach, and an id that
 // leaks into a record delete hits no row at all. The window count lets one
 // query serve both the page and its total.
+// namespace filters by entity_key prefix (menu/perm/role/...); empty means all.
 func (q *Queries) ListSourceEntities(ctx context.Context, arg ListSourceEntitiesParams) ([]ListSourceEntitiesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listSourceEntities, arg.Keyword, arg.PageOffset, arg.PageSize)
+	rows, err := q.db.QueryContext(ctx, listSourceEntities,
+		arg.Keyword,
+		arg.Namespace,
+		arg.PageOffset,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}

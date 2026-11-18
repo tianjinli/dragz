@@ -54,11 +54,13 @@ export function JobPage() {
         loadData={load}
         columns={[
           { title: t("system.tools.taskName"), dataIndex: "name" },
-          { title: t("system.tools.handler"), dataIndex: "handler" },
+          // 1.5× the list-table minimum column width so handler names are less truncated.
+          { title: t("system.tools.handler"), dataIndex: "handler", width: 192 },
           { title: t("system.tools.cron"), dataIndex: "cronExpression" },
           {
             title: t("common.status"),
             dataIndex: "status",
+            ellipsis: false,
             render: (value: unknown, row: ResourceRecord) => (
               <Switch
                 checked={Number(value ?? 0) === 1}

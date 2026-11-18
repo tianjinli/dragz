@@ -831,6 +831,9 @@ export function ResourceCrudPage({
           if (column.dataIndex === "status") {
             return {
               ...column,
+              // Switch/Tag must stay fully visible; a fixed width would otherwise
+              // get ellipsis from normalizeListColumns and show "..." instead.
+              ellipsis: false,
               render: (value: unknown, record: ResourceRecord) => {
                 const isChecked = Number(value ?? 0) === 1;
                 return statusSwitchEnabled ? (

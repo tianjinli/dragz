@@ -50,6 +50,9 @@ type PluginRecord struct {
 	Enabled     bool
 	LastError   string
 	EnabledAt   time.Time
+	// InstalledAt is set by Install (and by Enable for the enable-without-prior-install path).
+	// It is cleared when the catalog row is deleted on Uninstall.
+	InstalledAt time.Time
 	UpdatedAt   time.Time
 }
 
@@ -77,9 +80,12 @@ var bootstrapStatements = []string{
   enabled BOOLEAN NOT NULL DEFAULT FALSE,
   last_error TEXT NOT NULL DEFAULT '',
   enabled_at TIMESTAMPTZ NULL,
+  installed_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`,
+	// Install marks a plugin without enabling it; older databases lack the column.
+	`ALTER TABLE sys_plugin ADD COLUMN IF NOT EXISTS installed_at TIMESTAMPTZ NULL`,
 	`CREATE TABLE IF NOT EXISTS sys_plugin_migration (
   plugin_id VARCHAR(16) NOT NULL,
   version VARCHAR(32) NOT NULL,
@@ -377,10 +383,20 @@ func (r *PluginRepository) ListPlugins(ctx context.Context) ([]PluginRecord, err
 			Enabled:     row.Enabled,
 			LastError:   row.LastError,
 			EnabledAt:   row.EnabledAt.Time,
+			InstalledAt: row.InstalledAt.Time,
 			UpdatedAt:   row.UpdatedAt,
 		})
 	}
 	return records, nil
+}
+
+// MarkPluginInstalled stamps installed_at without flipping enabled.
+func (r *PluginRepository) MarkPluginInstalled(ctx context.Context, pluginID string) (bool, error) {
+	affected, err := r.queries.MarkPluginInstalled(ctx, pluginID)
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
 }
 
 // SetPluginEnabled flips the flag. It reports false when no row was updated,

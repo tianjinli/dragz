@@ -396,7 +396,7 @@ export const MenuPage = resource(() => ({
     { title: i18n.t("system.org.method"), dataIndex: "method", width: 90 },
     { title: i18n.t("system.org.path"), dataIndex: "path", width: 240 },
     { title: i18n.t("common.sort"), dataIndex: "sort", width: 80 },
-    { title: i18n.t("common.status"), dataIndex: "status", width: 80 },
+    { title: i18n.t("common.status"), dataIndex: "status", width: 100 },
   ],
   fields: [
     menuParentField(),

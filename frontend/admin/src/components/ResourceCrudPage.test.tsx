@@ -158,7 +158,7 @@ describe('ResourceCrudPage status switch', () => {
     apiMocks.updateResourceApi.mockResolvedValue(undefined);
     apiMocks.updateResourceStatusApi.mockResolvedValue(undefined);
 
-    render(<ResourceCrudPage columns={[{ dataIndex: 'name', title: '名称' }, { dataIndex: 'status', title: '状态' }]} createCode="create" deleteCode="delete" endpoint="/system/departments" fields={[{ key: 'name', label: '名称', required: true }, { key: 'status', label: '启用', numeric: true, type: 'switch' }]} title="部门" updateCode="update"/>);
+    render(<ResourceCrudPage columns={[{ dataIndex: 'name', title: '名称' }, { dataIndex: 'status', title: '状态', width: 80 }]} createCode="create" deleteCode="delete" endpoint="/system/departments" fields={[{ key: 'name', label: '名称', required: true }, { key: 'status', label: '启用', numeric: true, type: 'switch' }]} title="部门" updateCode="update"/>);
 
     const statusSwitches = await screen.findAllByRole('switch');
     expect(statusSwitches[0]).toHaveAttribute('aria-checked', 'true');

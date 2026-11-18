@@ -3,7 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRef } from 'react';
 import type { TableRef } from 'antd/es/table';
 
-import { TablePanel } from './TablePanel';
+import {
+  TablePanel,
+  measureBodyContentHeight,
+  measureHeaderGutterPad,
+} from './TablePanel';
 import { ListPagePanel } from './ListPagePanel';
 
 class ResizeObserverStub {
@@ -171,7 +175,14 @@ describe('TablePanel (antd sticky Table)', () => {
     expect(container.querySelector('.ant-table-cell-ellipsis')).not.toBeNull();
   });
 
-  it('uses official Table scroll.y body scrolling (not CSS overflow on .ant-table)', async () => {
+  it('keeps Ant Design scroll.y overflow (do not force auto — breaks fixed columns)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { dirname, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const base = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(resolve(base, 'TablePanel.tsx'), 'utf8');
+    const baseCss = readFileSync(resolve(base, '../styles/base.css'), 'utf8');
+
     const { container } = render(
       <TablePanel
         rowKey="id"
@@ -181,22 +192,133 @@ describe('TablePanel (antd sticky Table)', () => {
         scroll={{ y: 240 }}
       />,
     );
-    expect(container.querySelector('.ant-table-body')).toHaveStyle({ maxHeight: '240px', overflowY: 'scroll' });
-  });
-
-  it('does not override the scrollbar gutter managed by Ant Design scroll.y', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { dirname, resolve } = await import('node:path');
-    const { fileURLToPath } = await import('node:url');
-    const base = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(resolve(base, 'TablePanel.tsx'), 'utf8');
-    const baseCss = readFileSync(resolve(base, '../styles/base.css'), 'utf8');
-
+    expect(container.querySelector('.ant-table-body')).toHaveStyle({
+      maxHeight: '240px',
+      overflowY: 'scroll',
+    });
+    expect(source).not.toMatch(/overflowY\s*=\s*["']auto["']/);
     expect(source).not.toMatch(/overflowY:\s*["']auto["']/);
     expect(baseCss).not.toMatch(/\.ant-table-body(?:-inner)?[\s\S]{0,120}overflow-y:\s*auto/);
   });
 
-  it('auto-fills container height via measured scroll.y when y is omitted', async () => {
+  it('measures body content height from the split body table or flat tbody', () => {
+    const split = document.createElement('div');
+    const body = document.createElement('div');
+    body.className = 'ant-table-body';
+    const table = document.createElement('table');
+    Object.defineProperty(table, 'scrollHeight', { configurable: true, value: 420 });
+    body.append(table);
+    split.append(body);
+    expect(measureBodyContentHeight(split)).toBe(420);
+
+    const flat = document.createElement('div');
+    const tbody = document.createElement('tbody');
+    tbody.className = 'ant-table-tbody';
+    tbody.getBoundingClientRect = () =>
+      ({
+        height: 180,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    flat.append(tbody);
+    expect(measureBodyContentHeight(flat)).toBe(180);
+  });
+
+  it('pads the sticky header when the body scrollbar exceeds the gutter cell', () => {
+    const root = document.createElement('div');
+    const header = document.createElement('div');
+    header.className = 'ant-table-header';
+    const body = document.createElement('div');
+    body.className = 'ant-table-body';
+    Object.defineProperty(body, 'offsetWidth', { configurable: true, value: 800 });
+    Object.defineProperty(body, 'clientWidth', { configurable: true, value: 785 });
+    root.append(header, body);
+
+    // No Ant Design gutter cell yet (common when scroll.y is applied after mount).
+    expect(measureHeaderGutterPad(root)).toBe(15);
+
+    const gutter = document.createElement('div');
+    gutter.className = 'ant-table-cell-scrollbar';
+    header.append(gutter);
+    gutter.getBoundingClientRect = () =>
+      ({ width: 15, height: 0, top: 0, left: 0, bottom: 0, right: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    expect(measureHeaderGutterPad(root)).toBe(0);
+
+    gutter.getBoundingClientRect = () =>
+      ({ width: 10, height: 0, top: 0, left: 0, bottom: 0, right: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    expect(measureHeaderGutterPad(root)).toBe(5);
+  });
+
+  it('applies header paddingInlineEnd when the measured gutter is short', async () => {
+    const observers: Array<{ callback: ResizeObserverCallback; element: Element }> = [];
+    class MeasuringResizeObserver {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(element: Element) {
+        observers.push({ callback: this.callback, element });
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', MeasuringResizeObserver);
+
+    const { container } = render(
+      <TablePanel
+        sticky
+        rowKey="id"
+        dataSource={rows}
+        columns={columns}
+        pagination={false}
+        scroll={{ y: 120 }}
+      />,
+    );
+
+    const body = container.querySelector('.ant-table-body') as HTMLElement;
+    const header = container.querySelector('.ant-table-header') as HTMLElement;
+    expect(body).not.toBeNull();
+    expect(header).not.toBeNull();
+
+    Object.defineProperty(body, 'offsetWidth', { configurable: true, value: 800 });
+    Object.defineProperty(body, 'clientWidth', { configurable: true, value: 784 });
+    const gutter = header.querySelector('.ant-table-cell-scrollbar') as HTMLElement | null;
+    if (gutter) {
+      gutter.getBoundingClientRect = () =>
+        ({
+          width: 0,
+          height: 0,
+          top: 0,
+          left: 0,
+          bottom: 0,
+          right: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    }
+
+    observers.forEach(({ callback, element }) => {
+      callback(
+        [{ target: element } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    await waitFor(() => {
+      expect(header.style.paddingInlineEnd).toBe('16px');
+    });
+
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  });
+
+  it('enables measured scroll.y only when body content overflows the available height', async () => {
     const observers: Array<{ callback: ResizeObserverCallback; element: Element }> = [];
     class MeasuringResizeObserver {
       callback: ResizeObserverCallback;
@@ -212,7 +334,7 @@ describe('TablePanel (antd sticky Table)', () => {
     }
     vi.stubGlobal('ResizeObserver', MeasuringResizeObserver);
 
-    const { container } = render(
+    const { container, rerender } = render(
       <div style={{ height: 360 }}>
         <TablePanel rowKey="id" dataSource={rows} columns={columns} pagination={false} scroll={{ x: 'max-content' }} />
       </div>,
@@ -223,20 +345,66 @@ describe('TablePanel (antd sticky Table)', () => {
     Object.defineProperty(wrapper, 'getBoundingClientRect', {
       value: () => ({ height: 360, width: 800, top: 0, left: 0, bottom: 360, right: 800, x: 0, y: 0, toJSON: () => ({}) }),
     });
+    Object.defineProperty(wrapper, 'clientHeight', { configurable: true, value: 360 });
     const header = container.querySelector('.list-table-measure-header') as HTMLElement | null;
     if (header) {
       Object.defineProperty(header, 'getBoundingClientRect', {
         value: () => ({ height: 55, width: 800, top: 0, left: 0, bottom: 55, right: 800, x: 0, y: 0, toJSON: () => ({}) }),
       });
     }
+    const tbody = container.querySelector('.ant-table-tbody') as HTMLElement;
+    tbody.getBoundingClientRect = () =>
+      ({
+        height: 80,
+        width: 800,
+        top: 0,
+        left: 0,
+        bottom: 80,
+        right: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
     observers[0]?.callback(
       [{ target: wrapper } as ResizeObserverEntry],
       observers[0] as unknown as ResizeObserver,
     );
 
+    // Short content: no scroll.y, so Ant Design keeps a flat table (no body scroller).
+    await waitFor(() => {
+      expect(container.querySelector('.ant-table-body')).toBeNull();
+    });
+
+    tbody.getBoundingClientRect = () =>
+      ({
+        height: 480,
+        width: 800,
+        top: 0,
+        left: 0,
+        bottom: 480,
+        right: 800,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    rerender(
+      <div style={{ height: 360 }}>
+        <TablePanel rowKey="id" dataSource={rows} columns={columns} pagination={false} scroll={{ x: 'max-content' }} />
+      </div>,
+    );
+    observers.forEach(({ callback, element }) => {
+      callback(
+        [{ target: element } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
     await waitFor(() => {
       expect(container.querySelector('.ant-table-body')).toHaveStyle({ maxHeight: '305px' });
     });
+
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   });
 
   it('keeps the bordered start edge on table content instead of the full-height container', async () => {

@@ -22,6 +22,7 @@
   "errors.plugin.invalid_id": "Invalid plugin ID",
   "errors.plugin.enabled_cannot_uninstall": "Disable the plugin before uninstalling it",
   "errors.plugin.uninstall_failed": "Failed to uninstall the plugin",
+  "errors.plugin.install_failed": "Failed to install the plugin",
   "errors.locked": "Account is temporarily locked",
   "errors.retry_later": "Please try again later",
   "errors.feature_disabled": "Feature is disabled",
@@ -315,6 +316,7 @@
   "errors.translation_value_required": "Translation cannot be empty; delete the record to fall back to the Chinese source",
   "errors.translation_not_found": "Translation record does not exist or was already deleted",
   "errors.translation_lang_unsupported": "Only Chinese and English are supported",
+  "errors.translation_namespace_unsupported": "Unsupported translation namespace",
   "errors.translation_lang_conflict": "This entity already has a translation in that language; edit that record instead",
   "errors.translation_service_unavailable": "Automatic translation is unavailable right now; type the translation instead",
   "errors.translation_text_too_long": "The source text is too long for automatic translation; type the translation instead"

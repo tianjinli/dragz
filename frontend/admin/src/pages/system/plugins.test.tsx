@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
   listPluginsApi: vi.fn(),
+  installPluginApi: vi.fn(),
   updatePluginStatusApi: vi.fn(),
   uninstallPluginApi: vi.fn(),
 }));
 
 vi.mock('@/api/system', () => ({
   listPluginsApi: apiMocks.listPluginsApi,
+  installPluginApi: apiMocks.installPluginApi,
   updatePluginStatusApi: apiMocks.updatePluginStatusApi,
   uninstallPluginApi: apiMocks.uninstallPluginApi,
 }));
@@ -70,6 +72,7 @@ const systemRow = {
   dependsOn: [],
   builtin: true,
   enabled: true,
+  installed: true,
   lastError: '',
   pendingMigrations: 0,
 };
@@ -82,35 +85,66 @@ const demoRow = {
   dependsOn: ['system'],
   builtin: false,
   enabled: false,
+  installed: true,
   lastError: '',
+  pendingMigrations: 0,
+};
+
+const availableRow = {
+  ...demoRow,
+  id: 'demo-available',
+  name: '可安装示例',
+  installed: false,
   pendingMigrations: 2,
 };
 
 describe('PluginPage', () => {
   beforeEach(() => {
     apiMocks.listPluginsApi.mockReset();
+    apiMocks.installPluginApi.mockReset();
     apiMocks.updatePluginStatusApi.mockReset();
     apiMocks.uninstallPluginApi.mockReset();
     loadAccess.mockClear();
   });
   afterEach(cleanup);
 
-  it('renders plugins and protects the builtin switch', async () => {
-    apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow]);
+  it('shows a disabled switch for uninstalled plugins and protects the builtin', async () => {
+    apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow, availableRow]);
 
     render(<PluginPage />);
 
     expect(await screen.findByText('示例插件')).toBeTruthy();
-    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByText('可安装示例')).toBeTruthy();
+    expect(screen.queryByText('未安装')).toBeNull();
 
+    // All rows get a switch: builtin locked on, demo toggleable, available locked off.
     const switches = screen.getAllByRole('switch');
-    expect(switches).toHaveLength(2);
-    // system is builtin: its switch must be disabled.
+    expect(switches).toHaveLength(3);
     expect((switches[0] as HTMLButtonElement).disabled).toBe(true);
+    expect(switches[0].getAttribute('aria-checked')).toBe('true');
     expect((switches[1] as HTMLButtonElement).disabled).toBe(false);
+    expect((switches[2] as HTMLButtonElement).disabled).toBe(true);
+    expect(switches[2].getAttribute('aria-checked')).toBe('false');
   });
 
-  it('enables a plugin and refreshes the sidebar', async () => {
+  it('installs an Available plugin without enabling and without refreshing access', async () => {
+    apiMocks.listPluginsApi.mockResolvedValue([systemRow, availableRow]);
+    apiMocks.installPluginApi.mockResolvedValue(undefined);
+
+    render(<PluginPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '安装' }));
+
+    await waitFor(() => {
+      expect(apiMocks.installPluginApi).toHaveBeenCalledWith('demo-available');
+    });
+    await waitFor(() => {
+      expect(apiMocks.listPluginsApi).toHaveBeenCalledTimes(2);
+    });
+    expect(apiMocks.updatePluginStatusApi).not.toHaveBeenCalled();
+    expect(loadAccess).not.toHaveBeenCalled();
+  });
+
+  it('enables an installed plugin and refreshes the sidebar', async () => {
     apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow]);
     apiMocks.updatePluginStatusApi.mockResolvedValue(undefined);
 
@@ -122,7 +156,6 @@ describe('PluginPage', () => {
     await waitFor(() => {
       expect(apiMocks.updatePluginStatusApi).toHaveBeenCalledWith('demo', 1);
     });
-    // The list is re-read after the toggle so the switch shows server truth.
     await waitFor(() => {
       expect(apiMocks.listPluginsApi).toHaveBeenCalledTimes(2);
     });
@@ -146,39 +179,44 @@ describe('PluginPage', () => {
     });
     const after = screen.getAllByRole('switch');
     expect(after[1].getAttribute('aria-checked')).toBe('false');
-    // A failed enable must not pretend the sidebar changed.
     expect(loadAccess).not.toHaveBeenCalled();
   });
 
-  // Uninstall drops tables, so the row action must be unreachable unless the
-  // plugin is already disabled — the backend would answer 409 anyway, but the
-  // UI should never offer it.
-  it('offers uninstall only for a disabled non-builtin plugin', async () => {
-    apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow]);
+  it('offers uninstall only for an installed disabled non-builtin plugin', async () => {
+    apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow, availableRow]);
 
     render(<PluginPage />);
     await screen.findByText('示例插件');
 
-    const buttons = screen.getAllByRole('button', { name: '卸载' });
-    expect(buttons).toHaveLength(2);
-    // system: builtin. demo: disabled, so it may be uninstalled.
-    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
-    expect((buttons[1] as HTMLButtonElement).disabled).toBe(false);
+    // Builtin: no uninstall. Available: Install. Installed+disabled: Uninstall.
+    expect(screen.queryAllByRole('button', { name: '卸载' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '安装' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: '卸载' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   it('uninstalls after confirmation and refreshes the sidebar', async () => {
-    apiMocks.listPluginsApi.mockResolvedValue([systemRow, demoRow]);
+    apiMocks.listPluginsApi
+      .mockResolvedValueOnce([systemRow, demoRow])
+      .mockResolvedValueOnce([systemRow, { ...demoRow, installed: false, enabled: false }]);
     apiMocks.uninstallPluginApi.mockResolvedValue(undefined);
 
     render(<PluginPage />);
     await screen.findByText('示例插件');
 
-    fireEvent.click(screen.getAllByRole('button', { name: '卸载' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: '卸载' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认卸载' }));
 
     await waitFor(() => {
       expect(apiMocks.uninstallPluginApi).toHaveBeenCalledWith('demo');
     });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '安装' })).toBeTruthy();
+    });
+    const switches = screen.getAllByRole('switch');
+    expect(switches[1].getAttribute('aria-checked')).toBe('false');
+    expect((switches[1] as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => {
       expect(apiMocks.listPluginsApi).toHaveBeenCalledTimes(2);
     });

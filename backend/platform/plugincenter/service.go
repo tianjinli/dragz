@@ -283,7 +283,7 @@ func (s *Service) List(ctx context.Context) ([]pluginstate.Info, error) {
 
 	infos := make([]pluginstate.Info, 0, len(s.metas))
 	for _, meta := range s.metas {
-		record := byID[meta.ID]
+		record, inCatalog := byID[meta.ID]
 		dependsOn := meta.DependsOn
 		if dependsOn == nil {
 			dependsOn = []string{}
@@ -305,9 +305,82 @@ func (s *Service) List(ctx context.Context) ([]pluginstate.Info, error) {
 			}
 			info.PendingMigrations = pending
 		}
+		// Builtin is always installed. Otherwise Installed requires a catalog
+		// row: Install stamps installed_at; Enable also stamps it (and legacy
+		// rows may only have enabled_at). Applied migrations alone are not
+		// enough — after Uninstall the catalog is recreated clean, so the UI
+		// must show Available even if a stale migration row somehow remains.
+		info.Installed = meta.Builtin ||
+			(inCatalog && (!record.InstalledAt.IsZero() || !record.EnabledAt.IsZero()))
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+// Install runs pending migrations and stamps installed_at without enabling.
+//
+// Menus and permission buttons stay unsynced until Enable: Install only
+// materialises schema so the administrator can flip the switch separately.
+func (s *Service) Install(ctx context.Context, pluginID string) error {
+	meta, ok := s.byID[pluginID]
+	if !ok {
+		return pluginstate.ErrNotFound
+	}
+	if meta.Builtin {
+		return pluginstate.ErrBuiltin
+	}
+	if err := s.reload(ctx); err != nil {
+		return err
+	}
+	if missing := s.disabledDependencies(pluginID); len(missing) > 0 {
+		return fmt.Errorf("%w: %s", pluginstate.ErrDependencyDisabled, strings.Join(missing, ", "))
+	}
+
+	release, err := s.repo.AcquireMigrationLock(ctx, toggleLockTimeout)
+	if err != nil {
+		return lockError(err)
+	}
+	defer release()
+
+	if err := s.reload(ctx); err != nil {
+		return err
+	}
+	if missing := s.disabledDependencies(pluginID); len(missing) > 0 {
+		return fmt.Errorf("%w: %s", pluginstate.ErrDependencyDisabled, strings.Join(missing, ", "))
+	}
+
+	if source, hasMigrations := s.sources[pluginID]; hasMigrations {
+		if err := s.engine.Run(ctx, source); err != nil {
+			if setErr := s.repo.SetPluginError(ctx, pluginID, err.Error()); setErr != nil {
+				logx.Errorf("record plugin %q error: %v", pluginID, setErr)
+			}
+			return fmt.Errorf("%w: %v", pluginstate.ErrMigrationFailed, err)
+		}
+	}
+
+	// Uninstall deletes the catalog row. Re-upsert it so Install after uninstall
+	// works without waiting for the next process restart.
+	if err := s.repo.SyncCatalog(ctx, []store.PluginCatalogEntry{{
+		ID:          meta.ID,
+		Name:        meta.Name,
+		Version:     meta.Version,
+		Description: meta.Description,
+		Builtin:     meta.Builtin,
+	}}); err != nil {
+		return err
+	}
+
+	updated, err := s.repo.MarkPluginInstalled(ctx, pluginID)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return pluginstate.ErrNotFound
+	}
+	if err := s.repo.SetPluginError(ctx, pluginID, ""); err != nil {
+		logx.Errorf("clear plugin %q error: %v", pluginID, err)
+	}
+	return s.reload(ctx)
 }
 
 // Enable runs the plugin's pending migrations, then flips it on.
@@ -369,6 +442,19 @@ func (s *Service) Enable(ctx context.Context, pluginID string) error {
 		return err
 	}
 	if err := s.syncPermissionMenus(ctx); err != nil {
+		return err
+	}
+
+	// Uninstall deletes the catalog row. Re-upsert it here so Install/Enable
+	// after an uninstall works without waiting for the next process restart
+	// (startup SyncCatalog would otherwise be the only path that recreates it).
+	if err := s.repo.SyncCatalog(ctx, []store.PluginCatalogEntry{{
+		ID:          meta.ID,
+		Name:        meta.Name,
+		Version:     meta.Version,
+		Description: meta.Description,
+		Builtin:     meta.Builtin,
+	}}); err != nil {
 		return err
 	}
 
@@ -456,6 +542,18 @@ func (s *Service) Uninstall(ctx context.Context, pluginID string) error {
 	}
 
 	if err := s.repo.UninstallPlugin(ctx, pluginID, meta.DropTables); err != nil {
+		return err
+	}
+	// Recreate a clean catalog row immediately (installed_at/enabled_at NULL,
+	// enabled=false) so List reports Available without waiting for the next
+	// process restart's SyncCatalog.
+	if err := s.repo.SyncCatalog(ctx, []store.PluginCatalogEntry{{
+		ID:          meta.ID,
+		Name:        meta.Name,
+		Version:     meta.Version,
+		Description: meta.Description,
+		Builtin:     meta.Builtin,
+	}}); err != nil {
 		return err
 	}
 	return s.reload(ctx)
