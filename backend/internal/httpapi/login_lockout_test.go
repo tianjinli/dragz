@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -55,17 +56,11 @@ func TestLoginFailureMessageKey(t *testing.T) {
 }
 
 func TestShouldRequireCaptcha(t *testing.T) {
-	if shouldRequireCaptcha(false, 5, true) {
+	if shouldRequireCaptcha(false) {
 		t.Fatal("disabled captcha must never require")
 	}
-	if shouldRequireCaptcha(true, 0, false) {
-		t.Fatal("zero failures without flag should not require captcha")
-	}
-	if !shouldRequireCaptcha(true, 1, false) {
-		t.Fatal("one failure should require captcha when enabled")
-	}
-	if !shouldRequireCaptcha(true, 0, true) {
-		t.Fatal("need flag should require captcha when enabled")
+	if !shouldRequireCaptcha(true) {
+		t.Fatal("enabled captcha must be required on every login attempt")
 	}
 }
 
@@ -84,13 +79,46 @@ func TestFormatRetryAfterKey(t *testing.T) {
 	}
 }
 
-func TestBuildCaptchaSVG(t *testing.T) {
-	svg := buildCaptchaSVG("1234")
-	if !stringsContains(svg, "1234") && !stringsContains(svg, ">1<") {
-		// glyphs are split per char
+func decodeCaptchaSVG(t *testing.T, dataURL string) string {
+	t.Helper()
+	const prefix = "data:image/svg+xml;base64,"
+	if len(dataURL) <= len(prefix) || dataURL[:len(prefix)] != prefix {
+		t.Fatalf("unexpected captcha data URL prefix: %s", dataURL[:min(len(dataURL), 32)])
 	}
-	if !stringsContains(svg, "<svg") {
-		t.Fatal("expected svg markup")
+	raw, err := base64.StdEncoding.DecodeString(dataURL[len(prefix):])
+	if err != nil {
+		t.Fatalf("decode captcha image: %v", err)
+	}
+	return string(raw)
+}
+
+func TestBuildSlideCaptcha(t *testing.T) {
+	pattern, err := buildCaptchaPattern()
+	if err != nil {
+		t.Fatalf("build pattern: %v", err)
+	}
+	background := decodeCaptchaSVG(t, buildSlideBackground(pattern, 88, slideHoleY))
+	piece := decodeCaptchaSVG(t, buildSlidePiece(pattern, 88, slideHoleY))
+	if !stringsContains(background, "<svg") || !stringsContains(background, "translate(88 46)") {
+		t.Fatal("background must carry the puzzle hole at the issued offset")
+	}
+	if !stringsContains(piece, "<clipPath") || !stringsContains(piece, "translate(-88 -46)") {
+		t.Fatal("piece must clip the same pattern shifted by the issued offset")
+	}
+}
+
+func TestCaptchaAnswerMatches(t *testing.T) {
+	if !captchaAnswerMatches("88", "88") {
+		t.Fatal("exact offset must match")
+	}
+	if !captchaAnswerMatches("88", "96") {
+		t.Fatal("offset within tolerance must match")
+	}
+	if captchaAnswerMatches("88", "99") {
+		t.Fatal("offset outside tolerance must not match")
+	}
+	if captchaAnswerMatches("88", "abc") || captchaAnswerMatches("abc", "88") {
+		t.Fatal("non-numeric answers must not match")
 	}
 }
 

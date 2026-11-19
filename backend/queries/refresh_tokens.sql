@@ -21,10 +21,10 @@ UPDATE sys_refresh_token SET revoked_at = NOW(),
   revoke_reason = 'rotated', last_used_at = NOW()
 WHERE id = $1 AND revoked_at IS NULL;
 
--- name: RevokeRefreshTokenByHash :exec
-UPDATE sys_refresh_token SET revoked_at = COALESCE(revoked_at, NOW()),
-  revoke_reason = CASE WHEN revoked_at IS NULL THEN $1 ELSE revoke_reason END
-WHERE token_hash = $2;
+-- name: RevokeRefreshTokenByHash :one
+UPDATE sys_refresh_token SET revoked_at = NOW(), revoke_reason = $1
+WHERE token_hash = $2 AND revoked_at IS NULL
+RETURNING user_id;
 
 -- name: RevokeRefreshFamily :exec
 UPDATE sys_refresh_token SET revoked_at = COALESCE(revoked_at, NOW()),
@@ -41,6 +41,7 @@ UPDATE sys_refresh_token SET revoked_at = COALESCE(revoked_at, NOW()),
   revoke_reason = CASE WHEN revoked_at IS NULL THEN $1 ELSE revoke_reason END
 WHERE user_id = $2;
 
--- name: RevokeSession :execrows
+-- name: RevokeSession :one
 UPDATE sys_refresh_token SET revoked_at = NOW(), revoke_reason = $1
-WHERE id = $2 AND revoked_at IS NULL;
+WHERE id = $2 AND revoked_at IS NULL
+RETURNING user_id;

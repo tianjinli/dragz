@@ -103,7 +103,9 @@ func (r *Reconciler) registerLocked(ctx context.Context, job store.ScheduledJob)
 		asynq.MaxRetry(job.MaxRetries),
 		asynq.Timeout(time.Duration(job.TimeoutSeconds)*time.Second),
 	)
-	entryID, err := r.scheduler.Register(job.CronExpression, task, asynq.TaskID(jobasynq.SchedulerEntryPref+job.Code))
+	// No fixed TaskID: a task archived after retry exhaustion keeps its ID, and
+	// reusing it would make every later enqueue fail with a silent ID conflict.
+	entryID, err := r.scheduler.Register(job.CronExpression, task)
 	if err != nil {
 		return err
 	}

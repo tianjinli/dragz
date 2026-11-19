@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zeromicro/go-zero/core/logx"
+
 	"dragz-admin/backend/internal/app"
 	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/store"
@@ -105,6 +107,7 @@ func publishNoticeHandler(ctx *app.Context) http.HandlerFunc {
 			writeNoticeError(w, r, err)
 			return
 		}
+		notifyNoticePublished(ctx, r, id, publisherID)
 		ok(w, r, map[string]bool{"success": true})
 	}
 }
@@ -116,9 +119,33 @@ func revokeNoticeHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.notice_id_invalid")
 			return
 		}
+		window, err := ctx.Auth.NoticeRevokeWindowMinutes(r.Context())
+		if err != nil {
+			fail(w, r, http.StatusInternalServerError, 50000, "errors.notice.failed")
+			return
+		}
+		if window > 0 {
+			publisherID, _ := currentUserID(r.Context())
+			detail, err := ctx.Auth.NoticeDetail(r.Context(), id, publisherID)
+			if err != nil {
+				writeNoticeError(w, r, err)
+				return
+			}
+			if detail.PublishAt != nil && time.Since(*detail.PublishAt) > time.Duration(window)*time.Minute {
+				writeNoticeError(w, r, store.ErrNoticeRevokeExpired)
+				return
+			}
+		}
+		// Resolve audience while the notice is still published, then revoke and sync-delete over WS.
+		audienceIDs, audienceErr := ctx.Auth.ListNoticeAudienceUserIDs(r.Context(), id)
 		if err := ctx.Auth.RevokeNotice(r.Context(), id); err != nil {
 			writeNoticeError(w, r, err)
 			return
+		}
+		if audienceErr != nil {
+			logx.Errorf("notice %d audience before revoke: %v", id, audienceErr)
+		} else {
+			notifyNoticeRevoked(ctx, r, id, audienceIDs)
 		}
 		ok(w, r, map[string]bool{"success": true})
 	}
@@ -194,14 +221,23 @@ func getMyNoticeHandler(ctx *app.Context) http.HandlerFunc {
 	}
 }
 
+func normalizeNoticeType(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "notification":
+		return "notification"
+	case "announcement", "notice", "":
+		return "announcement"
+	default:
+		return ""
+	}
+}
+
 func validateNotice(w http.ResponseWriter, r *http.Request, req saveNoticeRequest) bool {
 	if strings.TrimSpace(req.Title) == "" || len(req.Title) > 255 || strings.TrimSpace(req.Content) == "" {
 		fail(w, r, http.StatusBadRequest, 40001, "errors.notice_fields_invalid")
 		return false
 	}
-	switch req.NoticeType {
-	case "notice", "system", "security", "personal":
-	default:
+	if normalizeNoticeType(req.NoticeType) == "" {
 		fail(w, r, http.StatusBadRequest, 40001, "errors.notice_type_invalid")
 		return false
 	}
@@ -211,11 +247,13 @@ func validateNotice(w http.ResponseWriter, r *http.Request, req saveNoticeReques
 		fail(w, r, http.StatusBadRequest, 40001, "errors.notice_priority_invalid")
 		return false
 	}
-	switch req.TargetType {
-	case "all":
+	noticeType := normalizeNoticeType(req.NoticeType)
+	if noticeType == "announcement" {
 		return true
+	}
+	switch req.TargetType {
 	case "user", "department", "role":
-		if len(req.TargetIDs) == 0 || !json.Valid(req.TargetIDs) || string(req.TargetIDs) == "[]" {
+		if len(req.TargetIDs) == 0 || !json.Valid(req.TargetIDs) || string(req.TargetIDs) == "[]" || string(req.TargetIDs) == "null" {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.notice_targets_required")
 			return false
 		}
@@ -227,10 +265,24 @@ func validateNotice(w http.ResponseWriter, r *http.Request, req saveNoticeReques
 }
 
 func noticeInput(req saveNoticeRequest) store.SaveNoticeInput {
+	noticeType := normalizeNoticeType(req.NoticeType)
+	targetType := "all"
+	targetIDs := json.RawMessage("[]")
+	if noticeType == "notification" {
+		targetType = req.TargetType
+		if len(req.TargetIDs) > 0 && json.Valid(req.TargetIDs) {
+			targetIDs = req.TargetIDs
+		}
+	}
 	return store.SaveNoticeInput{
-		Title: strings.TrimSpace(req.Title), NoticeType: req.NoticeType, Priority: req.Priority,
-		Content: req.Content, TargetType: req.TargetType, TargetIDs: req.TargetIDs,
-		IsPinned: req.IsPinned, PublishAt: req.PublishAt,
+		Title:      strings.TrimSpace(req.Title),
+		NoticeType: noticeType,
+		Priority:   req.Priority,
+		Content:    req.Content,
+		TargetType: targetType,
+		TargetIDs:  targetIDs,
+		IsPinned:   req.IsPinned,
+		PublishAt:  req.PublishAt,
 	}
 }
 

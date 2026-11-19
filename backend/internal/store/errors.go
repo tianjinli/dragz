@@ -28,6 +28,8 @@ var (
 	ErrCannotPublish = errors.New("cannot publish")
 	// ErrCannotRevoke means the notice must be revoked before it can be deleted.
 	ErrCannotRevoke = errors.New("must be revoked first")
+	// ErrNoticeRevokeExpired means the revoke window after publishing has elapsed.
+	ErrNoticeRevokeExpired = errors.New("revoke window expired")
 	// ErrDefaultOrInUse means a storage config is the default one or still referenced by files.
 	ErrDefaultOrInUse = errors.New("default or in use")
 	// ErrUserProtected means the user is missing or is the built-in administrator.

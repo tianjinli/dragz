@@ -134,6 +134,31 @@ var bootstrapStatements = []string{
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_value ON sys_dict_item (dict_type_id, value) WHERE deleted_at IS NULL`,
 	`ALTER TABLE sys_scheduled_job DROP CONSTRAINT IF EXISTS uk_scheduled_job_code`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_scheduled_job_code ON sys_scheduled_job (code) WHERE deleted_at IS NULL`,
+	// Global datetime display pattern used by the admin UI.
+	`INSERT INTO sys_config
+  (config_group, config_key, name, value_type, config_value, default_value, description)
+SELECT
+  'basic', 'system.dateTimeFormat', 'config.label.system_dateTimeFormat', 'string',
+  'YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD HH:mm:ss', 'config.desc.system_dateTimeFormat'
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_config WHERE config_key = 'system.dateTimeFormat'
+)`,
+	// Scheduled notice delivery: push when publish_at becomes due.
+	// Historical already-visible rows are marked notified by the dispatcher
+	// startup backfill so upgrading does not re-blast every published notice.
+	`ALTER TABLE sys_notice ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ NULL`,
+	`CREATE INDEX IF NOT EXISTS idx_notice_due_notify
+  ON sys_notice (publish_at)
+  WHERE deleted_at IS NULL AND status = 'published' AND notified_at IS NULL`,
+	`INSERT INTO sys_scheduled_job
+  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
+SELECT
+  '推送到期通知公告', 'notice.notify_due', 'notice.notify_due',
+  '* * * * *', '{}'::jsonb, 60, 1, 1, NOW() + INTERVAL '1 minute'
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_scheduled_job
+  WHERE code = 'notice.notify_due' AND deleted_at IS NULL
+)`,
 	// The translation page reads every preset text through these two views.
 	// They live in migrations/001_system_init.sql, which the Postgres image only
 	// runs against an empty data directory — a database initialised before the

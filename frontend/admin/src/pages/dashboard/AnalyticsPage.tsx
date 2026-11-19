@@ -26,7 +26,17 @@ export function AnalyticsPage() {
     { icon: <Users/>, label: t('pages.dashboard.userCount'), value: number(data.userCount ?? data.totalUsers), color: '#1677ff' },
     { icon: <Activity/>, label: t('pages.dashboard.activeToday'), value: number(data.activeUsers ?? data.todayActive), color: '#52c41a' },
     { icon: <ShoppingCart/>, label: t('pages.dashboard.visitsToday'), value: number(data.todayVisits ?? data.visitCount), color: '#faad14' },
-    { icon: <CircleDollarSign/>, label: t('pages.dashboard.messages'), value: number(data.noticeCount ?? data.messageCount), color: '#722ed1' },
+    {
+      icon: <CircleDollarSign />,
+      label: t('pages.dashboard.messages'),
+      value: number(
+        (data.summary as Record<string, unknown> | undefined)?.unreadMessages ??
+          data.unreadMessages ??
+          data.noticeCount ??
+          data.messageCount,
+      ),
+      color: '#722ed1',
+    },
   ], [data, t]);
   const trend = Array.isArray(data.trend) ? data.trend as Array<Record<string, unknown>> : Array.from({ length: 12 }, (_, i) => ({ label: t('pages.dashboard.month', { month: i + 1 }), value: Math.round(35 + Math.sin(i / 1.5) * 20 + i * 3) }));
   const sources = [

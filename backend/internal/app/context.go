@@ -13,12 +13,14 @@ import (
 	"dragz-admin/backend/internal/config"
 	"dragz-admin/backend/internal/jobs"
 	jobasynq "dragz-admin/backend/internal/jobs/asynq"
+	"dragz-admin/backend/internal/noticenotify"
 	"dragz-admin/backend/internal/pkg/casbinx"
 	pkgi18n "dragz-admin/backend/internal/pkg/i18n"
 	"dragz-admin/backend/internal/pkg/translate"
 	"dragz-admin/backend/internal/pluginstate"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
+	"dragz-admin/backend/internal/ws"
 	"dragz-admin/backend/platform/eventbus"
 	redisstore "github.com/zeromicro/go-zero/core/stores/redis"
 )
@@ -46,6 +48,9 @@ type Context struct {
 	// Bus is the process-local event bus for cross-plugin collaboration.
 	// Plugins must not import each other; they publish/subscribe here instead.
 	Bus *eventbus.Bus
+	// WS fans notification and notice events out to connected browsers.
+	// Nil in tests that never publish; handlers skip the push in that case.
+	WS *ws.Hub
 
 	// closers holds the cleanups registered through Defer, run by Close.
 	closers []func()
@@ -100,6 +105,11 @@ func NewContext(c config.Config) (*Context, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize casbin: %w", err)
 	}
+	hub, err := ws.NewHub(c.Redis.Host, c.Redis.Pass)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("start notification hub: %w", err)
+	}
 	appCtx := &Context{
 		Config: ConfigView{
 			AccessSecret:      c.Auth.AccessSecret,
@@ -121,7 +131,10 @@ func NewContext(c config.Config) (*Context, error) {
 		Translate:       translateClient,
 		Casbin:          enforcer,
 		Bus:             eventbus.New(),
+		WS:              hub,
 	}
+	appCtx.Defer(hub.Close)
+	appCtx.Defer(noticenotify.StartDispatcher(authRepo, hub, 30*time.Second))
 	// Authorization is NOT loaded here. The policy query reads sys_plugin,
 	// which only exists after the plugin bootstrap DDL runs (it is not in
 	// migrations/001_system_init.sql). api.RegisterRoutes reloads the enforcer

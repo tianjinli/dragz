@@ -166,18 +166,29 @@ func (r *AuthRepository) ListSessions(ctx context.Context, keyword string, page,
 	return items, total, nil
 }
 
-// RevokeSession revokes one session, which also invalidates its refresh token.
+// RevokeSession revokes one session. The refresh token stops working, and the
+// user's token version moves so the access token of that login is rejected
+// immediately instead of remaining valid until it expires.
 func (r *AuthRepository) RevokeSession(ctx context.Context, sessionID uint64, reason string) error {
-	affected, err := r.queries.RevokeSession(ctx, sqlcstore.RevokeSessionParams{
-		RevokeReason: reason, ID: int64(sessionID),
-	})
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if affected != 1 {
-		return ErrNotFound
+	defer func() { _ = tx.Rollback() }()
+	q := r.qtx(tx)
+	userID, err := q.RevokeSession(ctx, sqlcstore.RevokeSessionParams{
+		RevokeReason: reason, ID: int64(sessionID),
+	})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
 	}
-	return nil
+	if err := q.BumpUserTokenVersion(ctx, int64(userID)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListAPITokens returns one page of API tokens plus the total count.

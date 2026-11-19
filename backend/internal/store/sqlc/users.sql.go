@@ -43,6 +43,16 @@ func (q *Queries) ChangeSelfPassword(ctx context.Context, arg ChangeSelfPassword
 	return result.RowsAffected()
 }
 
+const clearFailedLogin = `-- name: ClearFailedLogin :exec
+UPDATE sys_user SET failed_login_count = 0, locked_until = NULL, updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) ClearFailedLogin(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, clearFailedLogin, id)
+	return err
+}
+
 const clearLoginState = `-- name: ClearLoginState :exec
 UPDATE sys_user SET failed_login_count = 0, locked_until = NULL,
   last_login_at = NOW(), last_login_ip = $1 WHERE id = $2
@@ -238,7 +248,7 @@ func (q *Queries) FindUserIDByMobile(ctx context.Context, mobile string) (int64,
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, department_id, username, password_hash, display_name, email, mobile, status,
-  is_super_admin, must_change_password, failed_login_count, locked_until, token_version
+  is_super_admin, must_change_password, failed_login_count, locked_until, token_version, avatar_file_id
 FROM sys_user
 WHERE id = $1 AND deleted_at IS NULL
 LIMIT 1
@@ -258,6 +268,7 @@ type GetUserByIDRow struct {
 	FailedLoginCount   int32         `json:"failed_login_count"`
 	LockedUntil        sql.NullTime  `json:"locked_until"`
 	TokenVersion       uint64        `json:"token_version"`
+	AvatarFileID       sql.NullInt64 `json:"avatar_file_id"`
 }
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error) {
@@ -277,6 +288,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, er
 		&i.FailedLoginCount,
 		&i.LockedUntil,
 		&i.TokenVersion,
+		&i.AvatarFileID,
 	)
 	return i, err
 }
@@ -774,15 +786,16 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 
 const updateSelfProfile = `-- name: UpdateSelfProfile :execrows
 UPDATE sys_user
-SET display_name = $1, email = $2, mobile = $3, updated_at = NOW()
-WHERE id = $4 AND deleted_at IS NULL
+SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW()
+WHERE id = $5 AND deleted_at IS NULL
 `
 
 type UpdateSelfProfileParams struct {
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	Mobile      string `json:"mobile"`
-	ID          int64  `json:"id"`
+	DisplayName  string        `json:"display_name"`
+	Email        string        `json:"email"`
+	Mobile       string        `json:"mobile"`
+	AvatarFileID sql.NullInt64 `json:"avatar_file_id"`
+	ID           int64         `json:"id"`
 }
 
 func (q *Queries) UpdateSelfProfile(ctx context.Context, arg UpdateSelfProfileParams) (int64, error) {
@@ -790,6 +803,7 @@ func (q *Queries) UpdateSelfProfile(ctx context.Context, arg UpdateSelfProfilePa
 		arg.DisplayName,
 		arg.Email,
 		arg.Mobile,
+		arg.AvatarFileID,
 		arg.ID,
 	)
 	if err != nil {

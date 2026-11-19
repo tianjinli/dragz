@@ -151,10 +151,10 @@ func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFami
 	return err
 }
 
-const revokeRefreshTokenByHash = `-- name: RevokeRefreshTokenByHash :exec
-UPDATE sys_refresh_token SET revoked_at = COALESCE(revoked_at, NOW()),
-  revoke_reason = CASE WHEN revoked_at IS NULL THEN $1 ELSE revoke_reason END
-WHERE token_hash = $2
+const revokeRefreshTokenByHash = `-- name: RevokeRefreshTokenByHash :one
+UPDATE sys_refresh_token SET revoked_at = NOW(), revoke_reason = $1
+WHERE token_hash = $2 AND revoked_at IS NULL
+RETURNING user_id
 `
 
 type RevokeRefreshTokenByHashParams struct {
@@ -162,14 +162,17 @@ type RevokeRefreshTokenByHashParams struct {
 	TokenHash    string `json:"token_hash"`
 }
 
-func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshTokenByHash, arg.RevokeReason, arg.TokenHash)
-	return err
+func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, revokeRefreshTokenByHash, arg.RevokeReason, arg.TokenHash)
+	var user_id uint64
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
-const revokeSession = `-- name: RevokeSession :execrows
+const revokeSession = `-- name: RevokeSession :one
 UPDATE sys_refresh_token SET revoked_at = NOW(), revoke_reason = $1
 WHERE id = $2 AND revoked_at IS NULL
+RETURNING user_id
 `
 
 type RevokeSessionParams struct {
@@ -177,12 +180,11 @@ type RevokeSessionParams struct {
 	ID           int64  `json:"id"`
 }
 
-func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeSession, arg.RevokeReason, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, revokeSession, arg.RevokeReason, arg.ID)
+	var user_id uint64
+	err := row.Scan(&user_id)
+	return user_id, err
 }
 
 const revokeUserRefreshTokens = `-- name: RevokeUserRefreshTokens :exec

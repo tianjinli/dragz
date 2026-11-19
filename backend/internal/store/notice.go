@@ -130,6 +130,43 @@ func (r *AuthRepository) PublishNotice(ctx context.Context, noticeID, publisherI
 	return nil
 }
 
+// ListDueNoticesForNotify returns published notices whose publish_at has arrived
+// but have not been pushed to their audience yet.
+func (r *AuthRepository) ListDueNoticesForNotify(ctx context.Context, limit int) ([]Notice, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.queries.ListDueNoticesForNotify(ctx, int32(limit))
+	if err != nil {
+		return nil, err
+	}
+	items := make([]Notice, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, Notice{
+			ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
+			Content: row.Content, PublishAt: nullTimePtr(row.PublishAt),
+			PublishedBy: nullInt64Ptr(row.PublishedBy), Status: "published",
+		})
+	}
+	return items, nil
+}
+
+// MarkNoticeNotified records that realtime delivery has been attempted for a notice.
+func (r *AuthRepository) MarkNoticeNotified(ctx context.Context, noticeID uint64) (bool, error) {
+	affected, err := r.queries.MarkNoticeNotified(ctx, int64(noticeID))
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
+// BackfillLegacyNoticeNotified marks older already-visible published notices as
+// notified without pushing, so enabling scheduled delivery does not re-blast them.
+func (r *AuthRepository) BackfillLegacyNoticeNotified(ctx context.Context) error {
+	_, err := r.queries.BackfillLegacyNoticeNotified(ctx)
+	return err
+}
+
 // RevokeNotice moves a published notice back to draft.
 func (r *AuthRepository) RevokeNotice(ctx context.Context, noticeID uint64) error {
 	affected, err := r.queries.RevokeNotice(ctx, int64(noticeID))
@@ -174,7 +211,7 @@ func (r *AuthRepository) ListMyNotices(ctx context.Context, userID uint64, unrea
 	for _, row := range rows {
 		items = append(items, Notice{
 			ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
-			TargetType: row.TargetType, TargetIDs: nullRawArray(row.TargetIds), Status: row.Status,
+			Content: row.Content, TargetType: row.TargetType, TargetIDs: nullRawArray(row.TargetIds), Status: row.Status,
 			IsPinned: smallIntBool(row.IsPinned), PublishAt: nullTimePtr(row.PublishAt),
 			PublishedBy: nullInt64Ptr(row.PublishedBy), CreatedBy: row.CreatedBy, CreatorName: row.CreatorName,
 			Read: row.IsRead, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,

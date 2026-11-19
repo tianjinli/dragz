@@ -1,6 +1,6 @@
 -- name: GetUserByID :one
 SELECT id, department_id, username, password_hash, display_name, email, mobile, status,
-  is_super_admin, must_change_password, failed_login_count, locked_until, token_version
+  is_super_admin, must_change_password, failed_login_count, locked_until, token_version, avatar_file_id
 FROM sys_user
 WHERE id = $1 AND deleted_at IS NULL
 LIMIT 1;
@@ -26,8 +26,8 @@ INSERT INTO sys_user_role (user_id, role_id) VALUES ($1, $2);
 
 -- name: UpdateSelfProfile :execrows
 UPDATE sys_user
-SET display_name = $1, email = $2, mobile = $3, updated_at = NOW()
-WHERE id = $4 AND deleted_at IS NULL;
+SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW()
+WHERE id = $5 AND deleted_at IS NULL;
 
 -- name: ChangeSelfPassword :execrows
 UPDATE sys_user
@@ -99,6 +99,10 @@ UPDATE sys_user SET password_hash = $1, must_change_password = 1,
   password_changed_at = NOW(), failed_login_count = 0, locked_until = NULL,
   token_version = token_version + 1
 WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = 0;
+
+-- name: ClearFailedLogin :exec
+UPDATE sys_user SET failed_login_count = 0, locked_until = NULL, updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: BumpUserTokenVersion :exec
 UPDATE sys_user SET token_version = token_version + 1, updated_at = NOW()

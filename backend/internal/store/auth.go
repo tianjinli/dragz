@@ -33,6 +33,7 @@ type User struct {
 	FailedLoginCount   int
 	LockedUntil        sql.NullTime
 	TokenVersion       int64
+	AvatarFileID       sql.NullInt64
 }
 
 // RefreshSession is one refresh-token row, resolved by the hash of the token the client presented.
@@ -114,10 +115,11 @@ func (r *AuthRepository) FindUserByID(ctx context.Context, userID uint64) (User,
 	return mapAuthUser(row), nil
 }
 
-// UpdateSelfProfile writes the three fields a user may change about themselves.
-func (r *AuthRepository) UpdateSelfProfile(ctx context.Context, userID uint64, displayName, email, mobile string) error {
+// UpdateSelfProfile writes the fields a user may change about themselves, including the avatar file id.
+func (r *AuthRepository) UpdateSelfProfile(ctx context.Context, userID uint64, displayName, email, mobile string, avatarFileID sql.NullInt64) error {
 	affected, err := r.queries.UpdateSelfProfile(ctx, sqlcstore.UpdateSelfProfileParams{
-		DisplayName: displayName, Email: email, Mobile: mobile, ID: int64(userID),
+		DisplayName: displayName, Email: email, Mobile: mobile,
+		AvatarFileID: avatarFileID, ID: int64(userID),
 	})
 	if err != nil {
 		return err
@@ -178,6 +180,11 @@ func (r *AuthRepository) RecordLoginFailure(ctx context.Context, username, ip, u
 		return err
 	}
 	return tx.Commit()
+}
+
+// ClearLoginFailures resets the failed-login counter and lock window after a successful unlock.
+func (r *AuthRepository) ClearLoginFailures(ctx context.Context, userID uint64) error {
+	return r.queries.ClearFailedLogin(ctx, int64(userID))
 }
 
 // RecordLoginSuccess stamps the last login and appends the success entry to the login log in one transaction.
@@ -254,11 +261,29 @@ func (r *AuthRepository) RotateRefreshToken(ctx context.Context, oldID uint64, u
 	return tx.Commit()
 }
 
-// RevokeRefreshToken revokes a single refresh token by hash.
+// RevokeRefreshToken revokes one refresh token by hash. Same as RevokeSession:
+// the user's token version moves so that login's access token is rejected
+// immediately. Missing or already-revoked tokens are treated as success.
 func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, tokenHash, reason string) error {
-	return r.queries.RevokeRefreshTokenByHash(ctx, sqlcstore.RevokeRefreshTokenByHashParams{
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	q := r.qtx(tx)
+	userID, err := q.RevokeRefreshTokenByHash(ctx, sqlcstore.RevokeRefreshTokenByHashParams{
 		RevokeReason: reason, TokenHash: tokenHash,
 	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if err := q.BumpUserTokenVersion(ctx, int64(userID)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RevokeRefreshFamily revokes every token in a rotation family, which is how a detected replay is contained.

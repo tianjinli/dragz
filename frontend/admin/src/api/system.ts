@@ -92,12 +92,38 @@ export const publishNoticeApi = (id: number) =>
   apiPost<void>(`/system/notices/${id}/publish`);
 export const revokeNoticeApi = (id: number) =>
   apiPost<void>(`/system/notices/${id}/revoke`);
-export const listMyNoticesApi = (params?: ListQuery) =>
+export const listMyNoticesApi = (params?: ListQuery & { unreadOnly?: boolean }) =>
   apiGet<PagedResult<ResourceRecord>>("/system/my-notices", { params });
 export const getMyNoticeApi = (id: number) =>
   apiGet<ResourceRecord>(`/system/my-notices/${id}`);
 export const markNoticeReadApi = (id: number) =>
   apiPost<void>(`/system/my-notices/${id}/read`);
+export const listMyNotificationsApi = (
+  params?: ListQuery & { unreadOnly?: boolean; channel?: string },
+) => apiGet<PagedResult<ResourceRecord>>("/system/my-notifications", { params });
+export const markNotificationReadApi = (id: number) =>
+  apiPost<void>(`/system/my-notifications/${id}/read`);
+export const markAllNotificationsReadApi = (channel?: string) =>
+  apiPost<void>("/system/my-notifications/read-all", undefined, {
+    params: channel ? { channel } : undefined,
+  });
+export const listNotifyPrefsApi = () =>
+  apiGet<{ items: Array<{ channel: string; enabled: boolean }> }>(
+    "/system/notification-prefs",
+  );
+export const putNotifyPrefsApi = (
+  items: Array<{ channel: string; enabled: boolean }>,
+) => apiPut<void>("/system/notification-prefs", { items });
+export const testNotificationApi = (data: {
+  channel: string;
+  title: string;
+  content?: string;
+  userId?: number;
+}) =>
+  apiPost<{ id: number; created: boolean }>(
+    "/system/notifications/test",
+    data,
+  );
 export const listFilesApi = (params?: ListQuery) =>
   apiGet<PagedResult<ResourceRecord>>("/system/files", { params });
 export const uploadFileApi = (data: FormData) =>

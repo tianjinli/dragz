@@ -13,7 +13,7 @@ import { afterEach } from 'vitest';
 // run even though every test passed. Flushing 20ms here lets those timers
 // resolve while window still exists.
 afterEach(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 });
 
 // antd drawers and vxe tables render slowly under jsdom; the 1s default

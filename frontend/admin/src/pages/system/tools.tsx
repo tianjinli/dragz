@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Drawer, Form, Input, Modal, Switch, Tag, message } from "antd";
+import { Eraser, FlaskConical, Play, ScrollText, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   clearCacheApi,
@@ -54,12 +55,13 @@ export function JobPage() {
         loadData={load}
         columns={[
           { title: t("system.tools.taskName"), dataIndex: "name" },
-          // 1.5× the list-table minimum column width so handler names are less truncated.
-          { title: t("system.tools.handler"), dataIndex: "handler", width: 192 },
-          { title: t("system.tools.cron"), dataIndex: "cronExpression" },
+          // Grow handler by half (192 → 288); shrink cron to half the list min (128 → 64).
+          { title: t("system.tools.handler"), dataIndex: "handler", width: 376 },
+          { title: t("system.tools.cron"), dataIndex: "cronExpression", width: 128 },
           {
             title: t("common.status"),
             dataIndex: "status",
+            width: 80,
             ellipsis: false,
             render: (value: unknown, row: ResourceRecord) => (
               <Switch
@@ -74,6 +76,7 @@ export function JobPage() {
         ]}
         actions={[
           {
+            icon: <Play size={16} />,
             label: t("system.tools.runNow"),
             onClick: async (row, reload) => {
               await runJobApi(row.id);
@@ -83,7 +86,11 @@ export function JobPage() {
               setJob(row);
             },
           },
-          { label: t("system.tools.logs"), onClick: (row) => setJob(row) },
+          {
+            icon: <ScrollText size={16} />,
+            label: t("system.tools.logs"),
+            onClick: (row) => setJob(row),
+          },
         ]}
       />
       <Drawer
@@ -160,6 +167,7 @@ export function WebhookPage() {
   const { t } = useTranslation();
   const actions = [
     {
+      icon: <FlaskConical size={16} />,
       label: t("system.tools.test"),
       onClick: async (row: ResourceRecord) => {
         await testWebhookApi(row.id);
@@ -226,6 +234,7 @@ export function CachePage() {
         ]}
         actions={[
           {
+            icon: <Trash2 size={16} />,
             label: t("common.delete"),
             danger: true,
             onClick: async (row) => {
@@ -235,9 +244,13 @@ export function CachePage() {
           },
         ]}
         extra={
-          <Button danger onClick={() => setOpen(true)}>
-            {t("system.tools.bulkClear")}
-          </Button>
+          <Button
+            aria-label={t("system.tools.bulkClear")}
+            title={t("system.tools.bulkClear")}
+            danger
+            icon={<Eraser size={16} />}
+            onClick={() => setOpen(true)}
+          />
         }
       />
       <Modal

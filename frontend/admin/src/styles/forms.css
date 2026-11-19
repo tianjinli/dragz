@@ -13,6 +13,21 @@
 }
 .form-drawer-maximized .ant-drawer-content-wrapper { width: 100vw !important; }
 .form-drawer-maximized .ant-drawer-content { border-radius: 0; }
+/* Span-based label columns grow with the viewport and stay right-aligned,
+   so labels drift toward the middle once the drawer is maximized. Pin them
+   to a fixed left column instead. */
+.form-drawer-maximized .ant-form-item-horizontal > .ant-form-item-row > .ant-form-item-label {
+  flex: 0 0 160px !important;
+  width: 160px !important;
+  max-width: 160px !important;
+  text-align: start;
+}
+.form-drawer-maximized .ant-form-item-horizontal > .ant-form-item-row > .ant-form-item-control {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0;
+}
 
 .storage-image-upload {
   position: relative;
@@ -70,8 +85,9 @@
   background: transparent;
 }
 .table-action-group { display: flex; justify-content: center; min-width: 0; overflow: hidden; white-space: nowrap; }
-.table-action-menu { min-width: 96px; padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-.table-action-menu .ant-btn { display: block; width: 100%; text-align: left; }
+.table-action-group .ant-btn.ant-btn-link { padding-inline: 4px; }
+.table-action-menu { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 40px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.table-action-menu .ant-btn { display: inline-flex; justify-content: center; width: 100%; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fade-slide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
@@ -158,6 +174,24 @@
 }
 .split-master .ant-table-row { cursor: pointer; }
 .config-toolbar { margin-bottom: 16px; }
+.notice-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+.notice-detail-meta.is-important {
+  border-color: color-mix(in srgb, #fa8c16 45%, var(--border));
+  background: color-mix(in srgb, #fa8c16 8%, transparent);
+}
+.notice-detail-meta.is-urgent {
+  border-color: color-mix(in srgb, #ff4d4f 45%, var(--border));
+  background: color-mix(in srgb, #ff4d4f 8%, transparent);
+}
 .notice-content { white-space: pre-wrap; line-height: 1.8; }
 
 @media (max-width: 900px) {

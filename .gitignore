@@ -22,6 +22,10 @@ backend/logs/
 _attic/
 *.log
 
+# --- local dev runtime (host-run services) ---
+backend/.runlogs/
+backend/etc/*.local.yaml
+
 # --- secrets / env ---
 .env
 .env.local

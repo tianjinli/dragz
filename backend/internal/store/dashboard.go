@@ -7,17 +7,19 @@ import (
 
 // DashboardSummary is the counter block at the top of the workbench.
 type DashboardSummary struct {
-	Users            int64 `json:"users"`
-	EnabledUsers     int64 `json:"enabledUsers"`
-	OnlineSessions   int64 `json:"onlineSessions"`
-	Departments      int64 `json:"departments"`
-	Roles            int64 `json:"roles"`
-	Files            int64 `json:"files"`
-	StorageBytes     int64 `json:"storageBytes"`
-	UnreadNotices    int64 `json:"unreadNotices"`
-	TodayLogins      int64 `json:"todayLogins"`
-	TodayFailures    int64 `json:"todayFailures"`
-	UnresolvedErrors int64 `json:"unresolvedErrors"`
+	Users               int64 `json:"users"`
+	EnabledUsers        int64 `json:"enabledUsers"`
+	OnlineSessions      int64 `json:"onlineSessions"`
+	Departments         int64 `json:"departments"`
+	Roles               int64 `json:"roles"`
+	Files               int64 `json:"files"`
+	StorageBytes        int64 `json:"storageBytes"`
+	UnreadNotices       int64 `json:"unreadNotices"`
+	UnreadNotifications int64 `json:"unreadNotifications"`
+	UnreadMessages      int64 `json:"unreadMessages"`
+	TodayLogins         int64 `json:"todayLogins"`
+	TodayFailures       int64 `json:"todayFailures"`
+	UnresolvedErrors    int64 `json:"unresolvedErrors"`
 }
 
 // DashboardTrend is one day of the login trend chart.
@@ -37,6 +39,7 @@ func (r *AuthRepository) Dashboard(ctx context.Context, userID uint64) (Dashboar
 		Users: row.Users, EnabledUsers: row.EnabledUsers, OnlineSessions: row.OnlineSessions,
 		Departments: row.Departments, Roles: row.Roles, Files: row.Files,
 		StorageBytes: int64(row.StorageBytes), UnreadNotices: row.UnreadNotices,
+		UnreadNotifications: row.UnreadNotifications, UnreadMessages: row.UnreadNotices + row.UnreadNotifications,
 		TodayLogins: row.TodayLogins, TodayFailures: row.TodayFailures, UnresolvedErrors: row.UnresolvedErrors,
 	}
 	today := time.Now()

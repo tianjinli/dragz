@@ -7,6 +7,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 
+	"dragz-admin/backend/internal/noticenotify"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
 )
@@ -24,11 +25,18 @@ type Executor struct {
 	repo    *store.AuthRepository
 	db      *store.DB
 	Secrets *security.SecretBox
+	WS      noticenotify.Pusher
 }
 
 // NewExecutor binds the executor to the repository, the database handle and the secret box the storage handlers need.
 func NewExecutor(repo *store.AuthRepository, db *store.DB, secrets *security.SecretBox) *Executor {
 	return &Executor{repo: repo, db: db, Secrets: secrets}
+}
+
+// WithWS attaches a realtime pusher so notice delivery jobs can fan out over Redis.
+func (e *Executor) WithWS(push noticenotify.Pusher) *Executor {
+	e.WS = push
+	return e
 }
 
 // ExecuteOnce opens a job log, runs the handler under the job's timeout, then closes the log. Output is capped at 64 KiB and the error message at 4000 characters, so a chatty handler cannot bloat the log table.
@@ -41,7 +49,7 @@ func (e *Executor) ExecuteOnce(parent context.Context, job store.ScheduledJob, t
 	timeout := time.Duration(job.TimeoutSeconds) * time.Second
 	runContext, cancel := context.WithTimeout(parent, timeout)
 	output, runErr := RunHandler(runContext, HandlerEnv{
-		DB: e.db, Repo: e.repo, Secrets: e.Secrets,
+		DB: e.db, Repo: e.repo, Secrets: e.Secrets, WS: e.WS,
 	}, job)
 	cancel()
 	if len(output) > 64*1024 {

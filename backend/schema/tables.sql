@@ -288,6 +288,7 @@ CREATE TABLE sys_notice (
   status VARCHAR(32) NOT NULL DEFAULT 'draft',
   is_pinned SMALLINT NOT NULL DEFAULT 0,
   publish_at TIMESTAMPTZ NULL,
+  notified_at TIMESTAMPTZ NULL,
   published_by BIGINT NULL,
   revoked_at TIMESTAMPTZ NULL,
   created_by BIGINT NOT NULL,
@@ -302,6 +303,28 @@ CREATE TABLE sys_notice_read (
   user_id BIGINT NOT NULL,
   read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (notice_id, user_id)
+);
+
+CREATE TABLE sys_notification (
+  id BIGSERIAL,
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  biz_type VARCHAR(64) NOT NULL DEFAULT '',
+  biz_id VARCHAR(64) NOT NULL DEFAULT '',
+  read_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+CREATE INDEX idx_notification_user_created ON sys_notification (user_id, created_at DESC);
+
+CREATE TABLE sys_user_notify_pref (
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  enabled SMALLINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, channel)
 );
 
 CREATE TABLE sys_refresh_token (
@@ -543,6 +566,8 @@ CREATE INDEX idx_file_deleted ON sys_file (deleted_at);
 CREATE INDEX idx_file_reference_business ON sys_file_reference (business_type, business_id);
 
 CREATE INDEX idx_notice_status_publish ON sys_notice (status, publish_at);
+CREATE INDEX idx_notice_due_notify ON sys_notice (publish_at)
+  WHERE deleted_at IS NULL AND status = 'published' AND notified_at IS NULL;
 
 CREATE INDEX idx_notice_deleted ON sys_notice (deleted_at);
 

@@ -152,6 +152,12 @@ func (r *AuthRepository) LoginSecuritySettings(ctx context.Context) (LoginSecuri
 	return settings, nil
 }
 
+// NoticeRevokeWindowMinutes reads the post-publish revoke window in minutes;
+// 0 (including a missing key) means revoking is never time-limited.
+func (r *AuthRepository) NoticeRevokeWindowMinutes(ctx context.Context) (int, error) {
+	return r.configIntValue(ctx, "notice.revokeWindowMinutes")
+}
+
 // CaptchaEnabled reports whether the login form has to solve a captcha. The legacy afterFailures key is honoured so an upgraded database keeps its behaviour.
 func (r *AuthRepository) CaptchaEnabled(ctx context.Context) (bool, error) {
 	value, err := r.queries.GetConfigValue(ctx, "security.captcha.enabled")

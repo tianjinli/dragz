@@ -1,4 +1,4 @@
-import { Avatar, Badge, Button, Dropdown, List, Popover, Space, Tooltip } from 'antd';
+import { Avatar, Badge, Button, Dropdown, Empty, List, Popover, Space, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   Bell,
@@ -21,49 +21,17 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ThemeModeButton } from '@/components/ThemeModeButton';
 import { LOCALE_CODES } from '@/constants/locales';
-import i18n from '@/i18n';
 import { useAccessStore } from '@/stores/access';
 import { useAuthStore } from '@/stores/auth';
 import { useLocaleStore } from '@/stores/locale';
+import { useMessagesStore } from '@/stores/messages';
 import { effectiveDark, TIMEZONE_OPTIONS, usePreferencesStore } from '@/stores/preferences';
 import { useTabsStore } from '@/stores/tabs';
-import { formatInTimezone } from '@/utils/format-time';
+import { formatDateTime } from '@/utils/format-time';
 import { confirmLogout } from '@/utils/confirm-logout';
+import { normalizeNoticePriority } from '@/utils/notice';
 import { applyPreferencesThemeNow, runThemeViewTransition } from '@/utils/theme-transition';
 import type { LocaleCode, Preferences, WidgetKey, WidgetPosition } from '@/types';
-
-const notificationItems = () => [
-  {
-    title: i18n.t('shell.notifications.assistant.title'),
-    desc: i18n.t('shell.notifications.assistant.desc'),
-    at: Date.now() - 60_000,
-  },
-  {
-    title: i18n.t('shell.notifications.system.title'),
-    desc: i18n.t('shell.notifications.system.desc'),
-    at: Date.now() - 3_600_000,
-  },
-  {
-    title: i18n.t('shell.notifications.todo.title'),
-    desc: i18n.t('shell.notifications.todo.desc'),
-    at: Date.now() - 7_200_000,
-  },
-  {
-    title: i18n.t('shell.notifications.update.title'),
-    desc: i18n.t('shell.notifications.update.desc'),
-    at: Date.now() - 86_400_000,
-  },
-  {
-    title: i18n.t('shell.notifications.security.title'),
-    desc: i18n.t('shell.notifications.security.desc'),
-    at: Date.now() - 172_800_000,
-  },
-  {
-    title: i18n.t('shell.notifications.team.title'),
-    desc: i18n.t('shell.notifications.team.desc'),
-    at: Date.now() - 259_200_000,
-  },
-];
 
 const widgetMeta: Array<{ key: WidgetKey; labelKey: string }> = [
   { key: 'globalSearch', labelKey: 'shell.globalSearch' },
@@ -212,6 +180,9 @@ export function HeaderWidgets({
   const setLocale = useLocaleStore((state) => state.setLocale);
   const user = useAccessStore((state) => state.userInfo);
   const logout = useAuthStore((state) => state.logout);
+  const inboxItems = useMessagesStore((state) => state.items);
+  const unreadTotal = useMessagesStore((state) => state.unread.total);
+  const markRead = useMessagesStore((state) => state.markRead);
   const navigate = useNavigate();
   const { t } = useTranslation();
   const dark = effectiveDark(prefs);
@@ -298,35 +269,60 @@ export function HeaderWidgets({
           <Tooltip key={key} title={t('shell.notificationCenter')}>
             <Popover
               content={
-                <List
-                  className="notification-list"
-                  dataSource={notificationItems()}
-                  renderItem={(item) => (
-                    <List.Item>
-                      <List.Item.Meta
-                        avatar={
-                          <Badge dot>
-                            <Avatar icon={<Bell />} />
-                          </Badge>
-                        }
-                        description={
-                          <>
-                            <span>{item.desc}</span>
-                            <small>{formatInTimezone(item.at)}</small>
-                          </>
-                        }
-                        title={item.title}
-                      />
-                    </List.Item>
-                  )}
-                />
+                <div>
+                  <List
+                    className="notification-list"
+                    dataSource={inboxItems}
+                    locale={{
+                      emptyText: (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description={t('shell.notificationEmpty')}
+                        />
+                      ),
+                    }}
+                    renderItem={(item) => {
+                      const priority =
+                        item.kind === 'notice'
+                          ? normalizeNoticePriority(item.priority)
+                          : 'normal';
+                      return (
+                        <List.Item
+                          className={[
+                            item.read ? undefined : 'is-unread',
+                            item.kind === 'notice' ? `is-priority-${priority}` : undefined,
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() => {
+                            void markRead(item);
+                            navigate('/messages/mine');
+                          }}
+                        >
+                          <List.Item.Meta
+                            avatar={
+                              <Badge dot={!item.read}>
+                                <Avatar icon={<Bell />} />
+                              </Badge>
+                            }
+                            description={<small>{formatDateTime(item.at)}</small>}
+                            title={item.title}
+                          />
+                        </List.Item>
+                      );
+                    }}
+                  />
+                  <Button type="link" block onClick={() => navigate('/messages/mine')}>
+                    {t('shell.notificationViewAll')}
+                  </Button>
+                </div>
               }
               placement="bottomRight"
               title={t('shell.notificationPopup')}
               trigger="click"
             >
               <span className="widget-notification-trigger">
-                <Badge count={6} size="small">
+                <Badge count={unreadTotal} size="small" overflowCount={99}>
                   <Button className="widget-notification" icon={<Bell />} type="text" />
                 </Badge>
               </span>
@@ -359,7 +355,6 @@ export function HeaderWidgets({
   });
 
   const displayName = user?.username || user?.realName || '';
-  const roleTag = user?.roleNames?.filter(Boolean).join(t('pages.profile.roleSeparator')) || '';
   const description = user?.email || '';
 
   const dropdownItems: NonNullable<MenuProps['items']> = [
@@ -423,26 +418,23 @@ export function HeaderWidgets({
       <Dropdown
         getPopupContainer={() => document.body}
         menu={{ items: dropdownItems }}
-        mouseEnterDelay={0.1}
-        mouseLeaveDelay={0.15}
         placement="bottomRight"
         popupRender={(menu) => (
           <div className="user-dropdown">
             <div className="user-dropdown-profile">
-              <UserAvatar key={user?.avatar || 'profile'} size={48} src={user?.avatar} />
+              <UserAvatar key={user?.avatar || 'profile'} size={32} src={user?.avatar} />
               <div className="user-dropdown-meta">
                 <div className="user-dropdown-name">
-                  <span>{displayName}</span>
-                  {roleTag ? <span className="user-dropdown-tag">{roleTag}</span> : null}
+                  <span className="user-dropdown-name-text" title={displayName}>{displayName}</span>
                 </div>
-                {description ? <div className="user-dropdown-desc">{description}</div> : null}
+                {description ? <div className="user-dropdown-desc" title={description}>{description}</div> : null}
               </div>
             </div>
             {menu}
           </div>
         )}
         rootClassName="user-dropdown-overlay"
-        trigger={['hover', 'click']}
+        trigger={['click']}
       >
         <button aria-label={displayName || t('shell.userMenu')} className="user-avatar-trigger" type="button">
           <UserAvatar key={user?.avatar || 'header'} size={32} src={user?.avatar} />

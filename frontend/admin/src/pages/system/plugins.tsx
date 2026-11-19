@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Popconfirm, Switch, Tag, Tooltip, Typography, message } from "antd";
+import { Download, PackageMinus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ListPagePanel } from "@/components/ListPagePanel";
 import { Page } from "@/components/Page";
+import { actionColumnWidth } from "@/components/TableActionGroup";
 import { TablePanel } from "@/components/TablePanel";
 import { normalizeListColumns } from "@/utils/table-columns";
 import {
@@ -174,7 +176,7 @@ export function PluginPage() {
               {
                 title: t("common.actions"),
                 key: "actions",
-                width: 120,
+                width: actionColumnWidth(2),
                 ellipsis: false,
                 render: (_: unknown, row: PluginRecord) => {
                   if (row.builtin) {
@@ -182,22 +184,24 @@ export function PluginPage() {
                   }
                   if (!row.installed) {
                     return (
-                      <Button
-                        type="link"
-                        size="small"
-                        loading={pending === row.id}
-                        disabled={pending === row.id}
-                        onClick={() => void install(row)}
-                      >
-                        {t("system.plugins.install")}
-                      </Button>
+                      <Tooltip title={t("system.plugins.install")}>
+                        <Button
+                          aria-label={t("system.plugins.install")}
+                          type="link"
+                          size="small"
+                          icon={<Download size={16} />}
+                          loading={pending === row.id}
+                          disabled={pending === row.id}
+                          onClick={() => void install(row)}
+                        />
+                      </Tooltip>
                     );
                   }
                   const blocked = row.enabled
                     ? t("system.plugins.disableFirst")
                     : undefined;
                   return (
-                    <Tooltip title={blocked}>
+                    <Tooltip title={blocked || t("system.plugins.uninstall")}>
                       <Popconfirm
                         title={t("system.plugins.uninstallTitle", { name: row.name })}
                         description={t("system.plugins.uninstallDescription")}
@@ -208,14 +212,14 @@ export function PluginPage() {
                         onConfirm={() => void uninstall(row)}
                       >
                         <Button
+                          aria-label={t("system.plugins.uninstall")}
                           danger
                           type="link"
                           size="small"
+                          icon={<PackageMinus size={16} />}
                           disabled={!!blocked || pending === row.id}
                           loading={pending === row.id}
-                        >
-                          {t("system.plugins.uninstall")}
-                        </Button>
+                        />
                       </Popconfirm>
                     </Tooltip>
                   );

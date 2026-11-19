@@ -24,6 +24,7 @@ import {
   ChevronRight,
   FoldVertical,
   Search,
+  ShieldCheck,
   UnfoldVertical,
 } from "lucide-react";
 import {
@@ -604,6 +605,7 @@ export function RolePage() {
 
   const rowActions: RowAction[] = [
     {
+      icon: <ShieldCheck size={16} />,
       label: t("system.users.grant"),
       disabled: (row) => !!row.isSystem,
       reload: false,

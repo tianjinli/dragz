@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"dragz-admin/backend/internal/noticenotify"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
 )
@@ -16,6 +17,7 @@ type HandlerEnv struct {
 	DB      *store.DB
 	Repo    *store.AuthRepository
 	Secrets *security.SecretBox
+	WS      noticenotify.Pusher
 }
 
 var AllowedHandlers = []string{
@@ -24,6 +26,7 @@ var AllowedHandlers = []string{
 	"maintenance.cleanup_failed_uploads",
 	"maintenance.cleanup_storage_test_files",
 	"maintenance.cleanup_orphan_files",
+	"notice.notify_due",
 }
 
 // HandlerAllowed reports whether a handler name is in the allowlist. A job row is data, so the handler name it carries must never reach arbitrary code.
@@ -112,6 +115,12 @@ func RunHandler(ctx context.Context, env HandlerEnv, job store.ScheduledJob) (st
 			return "", errors.New("maxFiles cannot exceed 5000")
 		}
 		return cleanupOrphanFiles(ctx, env.DB, env.Repo, env.Secrets, payload.GraceDays, payload.MaxFiles, payload.RecycleDays)
+	case "notice.notify_due":
+		delivered, deliverErr := noticenotify.DeliverDue(ctx, env.Repo, env.WS, 50)
+		if deliverErr != nil {
+			return "", deliverErr
+		}
+		return fmt.Sprintf("delivered %d notice(s)", delivered), nil
 
 	default:
 		return "", errors.New("job handler is not allowlisted")

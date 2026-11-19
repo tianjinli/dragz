@@ -290,6 +290,28 @@ CREATE TABLE sys_notice_read (
   PRIMARY KEY (notice_id, user_id)
 );
 
+CREATE TABLE sys_notification (
+  id BIGSERIAL,
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  biz_type VARCHAR(64) NOT NULL DEFAULT '',
+  biz_id VARCHAR(64) NOT NULL DEFAULT '',
+  read_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+CREATE INDEX idx_notification_user_created ON sys_notification (user_id, created_at DESC);
+
+CREATE TABLE sys_user_notify_pref (
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  enabled SMALLINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, channel)
+);
+
 CREATE TABLE sys_refresh_token (
   id BIGSERIAL,
   user_id BIGINT NOT NULL,
@@ -674,6 +696,7 @@ SELECT id, 1 FROM sys_user WHERE username = 'admin';
 INSERT INTO sys_config (config_group, config_key, name, value_type, config_value, default_value, description)
 VALUES
   ('basic', 'system.name', 'config.label.system_name', 'string', 'Dragz Admin', 'Dragz Admin', 'config.desc.system_name'),
+  ('basic', 'system.dateTimeFormat', 'config.label.system_dateTimeFormat', 'string', 'YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD HH:mm:ss', 'config.desc.system_dateTimeFormat'),
   ('security', 'security.captcha.enabled', 'config.label.security_captcha_enabled', 'boolean', 'false', 'false', 'config.desc.security_captcha_enabled'),
   ('security', 'security.login.maxAttempts', 'config.label.security_login_maxAttempts', 'number', '5', '5', 'config.desc.security_login_maxAttempts'),
   ('security', 'security.login.lockMinutes', 'config.label.security_login_lockMinutes', 'number', '30', '30', 'config.desc.security_login_lockMinutes'),

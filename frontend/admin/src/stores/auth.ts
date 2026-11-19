@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { getAccessCodesApi, getMenusApi, getUserInfoApi, loginApi, logoutApi, refreshTokenApi, type LoginInput } from '@/api/auth';
 import { useAccessStore } from './access';
 import { useLockScreenStore } from './lock-screen';
+import { useMessagesStore } from './messages';
 import { useTabsStore } from './tabs';
 
 export const LOGOUT_REDIRECT_FLAG = 'admin:intentional-logout';
@@ -92,6 +93,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       });
       useTabsStore.setState({ activeKey: '', tabs: [], visitHistory: [], refreshKeys: {}, maximized: false });
       useLockScreenStore.getState().logoutUnlock();
+      useMessagesStore.getState().stopRealtime();
     }
   },
 }));

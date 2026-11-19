@@ -18,6 +18,8 @@ func Routes() []plugin.Route {
 		{Method: http.MethodGet, Path: "/api/auth/captcha", Public: true, Handler: captchaIssueHandler},
 		{Method: http.MethodGet, Path: "/api/auth/login-challenge", Public: true, Handler: loginChallengeHandler},
 		{Method: http.MethodPost, Path: "/api/auth/refresh", Public: true, Handler: refreshHandler},
+		// Cookie-based: must stay public so an expired access token still ends the session.
+		{Method: http.MethodPost, Path: "/api/auth/logout", Public: true, Handler: logoutHandler},
 		{Method: http.MethodGet, Path: "/api/auth/providers", Public: true, Handler: publicAuthProvidersHandler},
 		{Method: http.MethodGet, Path: "/api/auth/oauth/:id/start", Public: true, Handler: startOAuthHandler},
 		{Method: http.MethodGet, Path: "/api/auth/oauth/:id/callback", Public: true, Handler: oauthCallbackHandler},
@@ -27,10 +29,10 @@ func Routes() []plugin.Route {
 		{Method: http.MethodGet, Path: "/api/system/files/:id/content", Public: true, Handler: publicFileContentHandler},
 
 		// ---- auth / profile (login only) ----
-		{Method: http.MethodPost, Path: "/api/auth/logout", Handler: logoutHandler},
 		{Method: http.MethodGet, Path: "/api/auth/profile", Handler: profileHandler},
 		{Method: http.MethodPut, Path: "/api/auth/profile", Handler: updateProfileHandler},
 		{Method: http.MethodPost, Path: "/api/auth/change-password", Handler: changePasswordHandler},
+		{Method: http.MethodPost, Path: "/api/auth/verify-password", Handler: verifyPasswordHandler},
 		{Method: http.MethodGet, Path: "/api/auth/codes", Handler: permissionCodesHandler},
 		{Method: http.MethodGet, Path: "/api/auth/menus", Handler: menusHandler},
 		{Method: http.MethodGet, Path: "/api/dashboard", Handler: dashboardHandler},
@@ -180,6 +182,19 @@ func Routes() []plugin.Route {
 		// Install runs migrations and stamps installed_at without enabling.
 		// Reuses system:plugin:manage; no new permission button.
 		{Method: http.MethodPost, Path: "/api/system/plugins/:id/install", Permission: "system:plugin:manage", Handler: installPluginHandler},
+
+		// ---- message center ----
+		// Appended after the plugin routes so routes.golden stays append-only
+		// for everything that already shipped. The WebSocket route is public
+		// on purpose: browsers cannot set Authorization on the upgrade, so
+		// wsHandler validates ?token= itself and skips the Bearer middleware.
+		{Method: http.MethodGet, Path: "/api/system/my-notifications", FeatureKey: "feature.notice.enabled", Handler: listMyNotificationsHandler},
+		{Method: http.MethodPost, Path: "/api/system/my-notifications/read-all", FeatureKey: "feature.notice.enabled", Handler: markAllNotificationsReadHandler},
+		{Method: http.MethodPost, Path: "/api/system/my-notifications/:id/read", FeatureKey: "feature.notice.enabled", Handler: markNotificationReadHandler},
+		{Method: http.MethodGet, Path: "/api/system/notification-prefs", FeatureKey: "feature.notice.enabled", Handler: listNotifyPrefsHandler},
+		{Method: http.MethodPut, Path: "/api/system/notification-prefs", FeatureKey: "feature.notice.enabled", Handler: putNotifyPrefsHandler},
+		{Method: http.MethodPost, Path: "/api/system/notifications/test", Permission: "system:notice:manage", FeatureKey: "feature.notice.enabled", Handler: testNotificationHandler},
+		{Method: http.MethodGet, Path: "/api/ws", Public: true, Handler: wsHandler},
 	}
 }
 

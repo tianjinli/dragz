@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { actionColumnWidth, splitTableActions, type TableAction } from './TableActionGroup';
+import {
+  actionColumnSlotCount,
+  actionColumnWidth,
+  splitTableActions,
+  type TableAction,
+} from './TableActionGroup';
 
-const action = (label: string): TableAction => ({ label, onClick: vi.fn() });
+const action = (label: string): TableAction => ({
+  icon: null,
+  label,
+  onClick: vi.fn(),
+});
 
 describe('splitTableActions', () => {
   it.each([0, 1, 2, 3])('keeps all actions visible when there are %i or fewer', (count) => {
@@ -49,16 +58,48 @@ describe('splitTableActions', () => {
   });
 });
 
-describe('actionColumnWidth', () => {
-  it('returns the minimum width that fits the given link buttons', () => {
-    expect(actionColumnWidth([{ label: '新增下级' }, { label: '修改' }, { label: '删除' }])).toBe(266);
+describe('actionColumnSlotCount', () => {
+  it('counts every button when there are three or fewer', () => {
+    expect(actionColumnSlotCount([{}, {}, {}])).toBe(3);
   });
 
-  it('is smaller for fewer actions', () => {
-    expect(actionColumnWidth([{ label: '修改' }, { label: '删除' }])).toBeLessThan(actionColumnWidth([{ label: '新增下级' }, { label: '修改' }, { label: '删除' }]));
+  it('counts two primaries plus the more control when overflowing', () => {
+    expect(actionColumnSlotCount([{}, {}, {}, {}])).toBe(3);
+  });
+
+  it('counts the more control when every action is inMore', () => {
+    expect(actionColumnSlotCount([{ inMore: true }, { inMore: true }])).toBe(1);
+  });
+});
+
+describe('actionColumnWidth', () => {
+  it('treats a single button as two so 「操作」fits on one line', () => {
+    expect(actionColumnWidth(1)).toBe(actionColumnWidth(2));
+    expect(actionColumnWidth(1)).toBe(104);
+  });
+
+  it('grows for three icon buttons', () => {
+    expect(actionColumnWidth(2)).toBe(104);
+    expect(actionColumnWidth(3)).toBe(144);
+  });
+
+  it('caps overflow rows at three slots (2 actions + more)', () => {
+    expect(actionColumnWidth(5)).toBe(actionColumnWidth(3));
+  });
+
+  it('sizes from an action list including inMore', () => {
+    expect(
+      actionColumnWidth([
+        {},
+        {},
+        { inMore: true },
+        { inMore: true },
+      ]),
+    ).toBe(actionColumnWidth(3));
   });
 
   it('falls back to the minimum column width when empty', () => {
+    expect(actionColumnWidth(0)).toBe(128);
     expect(actionColumnWidth([])).toBe(128);
   });
 });

@@ -237,6 +237,7 @@ type SysNotice struct {
 	Status      string                `json:"status"`
 	IsPinned    int16                 `json:"is_pinned"`
 	PublishAt   sql.NullTime          `json:"publish_at"`
+	NotifiedAt  sql.NullTime          `json:"notified_at"`
 	PublishedBy sql.NullInt64         `json:"published_by"`
 	RevokedAt   sql.NullTime          `json:"revoked_at"`
 	CreatedBy   uint64                `json:"created_by"`
@@ -249,6 +250,18 @@ type SysNoticeRead struct {
 	NoticeID uint64    `json:"notice_id"`
 	UserID   uint64    `json:"user_id"`
 	ReadAt   time.Time `json:"read_at"`
+}
+
+type SysNotification struct {
+	ID        int64        `json:"id"`
+	UserID    uint64       `json:"user_id"`
+	Channel   string       `json:"channel"`
+	Title     string       `json:"title"`
+	Content   string       `json:"content"`
+	BizType   string       `json:"biz_type"`
+	BizID     string       `json:"biz_id"`
+	ReadAt    sql.NullTime `json:"read_at"`
+	CreatedAt time.Time    `json:"created_at"`
 }
 
 type SysOperationLog struct {
@@ -434,6 +447,13 @@ type SysUserIdentity struct {
 	ProfileJson      pqtype.NullRawMessage `json:"profile_json"`
 	BoundAt          time.Time             `json:"bound_at"`
 	LastLoginAt      sql.NullTime          `json:"last_login_at"`
+}
+
+type SysUserNotifyPref struct {
+	UserID    uint64    `json:"user_id"`
+	Channel   string    `json:"channel"`
+	Enabled   int16     `json:"enabled"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SysUserPosition struct {

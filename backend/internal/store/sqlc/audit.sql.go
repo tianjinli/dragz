@@ -200,23 +200,25 @@ SELECT
   (SELECT COUNT(*) FROM sys_notice n WHERE n.deleted_at IS NULL AND n.status = 'published'
     AND (n.publish_at IS NULL OR n.publish_at <= NOW())
     AND NOT EXISTS (SELECT 1 FROM sys_notice_read nr WHERE nr.notice_id = n.id AND nr.user_id = $1)) AS unread_notices,
+  (SELECT COUNT(*) FROM sys_notification nt WHERE nt.user_id = $1 AND nt.read_at IS NULL) AS unread_notifications,
   (SELECT COUNT(*) FROM sys_login_log WHERE success = 1 AND created_at >= CURRENT_DATE) AS today_logins,
   (SELECT COUNT(*) FROM sys_login_log WHERE success = 0 AND created_at >= CURRENT_DATE) AS today_failures,
   (SELECT COUNT(*) FROM sys_error_log WHERE resolved = 0) AS unresolved_errors
 `
 
 type GetDashboardSummaryRow struct {
-	Users            int64  `json:"users"`
-	EnabledUsers     int64  `json:"enabled_users"`
-	OnlineSessions   int64  `json:"online_sessions"`
-	Departments      int64  `json:"departments"`
-	Roles            int64  `json:"roles"`
-	Files            int64  `json:"files"`
-	StorageBytes     uint64 `json:"storage_bytes"`
-	UnreadNotices    int64  `json:"unread_notices"`
-	TodayLogins      int64  `json:"today_logins"`
-	TodayFailures    int64  `json:"today_failures"`
-	UnresolvedErrors int64  `json:"unresolved_errors"`
+	Users               int64  `json:"users"`
+	EnabledUsers        int64  `json:"enabled_users"`
+	OnlineSessions      int64  `json:"online_sessions"`
+	Departments         int64  `json:"departments"`
+	Roles               int64  `json:"roles"`
+	Files               int64  `json:"files"`
+	StorageBytes        uint64 `json:"storage_bytes"`
+	UnreadNotices       int64  `json:"unread_notices"`
+	UnreadNotifications int64  `json:"unread_notifications"`
+	TodayLogins         int64  `json:"today_logins"`
+	TodayFailures       int64  `json:"today_failures"`
+	UnresolvedErrors    int64  `json:"unresolved_errors"`
 }
 
 func (q *Queries) GetDashboardSummary(ctx context.Context, userID uint64) (GetDashboardSummaryRow, error) {
@@ -231,6 +233,7 @@ func (q *Queries) GetDashboardSummary(ctx context.Context, userID uint64) (GetDa
 		&i.Files,
 		&i.StorageBytes,
 		&i.UnreadNotices,
+		&i.UnreadNotifications,
 		&i.TodayLogins,
 		&i.TodayFailures,
 		&i.UnresolvedErrors,

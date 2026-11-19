@@ -14,7 +14,7 @@ import {
   Tag,
   message,
 } from "antd";
-import { Maximize2, Minimize2, Plus } from "lucide-react";
+import { Maximize2, Minimize2, Pencil, PlugZap, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import {
@@ -35,7 +35,11 @@ import { NumberStepper } from "@/components/NumberStepper";
 import { Page } from "@/components/Page";
 import { ResourceCrudPage } from "@/components/ResourceCrudPage";
 import { normalizeListColumns } from "@/utils/table-columns";
-import { TableActionGroup, type TableAction } from "@/components/TableActionGroup";
+import {
+  actionColumnWidth,
+  TableActionGroup,
+  type TableAction,
+} from "@/components/TableActionGroup";
 import { TablePanel } from "@/components/TablePanel";
 
 function configValue(row: ResourceRecord) {
@@ -223,12 +227,12 @@ export function DictionaryPage() {
             toolbar={{
               actions: (
                 <Button
+                  aria-label={t("common.add")}
+                  title={t("common.add")}
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => openTypeEditor(null)}
-                >
-                  {t("common.add")}
-                </Button>
+                />
               ),
               onRefresh: () => void loadTypes(),
             }}
@@ -277,16 +281,18 @@ export function DictionaryPage() {
                 {
                   title: t("common.actions"),
                   key: "actions",
-                  width: 136,
+                  width: actionColumnWidth([{}, {}]),
                   render: (_, row) => {
                     const actions: TableAction[] = [
                       {
+                        icon: <Pencil size={16} />,
                         label: t("common.edit"),
                         onClick: () => openTypeEditor(row),
                       },
                       {
                         danger: true,
                         disabled: !!row.isSystem,
+                        icon: <Trash2 size={16} />,
                         label: t("common.delete"),
                         onClick: () => removeType(row),
                       },
@@ -308,12 +314,12 @@ export function DictionaryPage() {
             toolbar={{
               actions: selected && (
                 <Button
+                  aria-label={t("common.add")}
+                  title={t("common.add")}
                   type="primary"
                   icon={<Plus size={16} />}
                   onClick={() => openItemEditor(null)}
-                >
-                  {t("common.add")}
-                </Button>
+                />
               ),
               onRefresh: () => void loadItems(),
             }}
@@ -358,15 +364,17 @@ export function DictionaryPage() {
                 {
                   title: t("common.actions"),
                   key: "actions",
-                  width: 136,
+                  width: actionColumnWidth([{}, {}]),
                   render: (_, row) => {
                     const actions: TableAction[] = [
                       {
+                        icon: <Pencil size={16} />,
                         label: t("common.edit"),
                         onClick: () => openItemEditor(row),
                       },
                       {
                         danger: true,
+                        icon: <Trash2 size={16} />,
                         label: t("common.delete"),
                         onClick: () => removeItem(row),
                       },
@@ -612,6 +620,8 @@ export function ConfigPage() {
     if ((savedValuesRef.current[key] ?? "") === value) return;
     await updateConfigApi(key, value);
     savedValuesRef.current = { ...savedValuesRef.current, [key]: value };
+    const { useSystemConfigStore } = await import("@/stores/system-config");
+    void useSystemConfigStore.getState().refresh();
     void message.success(i18n.t("common.saveSuccess"));
   }, []);
   const renderValue = (row: ResourceRecord) => {
@@ -1028,6 +1038,7 @@ export function StorageConfigPage() {
       ]}
       rowActions={[
         {
+          icon: <PlugZap size={16} />,
           label: t("system.settings.storage.testConnection"),
           reload: false,
           onClick: async (row) => {

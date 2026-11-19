@@ -15,6 +15,7 @@ import i18n from "@/i18n";
 import {
   Button,
   Card,
+  DatePicker,
   Form,
   Input,
   Segmented,
@@ -28,7 +29,9 @@ import {
   type FormRule,
   type TableColumnsType,
 } from "antd";
-import { Plus, RotateCcw, Search } from "lucide-react";
+import dayjs, { type Dayjs } from "dayjs";
+import { Pencil, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { getDateTimeFormat } from "@/stores/system-config";
 import {
   createResourceApi,
   deleteResourceApi,
@@ -91,6 +94,7 @@ interface FieldSuffixContext extends FieldChangeContext {
   editing: ResourceRecord | null;
 }
 export type FieldType =
+  | "datetime"
   | "icon"
   | "image"
   | "input"
@@ -101,6 +105,13 @@ export type FieldType =
   | "textarea"
   | "tree-select"
   | "segmented";
+
+function asDayjs(value: unknown): Dayjs | undefined {
+  if (value == null || value === "") return undefined;
+  if (dayjs.isDayjs(value)) return value;
+  const parsed = dayjs(value as string | number | Date);
+  return parsed.isValid() ? parsed : undefined;
+}
 export interface FieldConfig {
   allowClear?: boolean;
   dependencies?: string[];
@@ -177,6 +188,10 @@ export interface RowAction {
   /** 返回 true 时该行操作按钮置灰但仍显示。 */
   disabled?: (row: ResourceRecord) => boolean;
   hidden?: (row: ResourceRecord) => boolean;
+  /** Icon-only control; label is tooltip / aria text. */
+  icon: ReactNode;
+  /** Force this action into the 「更多」overflow menu. */
+  inMore?: boolean;
   label: string;
   onClick?: (row: ResourceRecord) => Promise<void> | void;
   /** When false, skip list reload after onClick (e.g. open a secondary drawer). */
@@ -670,6 +685,9 @@ export function ResourceCrudPage({
           const secret = values[field.key];
           if (secret === "********" || secret == null) values[field.key] = "";
         }
+        if (field.type === "datetime") {
+          values[field.key] = asDayjs(values[field.key])?.second(0).millisecond(0);
+        }
         if (
           (field.type === "select" || field.type === "tree-select") &&
           field.mode === "multiple"
@@ -733,6 +751,10 @@ export function ResourceCrudPage({
     fields.forEach((field) => {
       if (field.type === "switch" && field.numeric)
         values[field.key] = values[field.key] ? 1 : 0;
+      if (field.type === "datetime") {
+        const raw = asDayjs(values[field.key]);
+        values[field.key] = raw ? raw.second(0).millisecond(0).toISOString() : null;
+      }
     });
     const payload = mapSubmitValues ? mapSubmitValues(values, editing) : values;
     setSaving(true);
@@ -895,13 +917,9 @@ export function ResourceCrudPage({
           title: t("common.actions"),
           key: "actions",
           width: actionColumnWidth([
-            ...rowActions.map((action) => ({ label: action.label })),
-            ...(hasAccessByCodes([updateCode])
-              ? [{ label: t("crud.modify") }]
-              : []),
-            ...(!hideDelete && hasAccessByCodes([deleteCode])
-              ? [{ label: t("common.delete") }]
-              : []),
+            ...rowActions.map((action) => ({ inMore: action.inMore })),
+            ...(hasAccessByCodes([updateCode]) ? [{}] : []),
+            ...(!hideDelete && hasAccessByCodes([deleteCode]) ? [{}] : []),
           ]),
           render: (_, record) => {
             const actions: TableAction[] = [
@@ -924,6 +942,7 @@ export function ResourceCrudPage({
               ...(hasAccessByCodes([updateCode])
                 ? [
                     {
+                      icon: <Pencil size={16} />,
                       label: t("crud.modify"),
                       disabled: !!record[protectedField],
                       onClick: () => void openEdit(record),
@@ -934,6 +953,7 @@ export function ResourceCrudPage({
                 ? [
                     {
                       danger: true,
+                      icon: <Trash2 size={16} />,
                       label: t("common.delete"),
                       disabled: !!record[protectedField] || !!deleteDisabled?.(record),
                       onClick: () => remove(record),
@@ -1028,6 +1048,8 @@ export function ResourceCrudPage({
         {statusFilterAfterExtra ? statusFilterNode : extraFilterNodes}
         {searchMode === "local" ? null : (
           <Button
+            aria-label={t("crud.query")}
+            title={t("crud.query")}
             type="primary"
             icon={<Search size={16} />}
             onClick={() => {
@@ -1047,12 +1069,12 @@ export function ResourceCrudPage({
                 setPage(1);
               } else void load();
             }}
-          >
-            {t("crud.query")}
-          </Button>
+          />
         )}
         {searchMode === "local" ? null : (
           <Button
+            aria-label={t("common.reset")}
+            title={t("common.reset")}
             icon={<RotateCcw size={16} />}
             onClick={() => {
               setKeyword("");
@@ -1063,18 +1085,20 @@ export function ResourceCrudPage({
               setSearchFilterValues({});
               setPage(1);
             }}
-          >
-            {t("common.reset")}
-          </Button>
+          />
         )}
       </Space>
     );
   const listToolbar = {
     search,
     actions: !hideCreate && hasAccessByCodes([createCode]) ? (
-      <Button type="primary" icon={<Plus size={16} />} onClick={openCreate}>
-        {t("common.add")}
-      </Button>
+      <Button
+        aria-label={t("common.add")}
+        title={t("common.add")}
+        type="primary"
+        icon={<Plus size={16} />}
+        onClick={openCreate}
+      />
     ) : undefined,
     onRefresh: () => void load(),
   };
@@ -1268,6 +1292,18 @@ export function ResourceCrudPage({
                     rows={4}
                     disabled={isFieldLocked(field)}
                     placeholder={field.placeholder}
+                  />
+                ) : type === "datetime" ? (
+                  <DatePicker
+                    allowClear={field.allowClear !== false}
+                    className="full-width"
+                    disabled={isFieldLocked(field)}
+                    format={getDateTimeFormat().replace(/:?ss/g, "")}
+                    placeholder={field.placeholder}
+                    showTime={{
+                      format: "HH:mm",
+                      defaultValue: dayjs().hour(0).minute(0).second(0).millisecond(0),
+                    }}
                   />
                 ) : type === "password" ? (
                   <Input.Password

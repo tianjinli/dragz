@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Button, Dropdown, Popconfirm, Space } from "antd";
+import { useState, type ReactNode } from "react";
+import { Button, Dropdown, Popconfirm, Space, Tooltip } from "antd";
 import { MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MIN_LIST_COLUMN_WIDTH } from "@/utils/table-columns";
@@ -9,6 +9,8 @@ export interface TableAction {
   disabled?: boolean;
   /** Force this action into the 「更多」overflow menu. */
   inMore?: boolean;
+  /** Visible control is icon-only; label is used for tooltip / aria / confirm. */
+  icon: ReactNode;
   label: string;
   onClick: () => void | Promise<void>;
 }
@@ -35,28 +37,55 @@ export function splitTableActions(actions: TableAction[]) {
   };
 }
 
-const ACTION_BUTTON_PADDING_X = 16;
-const ACTION_GAP = 24;
-function isCJK(ch: string) {
-  return /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch);
-}
-function linkButtonLabelWidth(label: string) {
-  const chars = Array.from(label);
-  const textWidth = chars.reduce((sum, ch) => sum + (isCJK(ch) ? 14 : 8), 0);
-  // antd 对恰好两个中文字符的按钮加 letter-spacing: 0.34em。
-  return textWidth + (chars.length === 2 ? 5 : 0) + ACTION_BUTTON_PADDING_X * 2;
+/**
+ * Ant Design `type="link"` icon-only button footprint (control height),
+ * not just the 16px glyph — underestimating this clips the menu row's
+ * 新增下级 / 修改 / 删除 trio.
+ */
+const ACTION_ICON_BUTTON_WIDTH = 32;
+/** Matches `<Space size={ACTION_GAP}>` in the group. */
+const ACTION_GAP = 8;
+/** Ant Design table cell horizontal padding (16px × 2). */
+const ACTION_CELL_PADDING_X = 32;
+
+/**
+ * How many controls the action cell actually paints for the given actions
+ * (visible icon buttons + optional 「更多」).
+ */
+export function actionColumnSlotCount(
+  actions: Array<{ inMore?: boolean }>,
+): number {
+  if (actions.length === 0) return 0;
+  const { visibleActions, overflowActions } = splitTableActions(
+    actions.map((action) => ({
+      ...action,
+      icon: null,
+      label: "",
+      onClick: () => undefined,
+    })),
+  );
+  return visibleActions.length + (overflowActions.length > 0 ? 1 : 0);
 }
 
-/** 操作列初始宽度：刚好容纳所有链接按钮（文字宽 + 内边距 + 间距）。 */
-export function actionColumnWidth(actions: Array<{ label: string }>) {
-  if (!actions.length) return MIN_LIST_COLUMN_WIDTH;
-  const total =
-    actions.reduce(
-      (sum, action) => sum + linkButtonLabelWidth(action.label),
-      0,
-    ) +
-    ACTION_GAP * (actions.length - 1);
-  return Math.max(MIN_LIST_COLUMN_WIDTH, Math.ceil(total));
+/**
+ * 操作列宽度：按单元格里实际会出现的图标按钮数自适应
+ *（含溢出时的「更多」），并加上表格单元格左右内边距。
+ * 仅 1 个按钮时仍按 2 个计宽，保证表头「操作」能在一行内显示。
+ */
+export function actionColumnWidth(
+  actionsOrCount: number | Array<{ inMore?: boolean }>,
+) {
+  const raw =
+    typeof actionsOrCount === "number"
+      ? actionsOrCount <= 0
+        ? 0
+        : Math.min(actionsOrCount, 3)
+      : actionColumnSlotCount(actionsOrCount);
+  if (raw <= 0) return MIN_LIST_COLUMN_WIDTH;
+  const slots = Math.max(raw, 2);
+  const content =
+    ACTION_ICON_BUTTON_WIDTH * slots + ACTION_GAP * Math.max(0, slots - 1);
+  return Math.ceil(content + ACTION_CELL_PADDING_X);
 }
 
 export function TableActionGroup({ actions }: { actions: TableAction[] }) {
@@ -70,14 +99,18 @@ export function TableActionGroup({ actions }: { actions: TableAction[] }) {
       void action.onClick();
     };
     const button = (
-      <Button
-        danger={action.danger}
-        disabled={action.disabled}
-        type="link"
-        onClick={action.danger ? undefined : () => run()}
-      >
-        {action.label}
-      </Button>
+      <Tooltip title={action.label}>
+        <span className="table-action-trigger">
+          <Button
+            aria-label={action.label}
+            danger={action.danger}
+            disabled={action.disabled}
+            icon={action.icon}
+            type="link"
+            onClick={action.danger ? undefined : () => run()}
+          />
+        </span>
+      </Tooltip>
     );
     return action.danger ? (
       <Popconfirm
@@ -97,7 +130,7 @@ export function TableActionGroup({ actions }: { actions: TableAction[] }) {
 
   return (
     <div className="table-action-group">
-      <Space size={12}>
+      <Space size={ACTION_GAP}>
         {visibleActions.map((action) => renderAction(action))}
         {overflowActions.length > 0 && (
           <Dropdown

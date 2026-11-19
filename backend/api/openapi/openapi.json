@@ -89,11 +89,6 @@
             "description": "OK"
           }
         },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
         "tags": [
           "system"
         ]
@@ -211,6 +206,24 @@
             "description": "OK"
           }
         },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/auth/verify-password": {
+      "post": {
+        "operationId": "post_api_auth_verify-password",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "tags": [
           "system"
         ]
@@ -1183,6 +1196,60 @@
         ]
       }
     },
+    "/api/system/my-notifications": {
+      "get": {
+        "operationId": "get_api_system_my-notifications",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/my-notifications/:id/read": {
+      "post": {
+        "operationId": "post_api_system_my-notifications__id_read",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/my-notifications/read-all": {
+      "post": {
+        "operationId": "post_api_system_my-notifications_read-all",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/system/notices": {
       "get": {
         "operationId": "get_api_system_notices",
@@ -1288,6 +1355,58 @@
     "/api/system/notices/:id/revoke": {
       "post": {
         "operationId": "post_api_system_notices__id_revoke",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/notification-prefs": {
+      "get": {
+        "operationId": "get_api_system_notification-prefs",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_system_notification-prefs",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/notifications/test": {
+      "post": {
+        "operationId": "post_api_system_notifications_test",
         "responses": {
           "200": {
             "description": "OK"
@@ -2096,6 +2215,19 @@
             "bearerAuth": []
           }
         ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/ws": {
+      "get": {
+        "operationId": "get_api_ws",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
         "tags": [
           "system"
         ]

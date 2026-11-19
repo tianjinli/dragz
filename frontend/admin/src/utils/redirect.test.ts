@@ -14,6 +14,13 @@ describe('safeRedirectPath', () => {
     expect(safeRedirectPath('https://evil.com', '/home')).toBe('/home');
     expect(safeRedirectPath(null, '/home')).toBe('/home');
   });
+
+  it('sends an empty or root redirect to the workbench fallback', () => {
+    expect(safeRedirectPath('', '/analytics')).toBe('/analytics');
+    expect(safeRedirectPath('/', '/analytics')).toBe('/analytics');
+    expect(safeRedirectPath('/?', '/analytics')).toBe('/analytics');
+    expect(safeRedirectPath('/auth/login', '/analytics')).toBe('/analytics');
+  });
 });
 
 describe('theme radius', () => {

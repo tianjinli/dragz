@@ -13,6 +13,26 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const backfillLegacyNoticeNotified = `-- name: BackfillLegacyNoticeNotified :execrows
+UPDATE sys_notice
+SET notified_at = COALESCE(publish_at, updated_at, created_at)
+WHERE deleted_at IS NULL
+  AND status = 'published'
+  AND notified_at IS NULL
+  AND publish_at IS NOT NULL
+  AND publish_at <= NOW() - INTERVAL '2 minutes'
+`
+
+// Mark already-visible published notices as notified without pushing, so an
+// upgrade does not re-deliver every historical announcement.
+func (q *Queries) BackfillLegacyNoticeNotified(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, backfillLegacyNoticeNotified)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countMyNotices = `-- name: CountMyNotices :one
 SELECT COUNT(*) FROM sys_notice n
 WHERE n.deleted_at IS NULL AND n.status = 'published' AND n.publish_at <= NOW()
@@ -156,8 +176,61 @@ func (q *Queries) GetNoticeDetail(ctx context.Context, arg GetNoticeDetailParams
 	return i, err
 }
 
+const listDueNoticesForNotify = `-- name: ListDueNoticesForNotify :many
+SELECT id, title, notice_type, priority, content, publish_at, published_by
+FROM sys_notice
+WHERE deleted_at IS NULL
+  AND status = 'published'
+  AND publish_at IS NOT NULL
+  AND publish_at <= NOW()
+  AND notified_at IS NULL
+ORDER BY publish_at ASC
+LIMIT $1
+`
+
+type ListDueNoticesForNotifyRow struct {
+	ID          int64         `json:"id"`
+	Title       string        `json:"title"`
+	NoticeType  string        `json:"notice_type"`
+	Priority    string        `json:"priority"`
+	Content     string        `json:"content"`
+	PublishAt   sql.NullTime  `json:"publish_at"`
+	PublishedBy sql.NullInt64 `json:"published_by"`
+}
+
+func (q *Queries) ListDueNoticesForNotify(ctx context.Context, limit int32) ([]ListDueNoticesForNotifyRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDueNoticesForNotify, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDueNoticesForNotifyRow{}
+	for rows.Next() {
+		var i ListDueNoticesForNotifyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.NoticeType,
+			&i.Priority,
+			&i.Content,
+			&i.PublishAt,
+			&i.PublishedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMyNotices = `-- name: ListMyNotices :many
-SELECT n.id, n.title, n.notice_type, n.priority,
+SELECT n.id, n.title, n.notice_type, n.priority, n.content,
   n.target_type, COALESCE(n.target_ids, '[]'::jsonb) AS target_ids, n.status, n.is_pinned,
   n.publish_at, n.published_by, n.created_by, COALESCE(u.display_name, '') AS creator_name,
   EXISTS(SELECT 1 FROM sys_notice_read nr WHERE nr.notice_id = n.id AND nr.user_id = $3) AS is_read,
@@ -189,6 +262,7 @@ type ListMyNoticesRow struct {
 	Title       string                `json:"title"`
 	NoticeType  string                `json:"notice_type"`
 	Priority    string                `json:"priority"`
+	Content     string                `json:"content"`
 	TargetType  string                `json:"target_type"`
 	TargetIds   pqtype.NullRawMessage `json:"target_ids"`
 	Status      string                `json:"status"`
@@ -221,6 +295,7 @@ func (q *Queries) ListMyNotices(ctx context.Context, arg ListMyNoticesParams) ([
 			&i.Title,
 			&i.NoticeType,
 			&i.Priority,
+			&i.Content,
 			&i.TargetType,
 			&i.TargetIds,
 			&i.Status,
@@ -330,6 +405,19 @@ func (q *Queries) ListNoticesFiltered(ctx context.Context, arg ListNoticesFilter
 	return items, nil
 }
 
+const markNoticeNotified = `-- name: MarkNoticeNotified :execrows
+UPDATE sys_notice SET notified_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL AND notified_at IS NULL
+`
+
+func (q *Queries) MarkNoticeNotified(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markNoticeNotified, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const markNoticeRead = `-- name: MarkNoticeRead :exec
 INSERT INTO sys_notice_read (notice_id, user_id)
 VALUES ($1, $2)
@@ -373,7 +461,8 @@ func (q *Queries) NoticeAllowedForUser(ctx context.Context, arg NoticeAllowedFor
 
 const publishNotice = `-- name: PublishNotice :execrows
 UPDATE sys_notice SET status = 'published',
-  publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL
+  publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL,
+  notified_at = NULL
 WHERE id = $2 AND deleted_at IS NULL AND status = 'draft'
 `
 

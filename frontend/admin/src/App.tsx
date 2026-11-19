@@ -87,7 +87,9 @@ function loginPathForRedirect(pathname: string, search: string) {
   if (sessionStorage.getItem(LOGOUT_REDIRECT_FLAG)) {
     return '/auth/login';
   }
-  return `/auth/login?redirect=${encodeURIComponent(pathname + search)}`;
+  const target = `${pathname}${search}`;
+  if (!target || target === '/' || target.startsWith('/?')) return '/auth/login';
+  return `/auth/login?redirect=${encodeURIComponent(target)}`;
 }
 
 function Protected() {

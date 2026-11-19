@@ -9,8 +9,6 @@ const (
 	TaskSchedulerSync = "scheduler:reconcile"
 	// DefaultQueue is the queue every task is enqueued on unless configuration says otherwise.
 	DefaultQueue = "default"
-	// SchedulerEntryPref prefixes the scheduler entry id of a job, so entries can be added and removed by job id.
-	SchedulerEntryPref = "job:"
 )
 
 // JobPayload is the body of a scheduled job task.

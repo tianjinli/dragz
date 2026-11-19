@@ -35,9 +35,12 @@ function isPublicAuthEndpoint(url?: string) {
   );
 }
 
-/** Refresh/bootstrap 401s stay silent; login credential failures must surface. */
+/** Refresh/bootstrap 401s and login failures stay silent here: callers surface their own errors. */
 function shouldSilentPublicAuthError(status?: number, url?: string) {
-  return status === 401 && isPublicAuthEndpoint(url) && !url?.startsWith('/auth/login');
+  // LoginPage renders every login failure itself (lock countdown, captcha refresh,
+  // keeping typed credentials). Letting the interceptor also toast would show two.
+  if (url === '/auth/login') return true;
+  return status === 401 && isPublicAuthEndpoint(url);
 }
 
 function showErrorOnce(text: string) {

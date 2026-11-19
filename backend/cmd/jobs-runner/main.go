@@ -18,6 +18,7 @@ import (
 	"dragz-admin/backend/internal/jobs/runner"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
+	"dragz-admin/backend/internal/ws"
 )
 
 var configFile = flag.String("f", "etc/jobs-runner.yaml", "the config file")
@@ -39,7 +40,10 @@ func main() {
 		logx.Must(err)
 	}
 	repo := store.NewAuthRepository(db)
-	executor := jobs.NewExecutor(repo, db, secretBox)
+	hub, err := ws.NewHub(c.Redis.Host, c.Redis.Pass)
+	logx.Must(err)
+	defer hub.Close()
+	executor := jobs.NewExecutor(repo, db, secretBox).WithWS(hub)
 	r, err := runner.NewRunner(c, repo, executor)
 	logx.Must(err)
 

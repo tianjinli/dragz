@@ -1,4 +1,5 @@
 import { type ComponentProps, useMemo } from "react";
+import { Plus } from "lucide-react";
 import {
   ResourceCrudPage,
   type ColumnConfig,
@@ -233,6 +234,7 @@ export const DepartmentPage = resource(() => ({
     cascadeStatus: true,
     rowActions: [
       {
+        icon: <Plus size={16} />,
         label: i18n.t("system.org.addChild"),
         createValues: (row: ResourceRecord) => ({ parentId: row.id }),
       },
@@ -458,6 +460,7 @@ export const MenuPage = resource(() => ({
     tree: true,
     rowActions: [
       {
+        icon: <Plus size={16} />,
         label: i18n.t("system.org.addChild"),
         // Directories get sub-menus, pages get permission buttons.
         disabled: (row: ResourceRecord) => row.type !== "directory" && row.type !== "page",

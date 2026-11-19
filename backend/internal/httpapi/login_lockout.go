@@ -84,6 +84,19 @@ func loginFailureMessageKey(failedCount int, locked bool, maxAttempts int) (stri
 	return "errors.invalid_login", nil
 }
 
+func unlockFailureMessageKey(failedCount int, locked bool, maxAttempts int) (string, map[string]any) {
+	if locked {
+		return "errors.unlock_forced_logout", nil
+	}
+	if maxAttempts > 0 {
+		remaining := loginAttemptsRemaining(failedCount, maxAttempts)
+		if failedCount >= 1 && remaining > 0 {
+			return "errors.unlock_password_remaining", map[string]any{"Remaining": remaining}
+		}
+	}
+	return "errors.password_incorrect", nil
+}
+
 type loginLockData struct {
 	Kind              string `json:"kind"` // "cooldown" | "lock"
 	RetryAfterSeconds int    `json:"retryAfterSeconds"`

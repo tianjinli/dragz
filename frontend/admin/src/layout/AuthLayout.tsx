@@ -5,20 +5,15 @@ import { AuthToolbar } from '@/components/auth/AuthToolbar';
 import { usePreferencesStore } from '@/stores/preferences';
 
 function AuthFormPanel({ children }: { children: ReactNode }) {
-  const prefs = usePreferencesStore((state) => state.preferences);
   return (
     <div className="auth-form-panel is-center" data-side="bottom">
       <div className="auth-form-content">{children}</div>
-      {prefs.copyright.enable ? (
-        <div className="auth-form-copyright">
-          <AuthCopyright {...prefs.copyright} />
-        </div>
-      ) : null}
     </div>
   );
 }
 
 export function AuthLayout({ children }: { children: ReactNode }) {
+  const prefs = usePreferencesStore((state) => state.preferences);
   return (
     <div className="auth-shell">
       <AuthToolbar />
@@ -26,6 +21,11 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         <div className="login-background auth-center-bg" />
         <AuthFormPanel>{children}</AuthFormPanel>
       </div>
+      {prefs.copyright.enable ? (
+        <div className="auth-page-copyright">
+          <AuthCopyright {...prefs.copyright} />
+        </div>
+      ) : null}
     </div>
   );
 }

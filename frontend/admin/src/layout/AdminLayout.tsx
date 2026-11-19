@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { Avatar, Button, ConfigProvider, Drawer, Input, Layout, List, Menu, Modal, Typography, Watermark, theme as antdTheme } from 'antd';
+import { Alert, Avatar, Button, ConfigProvider, Drawer, Input, Layout, List, Menu, Modal, Spin, Typography, Watermark, theme as antdTheme } from 'antd';
+import type { AxiosError } from 'axios';
 import {
   Camera,
   ChevronLeft,
@@ -10,20 +11,25 @@ import {
   PinOff,
   Search,
   Settings,
+  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { verifyPasswordApi } from '@/api/auth';
 import { AuthCopyright } from '@/components/auth/AuthCopyright';
 import { CheckUpdates } from '@/components/CheckUpdates';
+import { NoticeRealtimeAlerts } from '@/components/NoticeRealtimeAlerts';
 import { PreferencesDrawer } from '@/components/preferences/PreferencesDrawer';
 import { useMixedMenu } from '@/hooks/useMixedMenu';
 import { findMenu, firstLeafPath, flattenMenus, iconNode, menuAncestors, menuIcon, menuItems } from '@/router/menu-utils';
 import { LOGOUT_REDIRECT_FLAG, useAuthStore } from '@/stores/auth';
 import { useAccessStore } from '@/stores/access';
 import { useLockScreenStore } from '@/stores/lock-screen';
+import { useMessagesStore } from '@/stores/messages';
 import { effectiveDark, usePreferencesStore } from '@/stores/preferences';
+import { useSystemConfigStore } from '@/stores/system-config';
 import { syncTabsPersistence, useTabsStore } from '@/stores/tabs';
-import type { MenuRoute } from '@/types';
+import type { ApiEnvelope, MenuRoute } from '@/types';
 import { confirmLogout } from '@/utils/confirm-logout';
 import { CachedViews } from './CachedViews';
 import { HeaderWidgets, shouldShowPreferencesFloat } from './HeaderWidgets';
@@ -229,80 +235,100 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
+type UnlockLockPayload = {
+  attemptsRemaining?: number;
+  kind?: 'cooldown' | 'lock' | string;
+  lockedUntil?: string;
+  retryAfterSeconds?: number;
+};
+
 function LockScreen() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const locked = useLockScreenStore((state) => state.locked);
   const lock = useLockScreenStore((state) => state.lock);
   const unlock = useLockScreenStore((state) => state.unlock);
+  const logout = useAuthStore((state) => state.logout);
   const user = useAccessStore((state) => state.userInfo);
-  const [setup, setSetup] = useState(false);
   const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [unlockError, setUnlockError] = useState('');
 
   useEffect(() => {
-    const fn = () => setSetup(true);
+    const fn = () => lock();
     window.addEventListener('admin:lock', fn);
     return () => window.removeEventListener('admin:lock', fn);
-  }, []);
+  }, [lock]);
+
+  const forceLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate('/auth/login', { replace: true });
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   const doUnlock = async () => {
-    setBusy(true);
+    if (!password || loggingOut) return;
+    setUnlockBusy(true);
+    setUnlockError('');
     try {
-      if (await unlock(password)) setPassword('');
-      else void Modal.error({ title: t('shell.wrongPassword'), content: t('shell.wrongPasswordDesc') });
+      await verifyPasswordApi({ password });
+      unlock();
+      setPassword('');
+    } catch (error) {
+      const ax = error as AxiosError<ApiEnvelope<UnlockLockPayload>>;
+      const envelope = ax.response?.data;
+      const payload = envelope?.data;
+      const text = envelope?.message || (error instanceof Error ? error.message : '') || t('shell.wrongPassword');
+      setUnlockError(text);
+      if (ax.response?.status === 423 || payload?.kind === 'lock') {
+        await forceLogout();
+      }
     } finally {
-      setBusy(false);
+      setUnlockBusy(false);
     }
   };
 
-  const doLock = async () => {
-    if (!password) return;
-    setBusy(true);
-    try {
-      await lock(password);
-      setSetup(false);
-      setPassword('');
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (!locked) return null;
 
   return (
-    <>
-      <Modal
-        confirmLoading={busy}
-        open={setup}
-        title={t('shell.setLockPassword')}
-        onCancel={() => setSetup(false)}
-        onOk={() => void doLock()}
-      >
-        <Input.Password
-          autoFocus
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          onPressEnter={() => void doLock()}
-        />
-      </Modal>
-      {locked ? (
-        <div className="lock-screen">
-          <div className="lock-card">
-            <Avatar icon={<Camera />} size={80} src={user?.avatar || undefined} />
-            <Typography.Title level={3}>{user?.realName || user?.username}</Typography.Title>
-            <Typography.Paragraph type="secondary">{t('shell.screenLocked')}</Typography.Paragraph>
-            <Input.Password
-              autoFocus
-              placeholder={t('shell.lockPassword')}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onPressEnter={() => void doUnlock()}
-            />
-            <Button block loading={busy} type="primary" onClick={() => void doUnlock()}>
-              {t('unlock')}
-            </Button>
-          </div>
+    <div className="lock-screen">
+      {loggingOut ? (
+        <div className="lock-screen-mask">
+          <Spin size="large" />
         </div>
       ) : null}
-    </>
+      <div className="lock-card">
+        <Button
+          aria-label={t('shell.logoutAction')}
+          className="lock-close"
+          disabled={loggingOut || unlockBusy}
+          icon={<X size={18} />}
+          type="text"
+          onClick={() => void forceLogout()}
+        />
+        <Avatar icon={<Camera />} size={80} src={user?.avatar || undefined} />
+        <Typography.Title level={3}>{user?.realName || user?.username}</Typography.Title>
+        <Typography.Paragraph type="secondary">{t('shell.screenLocked')}</Typography.Paragraph>
+        {unlockError ? <Alert className="lock-alert" showIcon type="error" message={unlockError} /> : null}
+        <Input.Password
+          autoFocus
+          disabled={loggingOut}
+          placeholder={t('shell.lockPassword')}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          onPressEnter={() => void doUnlock()}
+        />
+        <Button block disabled={loggingOut} loading={unlockBusy} type="primary" onClick={() => void doUnlock()}>
+          {t('unlock')}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -311,6 +337,8 @@ export function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const menus = useAccessStore((state) => state.menus);
+  const homePath = useAccessStore((state) => state.userInfo?.homePath);
+  const accessToken = useAccessStore((state) => state.accessToken);
   const prefs = usePreferencesStore((state) => state.preferences);
   const updatePrefs = usePreferencesStore((state) => state.update);
   const tabs = useTabsStore((state) => state.tabs);
@@ -393,6 +421,16 @@ export function AdminLayout() {
     syncTabsPersistence(prefs.tabbar.persist);
   }, [prefs.tabbar.persist]);
 
+  useEffect(() => {
+    if (!accessToken) {
+      useMessagesStore.getState().stopRealtime();
+      return;
+    }
+    void useSystemConfigStore.getState().refresh();
+    useMessagesStore.getState().startRealtime();
+    return () => useMessagesStore.getState().stopRealtime();
+  }, [accessToken]);
+
   const startSiderResize = (event: ReactMouseEvent) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -435,10 +473,10 @@ export function AdminLayout() {
   }, []);
 
   useEffect(() => {
-    if (location.pathname === '/' && menus.length) {
-      navigate(prefs.app.defaultHomePath, { replace: true });
+    if (location.pathname === '/') {
+      navigate(homePath || prefs.app.defaultHomePath || '/analytics', { replace: true });
     }
-  }, [location.pathname, menus.length, navigate, prefs.app.defaultHomePath]);
+  }, [homePath, location.pathname, navigate, prefs.app.defaultHomePath]);
 
   useEffect(() => {
     const title = currentMenu?.meta?.title || (location.pathname === '/profile' ? t('profile') : t('shell.page'));
@@ -775,6 +813,7 @@ export function AdminLayout() {
           : undefined
       }
     >
+      <NoticeRealtimeAlerts />
       {headerAboveWorkspace ? header : null}
       {/*
         Force hasSider when only the mixed icon rail is shown (secondary Sider hidden).

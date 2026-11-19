@@ -17,6 +17,7 @@ type AuthStore interface {
 	LoginSecuritySettings(ctx context.Context) (LoginSecuritySettings, error)
 	RecordLoginFailure(ctx context.Context, username, ip, userAgent, reason string, lockUntil *time.Time) error
 	RecordLoginSuccess(ctx context.Context, userID uint64, username, ip, userAgent string) error
+	ClearLoginFailures(ctx context.Context, userID uint64) error
 	SaveRefreshToken(ctx context.Context, userID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error
 	FindRefreshSession(ctx context.Context, tokenHash string) (RefreshSession, error)
 	ForceLogoutUser(ctx context.Context, userID uint64) error
@@ -37,7 +38,7 @@ type UserStore interface {
 	UpdateUser(ctx context.Context, userID uint64, input SaveUserInput) error
 	DeleteUser(ctx context.Context, userID uint64) error
 	ResetUserPassword(ctx context.Context, userID uint64, passwordHash string) error
-	UpdateSelfProfile(ctx context.Context, userID uint64, displayName, email, mobile string) error
+	UpdateSelfProfile(ctx context.Context, userID uint64, displayName, email, mobile string, avatarFileID sql.NullInt64) error
 	ChangeSelfPassword(ctx context.Context, userID uint64, passwordHash string) error
 }
 

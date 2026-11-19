@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zeromicro/go-zero/core/logx"
 	"golang.org/x/crypto/bcrypt"
 
 	"dragz-admin/backend/internal/app"
@@ -116,7 +117,7 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 		} else if errors.Is(err, sql.ErrNoRows) {
 			failedCountHint = unknownFailCount(ctx, r.Context(), req.Username)
 		}
-		needCaptcha := shouldRequireCaptcha(securitySettings.CaptchaEnabled, failedCountHint, hasCaptchaNeedFlag(ctx, r.Context(), req.Username))
+		needCaptcha := shouldRequireCaptcha(securitySettings.CaptchaEnabled)
 		if needCaptcha {
 			if verifyErr := verifyAndConsumeCaptcha(ctx, r.Context(), req.CaptchaID, req.CaptchaCode); verifyErr != nil {
 				msg := "errors.captcha_required"
@@ -133,7 +134,7 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 			_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(req.Password))
 			_ = ctx.Auth.RecordLoginFailure(r.Context(), req.Username, clientIP(r), r.UserAgent(), "login_log.reason.invalid_credentials", nil)
 			nextCount := bumpUnknownFailCount(ctx, r.Context(), req.Username)
-			captchaRequired := noteCaptchaAfterFailure(ctx, r.Context(), req.Username, securitySettings.CaptchaEnabled, nextCount)
+			captchaRequired := shouldRequireCaptcha(securitySettings.CaptchaEnabled)
 			until, duration, _ := resolveLoginFailurePenalty(0, securitySettings)
 			failData(w, r, http.StatusUnauthorized, 40101, "errors.invalid_login", newLoginLockData(until, duration, false, nextCount, securitySettings.MaxAttempts, captchaRequired))
 			return
@@ -157,7 +158,7 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 					msg = "errors.locked"
 					status, code = http.StatusLocked, 42301
 				}
-				captchaRequired := shouldRequireCaptcha(securitySettings.CaptchaEnabled, user.FailedLoginCount, hasCaptchaNeedFlag(ctx, r.Context(), req.Username))
+				captchaRequired := shouldRequireCaptcha(securitySettings.CaptchaEnabled)
 				failData(w, r, status, code, msg, newLoginLockData(user.LockedUntil.Time, remaining, locked, user.FailedLoginCount, securitySettings.MaxAttempts, captchaRequired))
 				return
 			}
@@ -166,7 +167,7 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 			nextCount := user.FailedLoginCount + 1
 			until, duration, locked := resolveLoginFailurePenalty(nextCount, securitySettings)
 			_ = ctx.Auth.RecordLoginFailure(r.Context(), req.Username, clientIP(r), r.UserAgent(), "login_log.reason.invalid_credentials", &until)
-			captchaRequired := noteCaptchaAfterFailure(ctx, r.Context(), req.Username, securitySettings.CaptchaEnabled, nextCount)
+			captchaRequired := shouldRequireCaptcha(securitySettings.CaptchaEnabled)
 			msg, msgData := loginFailureMessageKey(nextCount, locked, securitySettings.MaxAttempts)
 			data := newLoginLockData(until, duration, locked, nextCount, securitySettings.MaxAttempts, captchaRequired)
 			if locked {
@@ -177,7 +178,7 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 			return
 		}
 
-		clearCaptchaRequired(ctx, r.Context(), req.Username)
+		clearUnknownFailCount(ctx, r.Context(), req.Username)
 		pair, err := ctx.Tokens.Issue(user.ID, user.Username, user.TokenVersion)
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.token_issue_failed")
@@ -259,8 +260,15 @@ func logoutHandler(ctx *app.Context) http.HandlerFunc {
 				req.RefreshToken = cookie.Value
 			}
 		}
+		// Same as single-session force logout: drop this refresh and bump
+		// token_version so the current access token stops working immediately.
 		if req.RefreshToken != "" {
-			_ = ctx.Auth.RevokeRefreshToken(r.Context(), security.HashOpaqueToken(req.RefreshToken), "logout")
+			if err := ctx.Auth.RevokeRefreshToken(r.Context(), security.HashOpaqueToken(req.RefreshToken), "logout"); err != nil {
+				// The cookie is still cleared below so the browser stops sending it,
+				// but the server-side session stays online until it expires. Make
+				// that failure visible instead of reporting a false success.
+				logx.WithContext(r.Context()).Errorf("revoke refresh token on logout: %v", err)
+			}
 		}
 		clearRefreshCookie(w, ctx)
 		ok(w, r, map[string]bool{"success": true})
@@ -320,10 +328,14 @@ func profileHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.password_policy_load_failed")
 			return
 		}
+		avatar := ""
+		if user.AvatarFileID.Valid {
+			avatar = systemPublicFileURL(r, uint64(user.AvatarFileID.Int64))
+		}
 		ok(w, r, profileResponse{
 			ID: user.ID, UserID: strconv.FormatUint(user.ID, 10),
 			Username: user.Username, RealName: user.DisplayName, Email: user.Email,
-			Mobile: user.Mobile, DepartmentName: department.Name,
+			Mobile: user.Mobile, Avatar: avatar, DepartmentName: department.Name,
 			Roles: roleCodes, RoleNames: roleNames, Permissions: permissions, HomePath: "/analytics",
 			IsSuperAdmin: user.IsSuperAdmin, MustChangePassword: user.MustChangePassword, PasswordMinLength: settings.PasswordMinLength,
 		})
@@ -331,14 +343,19 @@ func profileHandler(ctx *app.Context) http.HandlerFunc {
 }
 
 type updateProfileRequest struct {
-	RealName string `json:"realName"`
-	Email    string `json:"email"`
-	Mobile   string `json:"mobile"`
+	RealName     string  `json:"realName"`
+	Email        string  `json:"email"`
+	Mobile       string  `json:"mobile"`
+	AvatarFileID *uint64 `json:"avatarFileId"`
 }
 
 type changePasswordRequest struct {
 	OldPassword string `json:"oldPassword"`
 	NewPassword string `json:"newPassword"`
+}
+
+type verifyPasswordRequest struct {
+	Password string `json:"password"`
 }
 
 func updateProfileHandler(ctx *app.Context) http.HandlerFunc {
@@ -367,7 +384,21 @@ func updateProfileHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.mobile_invalid")
 			return
 		}
-		if err := ctx.Auth.UpdateSelfProfile(r.Context(), userID, req.RealName, req.Email, req.Mobile); err != nil {
+		current, err := ctx.Auth.FindUserByID(r.Context(), userID)
+		if err != nil {
+			fail(w, r, http.StatusNotFound, 40401, "errors.user_not_found")
+			return
+		}
+		avatarFileID := current.AvatarFileID
+		if req.AvatarFileID != nil {
+			file, err := ctx.Auth.FileByID(r.Context(), *req.AvatarFileID)
+			if err != nil || file.Status != "ready" || file.AccessType != "public" || !strings.HasPrefix(file.MimeType, "image/") {
+				fail(w, r, http.StatusBadRequest, 40002, "errors.file_not_found")
+				return
+			}
+			avatarFileID = sql.NullInt64{Int64: int64(*req.AvatarFileID), Valid: true}
+		}
+		if err := ctx.Auth.UpdateSelfProfile(r.Context(), userID, req.RealName, req.Email, req.Mobile, avatarFileID); err != nil {
 			fail(w, r, http.StatusNotFound, 40401, "errors.user_not_found")
 			return
 		}
@@ -419,6 +450,60 @@ func changePasswordHandler(ctx *app.Context) http.HandlerFunc {
 		}
 		clearRefreshCookie(w, ctx)
 		ok(w, r, map[string]bool{"success": true, "reloginRequired": true})
+	}
+}
+
+func verifyPasswordHandler(ctx *app.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, valid := currentUserID(r.Context())
+		if !valid {
+			fail(w, r, http.StatusUnauthorized, 40100, "errors.invalid_session")
+			return
+		}
+		var req verifyPasswordRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		settings, err := ctx.Auth.LoginSecuritySettings(r.Context())
+		if err != nil {
+			fail(w, r, http.StatusInternalServerError, 50000, "errors.password_policy_load_failed")
+			return
+		}
+		user, err := ctx.Auth.FindUserByID(r.Context(), userID)
+		if err != nil || user.Status != 1 {
+			fail(w, r, http.StatusUnauthorized, 40105, "errors.account_unavailable")
+			return
+		}
+		if user.LockedUntil.Valid && user.LockedUntil.Time.After(time.Now()) {
+			remaining := time.Until(user.LockedUntil.Time)
+			if shouldEnforceLoginWait(remaining) {
+				locked := isAccountLockWait(user.FailedLoginCount, settings.MaxAttempts, remaining)
+				if locked {
+					_ = ctx.Auth.ForceLogoutUser(r.Context(), userID)
+					failData(w, r, http.StatusLocked, 42301, "errors.unlock_forced_logout", newLoginLockData(user.LockedUntil.Time, remaining, true, user.FailedLoginCount, settings.MaxAttempts, false))
+					return
+				}
+				until, duration, _ := resolveLoginFailurePenalty(0, settings)
+				failData(w, r, http.StatusBadRequest, 40003, "errors.retry_later", newLoginLockData(until, duration, false, user.FailedLoginCount, settings.MaxAttempts, false))
+				return
+			}
+		}
+		if strings.TrimSpace(req.Password) == "" || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+			nextCount := user.FailedLoginCount + 1
+			until, duration, locked := resolveLoginFailurePenalty(nextCount, settings)
+			_ = ctx.Auth.RecordLoginFailure(r.Context(), user.Username, clientIP(r), r.UserAgent(), "login_log.reason.invalid_credentials", &until)
+			msg, msgData := unlockFailureMessageKey(nextCount, locked, settings.MaxAttempts)
+			data := newLoginLockData(until, duration, locked, nextCount, settings.MaxAttempts, false)
+			if locked {
+				_ = ctx.Auth.ForceLogoutUser(r.Context(), userID)
+				failData(w, r, http.StatusLocked, 42301, msg, data, msgData)
+				return
+			}
+			failData(w, r, http.StatusBadRequest, 40003, msg, data, msgData)
+			return
+		}
+		_ = ctx.Auth.ClearLoginFailures(r.Context(), userID)
+		ok(w, r, map[string]bool{"success": true})
 	}
 }
 

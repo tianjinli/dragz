@@ -1,5 +1,5 @@
 import { ListPagePanel } from "@/components/ListPagePanel";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, Card, Input, Space, type TableColumnsType } from "antd";
 import { RotateCcw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,9 @@ import { actionColumnWidth, TableActionGroup } from "./TableActionGroup";
 export interface RowAction {
   danger?: boolean;
   hidden?: (row: ResourceRecord) => boolean;
+  icon: ReactNode;
+  /** Force this action into the 「更多」overflow menu. */
+  inMore?: boolean;
   label: string;
   onClick: (
     row: ResourceRecord,

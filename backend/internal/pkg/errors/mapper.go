@@ -91,6 +91,9 @@ func MapNotice(err error) HTTPError {
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
 		return HTTPError{Status: http.StatusNotFound, Code: CodeNotFound, Message: "errors.notice.not_found"}
 	}
+	if errors.Is(err, store.ErrNoticeRevokeExpired) {
+		return HTTPError{Status: http.StatusConflict, Code: CodeConflict, Message: "errors.notice.revoke_window_expired"}
+	}
 	if errors.Is(err, store.ErrNotEditable) ||
 		errors.Is(err, store.ErrCannotPublish) || errors.Is(err, store.ErrCannotRevoke) {
 		return HTTPError{Status: http.StatusConflict, Code: CodeConflict, Message: "errors.notice.conflict"}

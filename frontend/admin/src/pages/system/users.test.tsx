@@ -37,6 +37,17 @@ class ResizeObserverMock {
 }
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
 
+// Static antd message mounts its own React root on a timer. Under jsdom that
+// render can land after this file's environment is torn down and surfaces as
+// an unhandled "window is not defined" from react-dom's scheduler.
+vi.mock('antd', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('antd')>();
+  return {
+    ...actual,
+    message: { ...actual.message, error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
+  };
+});
+
 vi.mock('@/api/system', () => ({
   createResourceApi: apiMocks.createResourceApi,
   deleteResourceApi: apiMocks.deleteResourceApi,
@@ -101,8 +112,16 @@ function mockUsersList(result: { items: Record<string, unknown>[]; total: number
   });
 }
 
+async function flushPendingUi() {
+  // Let antd Form debounce / Tree measure timers settle while jsdom still exists.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
 describe('UserPage query form', () => {
-  afterEach(cleanup);
+  afterEach(async () => {
+    cleanup();
+    await flushPendingUi();
+  });
 
   beforeEach(() => {
     listDepartmentsApi.mockReset();
@@ -335,7 +354,10 @@ describe('UserPage query form', () => {
 });
 
 describe('RolePage system role operations', () => {
-  afterEach(cleanup);
+  afterEach(async () => {
+    cleanup();
+    await flushPendingUi();
+  });
 
   const rowOf = (container: HTMLElement | null) => container?.closest('div[data-testid="user-table"] > div');
 

@@ -40,11 +40,11 @@ func TestAuthenticateAcceptsValidAccessToken(t *testing.T) {
 		t.Fatalf("issue token: %v", err)
 	}
 	mock.ExpectQuery("SELECT id, department_id, username").
-		WithArgs(uint64(42)).
+		WithArgs(int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "department_id", "username", "password_hash", "display_name", "email", "mobile",
-			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version",
-		}).AddRow(42, 1, "admin", "hash", "Admin", "", "", 1, 1, 0, 0, nil, 0))
+			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
+		}).AddRow(42, 1, "admin", "hash", "Admin", "", "", 1, 1, 0, 0, nil, 0, nil))
 
 	ctx := &app.Context{Tokens: tokens, Auth: store.NewAuthRepository(&store.DB{DB: db})}
 	var gotUserID uint64
@@ -100,11 +100,11 @@ func TestRequirePermissionAllowsSuperAdmin(t *testing.T) {
 		Casbin: enforcer,
 	}
 	mock.ExpectQuery("SELECT id, department_id, username").
-		WithArgs(uint64(1)).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "department_id", "username", "password_hash", "display_name", "email", "mobile",
-			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version",
-		}).AddRow(1, 1, "admin", "hash", "Admin", "", "", 1, 1, 0, 0, nil, 0))
+			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
+		}).AddRow(1, 1, "admin", "hash", "Admin", "", "", 1, 1, 0, 0, nil, 0, nil))
 
 	handler := requirePermission(ctx, "system:user:query", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -140,11 +140,11 @@ func TestRequirePermissionDeniesWithoutPolicy(t *testing.T) {
 		Casbin: enforcer,
 	}
 	mock.ExpectQuery("SELECT id, department_id, username").
-		WithArgs(uint64(9)).
+		WithArgs(int64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "department_id", "username", "password_hash", "display_name", "email", "mobile",
-			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version",
-		}).AddRow(9, 1, "user", "hash", "User", "", "", 1, 0, 0, 0, nil, 0))
+			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
+		}).AddRow(9, 1, "user", "hash", "User", "", "", 1, 0, 0, 0, nil, 0, nil))
 	mock.ExpectQuery("SELECT ur.role_id FROM sys_user_role").
 		WithArgs(uint64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{"role_id"}).AddRow(3))
@@ -191,11 +191,11 @@ func TestRequirePermissionUsesCasbinPolicy(t *testing.T) {
 		Casbin: enforcer,
 	}
 	mock.ExpectQuery("SELECT id, department_id, username").
-		WithArgs(uint64(7)).
+		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "department_id", "username", "password_hash", "display_name", "email", "mobile",
-			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version",
-		}).AddRow(7, 1, "operator", "hash", "Operator", "", "", 1, 0, 0, 0, nil, 0))
+			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
+		}).AddRow(7, 1, "operator", "hash", "Operator", "", "", 1, 0, 0, 0, nil, 0, nil))
 	mock.ExpectQuery("SELECT ur.role_id FROM sys_user_role").
 		WithArgs(uint64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"role_id"}).AddRow(5))

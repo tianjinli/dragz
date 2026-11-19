@@ -10,9 +10,7 @@ export function usernameError(value?: string): string | undefined {
 
 export function passwordError(value: string, minLength: number, _username?: string): string | undefined {
   const characterLength = Array.from(value).length;
-  const byteLength = new TextEncoder().encode(value).length;
   if (characterLength < minLength || characterLength > 64) return i18n.t('validation.passwordLength', { min: minLength });
-  if (byteLength > 72) return i18n.t('validation.passwordBytes');
   if (hasSequentialOrRepeatedRun(value, 6)) return i18n.t('validation.passwordSequence');
   const classes = [/[A-Z]/, /[a-z]/, /\d/, /[!-/:-@[-`{-~]/].filter((pattern) => pattern.test(value)).length;
   return classes >= 3 ? undefined : i18n.t('validation.passwordClasses');

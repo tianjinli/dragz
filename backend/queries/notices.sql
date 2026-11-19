@@ -23,8 +23,35 @@ WHERE id = $9 AND deleted_at IS NULL AND status = 'draft';
 
 -- name: PublishNotice :execrows
 UPDATE sys_notice SET status = 'published',
-  publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL
+  publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL,
+  notified_at = NULL
 WHERE id = $2 AND deleted_at IS NULL AND status = 'draft';
+
+-- name: ListDueNoticesForNotify :many
+SELECT id, title, notice_type, priority, content, publish_at, published_by
+FROM sys_notice
+WHERE deleted_at IS NULL
+  AND status = 'published'
+  AND publish_at IS NOT NULL
+  AND publish_at <= NOW()
+  AND notified_at IS NULL
+ORDER BY publish_at ASC
+LIMIT $1;
+
+-- name: MarkNoticeNotified :execrows
+UPDATE sys_notice SET notified_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL AND notified_at IS NULL;
+
+-- name: BackfillLegacyNoticeNotified :execrows
+-- Mark already-visible published notices as notified without pushing, so an
+-- upgrade does not re-deliver every historical announcement.
+UPDATE sys_notice
+SET notified_at = COALESCE(publish_at, updated_at, created_at)
+WHERE deleted_at IS NULL
+  AND status = 'published'
+  AND notified_at IS NULL
+  AND publish_at IS NOT NULL
+  AND publish_at <= NOW() - INTERVAL '2 minutes';
 
 -- name: RevokeNotice :execrows
 UPDATE sys_notice SET status = 'revoked', revoked_at = NOW()
@@ -84,7 +111,7 @@ WHERE n.deleted_at IS NULL AND n.status = 'published' AND n.publish_at <= NOW()
     SELECT 1 FROM sys_notice_read nr WHERE nr.notice_id = n.id AND nr.user_id = sqlc.arg(user_id)));
 
 -- name: ListMyNotices :many
-SELECT n.id, n.title, n.notice_type, n.priority,
+SELECT n.id, n.title, n.notice_type, n.priority, n.content,
   n.target_type, COALESCE(n.target_ids, '[]'::jsonb) AS target_ids, n.status, n.is_pinned,
   n.publish_at, n.published_by, n.created_by, COALESCE(u.display_name, '') AS creator_name,
   EXISTS(SELECT 1 FROM sys_notice_read nr WHERE nr.notice_id = n.id AND nr.user_id = sqlc.arg(user_id)) AS is_read,

@@ -150,6 +150,7 @@ func mapAuthUser(row sqlcstore.GetUserByIDRow) User {
 		FailedLoginCount:   int(row.FailedLoginCount),
 		LockedUntil:        row.LockedUntil,
 		TokenVersion:       int64(row.TokenVersion),
+		AvatarFileID:       row.AvatarFileID,
 	}
 }
 

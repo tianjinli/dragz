@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Button, Form, Input, Modal, Tag, Typography, message } from "antd";
-import { Plus } from "lucide-react";
+import { Ban, CheckCheck, LogOut, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   createTokenApi,
@@ -37,11 +37,13 @@ export function OnlineUserPage() {
       ]}
       actions={[
         {
+          icon: <LogOut size={16} />,
           label: t("system.security.forceLogout"),
           danger: true,
-          onClick: async (row) => {
+          onClick: async (row, reload) => {
             await revokeSessionApi(row.id);
             void message.success(t("system.security.sessionRevoked"));
+            await reload();
           },
         },
       ]}
@@ -80,6 +82,7 @@ export function TokenPage() {
         ]}
         actions={[
           {
+            icon: <Ban size={16} />,
             label: t("system.security.revoke"),
             danger: true,
             onClick: async (row) => {
@@ -90,12 +93,12 @@ export function TokenPage() {
         ]}
         extra={
           <Button
+            aria-label={t("common.add")}
+            title={t("common.add")}
             type="primary"
             icon={<Plus size={16} />}
             onClick={() => setOpen(true)}
-          >
-            {t("common.add")}
-          </Button>
+          />
         }
       />
       <Modal
@@ -206,6 +209,7 @@ export function ErrorLogPage() {
       ]}
       actions={[
         {
+          icon: <CheckCheck size={16} />,
           label: t("system.security.markResolved"),
           hidden: (r: ResourceRecord) => !!r.resolvedAt,
           onClick: async (row) => {

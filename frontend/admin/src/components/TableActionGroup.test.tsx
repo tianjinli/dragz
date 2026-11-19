@@ -15,16 +15,16 @@ describe('TableActionGroup more menu', () => {
   it('closes the overflow menu after clicking a more-menu item', async () => {
     const onHistory = vi.fn();
     const actions: TableAction[] = [
-      { label: '编辑', onClick: vi.fn() },
-      { label: '删除', danger: true, onClick: vi.fn() },
-      { label: '改价历史', inMore: true, onClick: onHistory },
-      { label: '库存流水', inMore: true, onClick: vi.fn() },
+      { icon: <span>e</span>, label: '编辑', onClick: vi.fn() },
+      { icon: <span>d</span>, label: '删除', danger: true, onClick: vi.fn() },
+      { icon: <span>h</span>, label: '改价历史', inMore: true, onClick: onHistory },
+      { icon: <span>s</span>, label: '库存流水', inMore: true, onClick: vi.fn() },
     ];
 
     render(<TableActionGroup actions={actions} />);
 
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-    expect(await screen.findByText('改价历史')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '改价历史' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '改价历史' }));
     expect(onHistory).toHaveBeenCalledTimes(1);
