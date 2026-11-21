@@ -18,6 +18,7 @@ require (
 	github.com/sqlc-dev/pqtype v0.3.0
 	github.com/zeromicro/go-zero v1.10.3
 	golang.org/x/crypto v0.55.0
+	golang.org/x/mod v0.38.0
 	golang.org/x/text v0.41.0
 )
 

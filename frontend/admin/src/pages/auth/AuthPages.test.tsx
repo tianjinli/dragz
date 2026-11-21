@@ -149,6 +149,7 @@ describe('LoginPage 滑块验证', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('slider')).toBeInTheDocument();
     expect(mocks.error).toHaveBeenCalledWith('验证错误');
+    expect(mocks.info).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(REMEMBER_ME_KEY)).toBeNull();
   });
 
@@ -205,6 +206,7 @@ describe('LoginPage 滑块验证', () => {
     drag(screen.getByRole('slider'), 0, 60);
     await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
     expect(mocks.login).not.toHaveBeenCalled();
+    expect(mocks.info).not.toHaveBeenCalled();
   });
 
   it('锁定状态下退回表单且「登录」按钮禁用', async () => {

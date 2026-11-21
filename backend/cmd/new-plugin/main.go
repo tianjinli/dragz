@@ -6,16 +6,15 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode"
 
 	"dragz-admin/backend/internal/plugin"
+	"dragz-admin/backend/pluginapi"
 )
 
 func main() {
@@ -67,6 +66,19 @@ func run(id, name string, withFrontend, withMigration bool) error {
 		return err
 	}
 
+	manifest := pluginapi.Manifest{
+		ID:          id,
+		Name:        name,
+		Version:     "0.1.0",
+		Description: name + " plugin",
+		DependsOn:   []string{"system"},
+		EngineRange: pluginapi.DefaultEngineRange,
+		Components:  []string{component},
+	}
+	if err := pluginapi.WriteManifest(filepath.Join(pluginDir, pluginapi.ManifestFileName), manifest); err != nil {
+		return err
+	}
+
 	if withMigration {
 		migDir := filepath.Join(pluginDir, "migrations")
 		if err := os.MkdirAll(migDir, 0o755); err != nil {
@@ -78,7 +90,7 @@ func run(id, name string, withFrontend, withMigration bool) error {
 		}
 	}
 
-	if err := patchAllGo(filepath.Join(backendRoot, "plugins", "all", "all.go"), id); err != nil {
+	if err := pluginapi.PatchAllGo(filepath.Join(backendRoot, "plugins", "all", "all.go"), id); err != nil {
 		return err
 	}
 
@@ -89,12 +101,14 @@ func run(id, name string, withFrontend, withMigration bool) error {
 	}
 
 	fmt.Printf("new-plugin: created plugins/%s (registered in plugins/all/all.go)\n", id)
+	fmt.Printf("new-plugin: wrote %s (engine %s)\n", pluginapi.ManifestFileName, pluginapi.EngineVersion)
 	if withFrontend {
 		fmt.Printf("new-plugin: frontend page + page-map + i18n placeholders for %s\n", component)
 	} else {
 		fmt.Printf("new-plugin: warning: Meta.Menus Component %q needs a page-map entry (pass -with-frontend or add it manually)\n", component)
 	}
 	fmt.Println("new-plugin: next — go build ./... && enable the plugin in 插件中心")
+	fmt.Println("new-plugin: deliver independently — go run ./cmd/pack-plugin -id " + id)
 	return nil
 }
 
@@ -240,43 +254,6 @@ func renderPluginGo(id, name, pageCode, component, table string, withMigration b
 	return b.String()
 }
 
-func patchAllGo(path, id string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	// Normalize to LF while editing; write back LF (Go tools accept it on Windows).
-	src := strings.ReplaceAll(string(data), "\r\n", "\n")
-	importLine := fmt.Sprintf("\t\"dragz-admin/backend/plugins/%s\"\n", id)
-	if strings.Contains(src, "plugins/"+id+"\"") {
-		return fmt.Errorf("plugins/all/all.go already imports %s", id)
-	}
-
-	importBlock := regexp.MustCompile(`(?s)(import \(\n)(.*?)(\n\))`)
-	m := importBlock.FindStringSubmatch(src)
-	if m == nil {
-		return fmt.Errorf("cannot find import block in %s", path)
-	}
-	imports := m[2]
-	if !strings.HasSuffix(imports, "\n") {
-		imports += "\n"
-	}
-	imports += importLine
-	src = importBlock.ReplaceAllString(src, m[1]+imports+m[3])
-
-	marker := "\t\t// scaffold:insert"
-	insert := fmt.Sprintf("\t\t%s.Plugin{},\n%s", id, marker)
-	if !strings.Contains(src, marker) {
-		return fmt.Errorf("%s: missing // scaffold:insert marker", path)
-	}
-	if strings.Contains(src, id+".Plugin{}") {
-		return fmt.Errorf("plugins/all/all.go already registers %s", id)
-	}
-	src = strings.Replace(src, marker, insert, 1)
-
-	return os.WriteFile(path, []byte(src), 0o644)
-}
-
 func scaffoldFrontend(repoRoot, id, exportName, component, name string) error {
 	pageDir := filepath.Join(repoRoot, "frontend", "admin", "src", "pages", id)
 	if err := os.MkdirAll(pageDir, 0o755); err != nil {
@@ -300,44 +277,18 @@ export function %s() {
 		return err
 	}
 
-	pageMapPath := filepath.Join(repoRoot, "frontend", "admin", "src", "router", "page-map.tsx")
-	pm, err := os.ReadFile(pageMapPath)
-	if err != nil {
+	if err := pluginapi.PatchPageMap(
+		filepath.Join(repoRoot, "frontend", "admin", "src", "router", "page-map.tsx"),
+		filepath.Join(repoRoot, "frontend", "admin", "src", "router", "page-map.test.tsx"),
+		component,
+		id,
+		exportName,
+	); err != nil {
 		return err
-	}
-	entry := fmt.Sprintf("  '%s': named(() => import('@/pages/%s'), '%s'),\n", component, id, exportName)
-	if bytes.Contains(pm, []byte("'"+component+"'")) {
-		return fmt.Errorf("page-map already has %s", component)
-	}
-	const anchor = "  '/profile/index':"
-	if !bytes.Contains(pm, []byte(anchor)) {
-		return fmt.Errorf("page-map.tsx: cannot find insertion anchor %q", anchor)
-	}
-	pm = bytes.Replace(pm, []byte(anchor), []byte(entry+anchor), 1)
-	if err := os.WriteFile(pageMapPath, pm, 0o644); err != nil {
-		return err
-	}
-
-	testPath := filepath.Join(repoRoot, "frontend", "admin", "src", "router", "page-map.test.tsx")
-	if testData, err := os.ReadFile(testPath); err == nil {
-		s := string(testData)
-		if !strings.Contains(s, "'"+component+"'") {
-			const needle = "const backendComponents=["
-			if i := strings.Index(s, needle); i >= 0 {
-				j := strings.Index(s[i:], "];")
-				if j > 0 {
-					closeAt := i + j
-					s = s[:closeAt] + ",'" + component + "'" + s[closeAt:]
-					if err := os.WriteFile(testPath, []byte(s), 0o644); err != nil {
-						return err
-					}
-				}
-			}
-		}
 	}
 
 	for _, loc := range []struct {
-		file string
+		file  string
 		title string
 		intro string
 	}{

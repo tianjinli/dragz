@@ -20,6 +20,7 @@
 
 ```
 plugins/<id>/
+  manifest.json          独立交付元数据（id/version/engineRange/components）
   plugin.go              Meta() + Routes()，可选 Migrations()
   migrations/
     001_init.sql         迁移文件，只增不改
@@ -30,7 +31,16 @@ plugins/<id>/
 
 ## 3. 契约
 
-最小契约只有两个方法：
+宿主引擎版本与允许依赖写在 `pluginapi`（当前 `EngineVersion = 1.0.0`）。组装进主仓后，插件 Go 代码应只依赖：
+
+- `internal/plugin` — `Meta` / `Route` / `Migrator`
+- `internal/app` — `*app.Context`（DB、缓存、翻译、Casbin…）
+- `platform/eventbus` — 跨插件异步协作
+- `pluginapi` — 可选；读取引擎版本或复用交付工具类型
+
+禁止依赖 `internal/httpapi`（唯一豁免是 `plugins/system`，P6 之后会删掉）。
+
+最小运行时契约只有两个方法：
 
 ```go
 type Plugin interface {
@@ -98,7 +108,45 @@ go run ./cmd/new-plugin -id demo -name "演示" -with-frontend -with-migration
 
 相关：[`SYSTEM_MIGRATION_CN.md`](SYSTEM_MIGRATION_CN.md)（system / httpapi 边界）。
 
-## 4.1 跨插件通信（eventbus）
+## 4.1 独立交付（发布包 + 编译期组装）
+
+业务插件可以**前后端打成一个 zip 独立交付**；装进环境时仍组装进主仓再编译，运行时模型不变。`system` 等 builtin 留在主仓，不打成交付包。
+
+包布局：
+
+```
+plugin-<id>-v<semver>/
+  manifest.json
+  backend/                 # 对应 plugins/<id>
+  frontend/
+    pages/...              # 对应 Meta.Menus[].Component
+    locales/en.json|zh.json  # 仅含 pages.<id> 片段
+```
+
+`manifest.json` 字段：`id`、`name`、`version`、`dependsOn`、`engineRange`（如 `>=1.0.0 <2.0.0`）、`components`（管理端页面路径列表）。`engineRange` 必须被宿主 `pluginapi.EngineVersion` 满足。
+
+```bash
+# 从已接入主仓的插件打出交付包
+go run ./cmd/pack-plugin -id example -o dist/plugin-example-v0.1.0.zip
+
+# 构建流水线选装：解包写入 plugins/、page-map、locales
+go run ./cmd/assemble-plugin -zip dist/plugin-example-v0.1.0.zip
+# 已存在时覆盖：加 -force
+
+bash scripts/check-imports.sh
+go build ./...
+go run ./cmd/gen-api
+```
+
+语义区分：
+
+| 动作 | 含义 |
+|------|------|
+| pack / assemble | 制品交付与构建期安装；需要重新编译发版 |
+| 插件中心启用/停用 | 运行时开关；不改二进制 |
+| 卸载 | 清库表/菜单；源码仍在二进制里，下次启动会以停用态重新入目录 |
+
+## 4.2 跨插件通信（eventbus）
 
 插件**禁止**互相 import（`scripts/check-imports.sh`）。协作方式：
 
@@ -244,6 +292,7 @@ func pingHandler(*app.Context) http.HandlerFunc {
 新增插件提交前：
 
 - [ ] 优先 `go run ./cmd/new-plugin ...`，或手改 `plugins/all/all.go`；`go build ./...` 通过
+- [ ] `plugins/<id>/manifest.json` 存在且 `engineRange` 覆盖当前 `pluginapi.EngineVersion`
 - [ ] `Meta.Menus[].Component` 已出现在 `frontend/admin/src/router/page-map.tsx`（`go test ./plugins/all -run TestPluginMenuComponentsMapped`）
 - [ ] `bash scripts/check-imports.sh` 通过（插件之间没有互相 import）
 - [ ] 迁移文件名是 `NNN_name.sql`，没有 `$1`
@@ -254,6 +303,7 @@ func pingHandler(*app.Context) http.HandlerFunc {
 - [ ] 路由基线 `internal/kernel/testdata/routes.golden` 更新了（含首行计数）
 - [ ] 全新库启用一次、停用一次、再启用一次，菜单与权限码都符合预期
 - [ ] 再卸载一次，确认表、菜单、迁移记录都没了，重新启用能回到初始状态
+- [ ] 若需独立交付：`go run ./cmd/pack-plugin -id <id>` 能打出 zip，并在干净工作区用 `assemble-plugin` 装回
 
 卸载走的是真实的 `DROP TABLE`，单元测试只覆盖到标识符校验。要跑真实 DDL，起一个一次性库：
 

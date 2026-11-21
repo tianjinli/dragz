@@ -206,9 +206,8 @@ export function LoginPage() {
     showLoginError(t('auth.captchaExpired'));
     setFeedback('error');
     setSlideX(0);
-    const refreshed = await refreshCaptcha();
-    if (refreshed) antMessage.info(t('auth.captchaRefreshed'));
-  }, [antMessage, refreshCaptcha, showLoginError, t]);
+    await refreshCaptcha();
+  }, [refreshCaptcha, showLoginError, t]);
 
   const submit = async (values: { password: string; username: string }, slideOverride?: number) => {
     if (submittingRef.current || lockedRef.current) return;
@@ -279,11 +278,9 @@ export function LoginPage() {
       setFeedback('error');
       if (payload?.captchaRequired || captchaRequired) {
         if (modalOpen) {
-          const refreshed = await refreshCaptcha();
-          if (refreshed) antMessage.info(t('auth.captchaRefreshed'));
+          await refreshCaptcha();
         } else {
-          const refreshed = await openCaptchaModal(true);
-          if (refreshed) antMessage.info(t('auth.captchaRefreshed'));
+          await openCaptchaModal(true);
         }
       }
     } finally {

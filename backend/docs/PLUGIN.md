@@ -20,6 +20,7 @@ Do not make it a plugin: infrastructure shared across plugins (that is `platform
 
 ```
 plugins/<id>/
+  manifest.json          delivery metadata (id/version/engineRange/components)
   plugin.go              Meta() + Routes(), optional Migrations()
   migrations/
     001_init.sql         migration file, append-only
@@ -30,7 +31,16 @@ plugins/<id>/
 
 ## 3. Contract
 
-The minimal contract has only two methods:
+Host engine version and allowed dependencies live in `pluginapi` (currently `EngineVersion = 1.0.0`). After assemble, plugin Go code should only depend on:
+
+- `internal/plugin` — `Meta` / `Route` / `Migrator`
+- `internal/app` — `*app.Context`
+- `platform/eventbus` — cross-plugin async collaboration
+- `pluginapi` — optional; engine version / delivery types
+
+Do not import `internal/httpapi` (`plugins/system` is the sole exception until P6).
+
+The minimal runtime contract has only two methods:
 
 ```go
 type Plugin interface {
@@ -96,7 +106,39 @@ go run ./cmd/new-plugin -id demo -name "Demo" -with-frontend -with-migration
 
 See also [`SYSTEM_MIGRATION.md`](SYSTEM_MIGRATION.md).
 
-## 4.1 Cross-plugin communication (eventbus)
+## 4.1 Independent delivery (package + compile-time assemble)
+
+Business plugins can ship as a **single front+back zip**. Installation still assembles into the host tree and rebuilds; runtime enable/disable is unchanged. Builtin plugins such as `system` stay in the main repo and are never packaged.
+
+Package layout:
+
+```
+plugin-<id>-v<semver>/
+  manifest.json
+  backend/
+  frontend/
+    pages/...
+    locales/en.json|zh.json   # pages.<id> fragment only
+```
+
+`manifest.json` fields: `id`, `name`, `version`, `dependsOn`, `engineRange` (e.g. `>=1.0.0 <2.0.0`), `components`. The host `pluginapi.EngineVersion` must satisfy `engineRange`.
+
+```bash
+go run ./cmd/pack-plugin -id example -o dist/plugin-example-v0.1.0.zip
+go run ./cmd/assemble-plugin -zip dist/plugin-example-v0.1.0.zip   # add -force to overwrite
+
+bash scripts/check-imports.sh
+go build ./...
+go run ./cmd/gen-api
+```
+
+| Action | Meaning |
+|--------|---------|
+| pack / assemble | Artifact delivery and build-time install; requires rebuild |
+| Plugin center enable/disable | Runtime switch; binary unchanged |
+| Uninstall | Drops DB objects; sources remain compiled in |
+
+## 4.2 Cross-plugin communication (eventbus)
 
 Plugins **must not** import each other (`scripts/check-imports.sh`). Collaborate via:
 
@@ -229,6 +271,7 @@ When you need the database, cache or translator, take them from `*app.Context`; 
 Before committing a new plugin:
 
 - [ ] Prefer `go run ./cmd/new-plugin ...`, or hand-edit `plugins/all/all.go`; `go build ./...` passes
+- [ ] `plugins/<id>/manifest.json` exists and `engineRange` covers the current `pluginapi.EngineVersion`
 - [ ] Every `Meta.Menus[].Component` is registered in `frontend/admin/src/router/page-map.tsx` (`go test ./plugins/all -run TestPluginMenuComponentsMapped`)
 - [ ] `bash scripts/check-imports.sh` passes (plugins do not import each other)
 - [ ] Migration file names are `NNN_name.sql`, with no `$1`
@@ -239,6 +282,7 @@ Before committing a new plugin:
 - [ ] The route baseline `internal/kernel/testdata/routes.golden` is updated (including the count on the first line)
 - [ ] On a fresh database, enable once, disable once, enable again; menus and permission codes are as expected
 - [ ] Uninstall once more, confirm tables, menus and migration records are gone, and that re-enabling gets back to the initial state
+- [ ] For independent delivery: `go run ./cmd/pack-plugin -id <id>` produces a zip that `assemble-plugin` can install into a clean worktree
 
 Uninstall performs a real `DROP TABLE`; the unit tests only cover identifier validation. To exercise real DDL, start a one-off database:
 

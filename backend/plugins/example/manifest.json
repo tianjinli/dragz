@@ -1,0 +1,9 @@
+{
+  "id": "example",
+  "name": "示例插件",
+  "version": "0.1.0",
+  "description": "参考实现：一条路由 + 一个迁移 + 一个菜单，用于验证插件开关链路",
+  "dependsOn": ["system"],
+  "engineRange": ">=1.0.0 <2.0.0",
+  "components": ["/example/index"]
+}

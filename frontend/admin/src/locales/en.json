@@ -298,7 +298,6 @@
     "captchaSlideTip": "Drag the piece into the gap",
     "slideToLogin": "Hold and drag the slider right to sign in",
     "captchaRefreshLabel": "Get a new one",
-    "captchaRefreshed": "Verification refreshed, please drag again",
     "captchaExpired": "Verification expired and was refreshed",
     "captchaVerifying": "Verifying, please wait",
     "captchaFailed": "Verification failed, please try again",
