@@ -9,13 +9,32 @@ import (
 	"errors"
 	"time"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
 // AuthRepository is the PostgreSQL implementation of the authentication, authorization and account repositories. Every query it exposes comes from queries/*.sql via sqlc.
 type AuthRepository struct {
-	db      *DB
-	queries *sqlcstore.Queries
+	db         *DB
+	platformDB *DB
+	queries    *sqlcstore.Queries
+}
+
+// SetPlatformDB installs the cross-tenant identity for policy loading.
+func (r *AuthRepository) SetPlatformDB(db *DB) {
+	if db != nil {
+		r.platformDB = db
+	}
+}
+
+func (r *AuthRepository) platformHandle() *DB {
+	if r != nil && r.platformDB != nil {
+		return r.platformDB
+	}
+	if r == nil {
+		return nil
+	}
+	return r.db
 }
 
 // User is the credential record used during login. It is never serialised to a client: the admin API exposes UserDetail instead.
@@ -37,9 +56,13 @@ type User struct {
 }
 
 // RefreshSession is one refresh-token row, resolved by the hash of the token the client presented.
+// Tenant lives on the access token (tid), not on the refresh row.
 type RefreshSession struct {
-	ID        uint64
-	UserID    uint64
+	ID     uint64
+	UserID uint64
+	// TenantID is the tenant the session was opened in. Zero means the token
+	// predates migration 017 and the caller must re-derive the tenant.
+	TenantID  sql.NullInt64
 	Username  string
 	TokenHash string
 	FamilyID  string
@@ -68,17 +91,21 @@ type Menu struct {
 
 // NewAuthRepository binds the generated queries to a database handle.
 func NewAuthRepository(db *DB) *AuthRepository {
-	return &AuthRepository{db: db, queries: sqlcstore.New(db)}
+	return &AuthRepository{db: db, queries: sqlcstore.New(newSessionDBTX(db))}
 }
 
 // CountUsers reports how many active users exist. Bootstrap uses it to decide whether the seeded administrator still has to be created.
 func (r *AuthRepository) CountUsers() (int64, error) {
-	return r.queries.CountActiveUsers(context.Background())
+	ctx := ctxkey.WithRLSBypass(context.Background(), true)
+	return r.queries.CountActiveUsers(ctx)
 }
 
 // CreateBootstrapAdmin inserts the first administrator and grants it role 1 in one transaction, so a half-created admin cannot exist.
 func (r *AuthRepository) CreateBootstrapAdmin(username, passwordHash string) error {
-	ctx := context.Background()
+	// The bootstrap administrator belongs to the default tenant, which
+	// migrations/013 creates with id 1. The tenant is set explicitly rather
+	// than left to a trigger default: app_fill_tenant_id refuses to guess.
+	ctx := ctxkey.WithTenantID(ctxkey.WithRLSBypass(context.Background(), true), 1)
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -92,6 +119,14 @@ func (r *AuthRepository) CreateBootstrapAdmin(username, passwordHash string) err
 		return err
 	}
 	if err := q.InsertUserRole(ctx, sqlcstore.InsertUserRoleParams{UserID: uint64(userID), RoleID: 1}); err != nil {
+		return err
+	}
+	// The account is global; membership is what makes it visible in tenant 1.
+	// The bootstrap administrator administers that tenant and is the platform
+	// operator, which is what the default deployment is.
+	if err := q.UpsertTenantMember(ctx, sqlcstore.UpsertTenantMemberParams{
+		TenantID: 1, UserID: uint64(userID), IsTenantAdmin: 1, IsPlatformOperator: true, Status: 1,
+	}); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -210,17 +245,19 @@ func (r *AuthRepository) RecordLoginSuccess(ctx context.Context, userID uint64, 
 }
 
 // SaveRefreshToken stores a refresh token issued by an interactive login.
-func (r *AuthRepository) SaveRefreshToken(ctx context.Context, userID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error {
+// tenantID is recorded so a later refresh stays in the tenant the user logged
+// into instead of falling back to their first membership.
+func (r *AuthRepository) SaveRefreshToken(ctx context.Context, userID, tenantID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error {
 	return r.queries.InsertRefreshToken(ctx, sqlcstore.InsertRefreshTokenParams{
-		UserID: userID, TokenHash: tokenHash, FamilyID: familyID,
+		UserID: userID, TenantID: optionalUint64Null(tenantID), TokenHash: tokenHash, FamilyID: familyID,
 		DeviceID: deviceID, DeviceName: deviceName, Ip: ip, UserAgent: userAgent, ExpiresAt: expiresAt,
 	})
 }
 
 // SaveExternalRefreshToken stores a refresh token issued through an external identity provider, recording which method was used.
-func (r *AuthRepository) SaveExternalRefreshToken(ctx context.Context, userID uint64, tokenHash, familyID, loginMethod, ip, userAgent string, expiresAt time.Time) error {
+func (r *AuthRepository) SaveExternalRefreshToken(ctx context.Context, userID, tenantID uint64, tokenHash, familyID, loginMethod, ip, userAgent string, expiresAt time.Time) error {
 	return r.queries.InsertExternalRefreshToken(ctx, sqlcstore.InsertExternalRefreshTokenParams{
-		UserID: userID, TokenHash: tokenHash, FamilyID: familyID,
+		UserID: userID, TenantID: optionalUint64Null(tenantID), TokenHash: tokenHash, FamilyID: familyID,
 		LoginMethod: loginMethod, Ip: ip, UserAgent: userAgent, ExpiresAt: expiresAt,
 	})
 }
@@ -232,13 +269,13 @@ func (r *AuthRepository) FindRefreshSession(ctx context.Context, tokenHash strin
 		return RefreshSession{}, err
 	}
 	return RefreshSession{
-		ID: uint64(row.ID), UserID: row.UserID, Username: row.Username,
+		ID: uint64(row.ID), UserID: row.UserID, TenantID: row.TenantID, Username: row.Username,
 		TokenHash: row.TokenHash, FamilyID: row.FamilyID, ExpiresAt: row.ExpiresAt, RevokedAt: row.RevokedAt,
 	}, nil
 }
 
 // RotateRefreshToken marks the old token used and inserts its replacement in one transaction. If the old row was already rotated, ErrTokenReused is returned and the caller must revoke the whole family.
-func (r *AuthRepository) RotateRefreshToken(ctx context.Context, oldID uint64, userID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error {
+func (r *AuthRepository) RotateRefreshToken(ctx context.Context, oldID uint64, userID, tenantID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -253,7 +290,7 @@ func (r *AuthRepository) RotateRefreshToken(ctx context.Context, oldID uint64, u
 		return ErrTokenReused
 	}
 	if err := q.InsertRefreshToken(ctx, sqlcstore.InsertRefreshTokenParams{
-		UserID: userID, TokenHash: tokenHash, FamilyID: familyID,
+		UserID: userID, TenantID: optionalUint64Null(tenantID), TokenHash: tokenHash, FamilyID: familyID,
 		DeviceID: deviceID, DeviceName: deviceName, Ip: ip, UserAgent: userAgent, ExpiresAt: expiresAt,
 	}); err != nil {
 		return err
@@ -293,15 +330,18 @@ func (r *AuthRepository) RevokeRefreshFamily(ctx context.Context, familyID, reas
 	})
 }
 
-// RolePermissionPolicy is one Casbin policy row: a role and a permission code it holds.
+// RolePermissionPolicy is one Casbin policy row: a role, its tenant domain and a permission code it holds.
 type RolePermissionPolicy struct {
 	RoleID         uint64
+	TenantID       uint64
 	PermissionCode string
 }
 
-// UserRoleIDs returns the IDs of the user's enabled, non-deleted roles.
-func (r *AuthRepository) UserRoleIDs(ctx context.Context, userID uint64) ([]uint64, error) {
-	return r.queries.ListUserRoleIDsActive(ctx, userID)
+// UserRoleIDs returns the IDs of the user's enabled, non-deleted roles in one tenant.
+func (r *AuthRepository) UserRoleIDs(ctx context.Context, userID, tenantID uint64) ([]uint64, error) {
+	return r.queries.ListUserRoleIDsActive(ctx, sqlcstore.ListUserRoleIDsActiveParams{
+		UserID: userID, TenantID: tenantID,
+	})
 }
 
 // UserRole is one role the account holds. The code addresses the preset
@@ -312,9 +352,21 @@ type UserRole struct {
 	Name string `json:"name"`
 }
 
-// UserRoles returns the user's enabled roles, in display order.
+// requestTenantID is the tenant stored on ctx. A missing value is 0, so a
+// request with no tenant matches no tenant-scoped role grant.
+func requestTenantID(ctx context.Context) uint64 {
+	id, ok := ctxkey.TenantIDFrom(ctx)
+	if !ok {
+		return 0
+	}
+	return id
+}
+
+// UserRoles returns the user's enabled roles, in display order, for the tenant on ctx.
 func (r *AuthRepository) UserRoles(ctx context.Context, userID uint64) ([]UserRole, error) {
-	rows, err := r.queries.ListUserRoles(ctx, userID)
+	rows, err := r.queries.ListUserRoles(ctx, sqlcstore.ListUserRolesParams{
+		UserID: userID, TenantID: requestTenantID(ctx),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -342,12 +394,15 @@ func (r *AuthRepository) DepartmentRef(ctx context.Context, departmentID sql.Nul
 	return NamedRef{Code: row.Code, Name: row.Name}, nil
 }
 
-// PermissionCodes returns the button codes granted to the user. A super administrator short-circuits to the wildcard.
+// PermissionCodes returns the button codes granted to the user inside the tenant on ctx.
+// A super administrator short-circuits to the wildcard.
 func (r *AuthRepository) PermissionCodes(ctx context.Context, userID uint64, superAdmin bool) ([]string, error) {
 	if superAdmin {
 		return []string{"*"}, nil
 	}
-	return r.queries.ListUserPermissionCodes(ctx, userID)
+	return r.queries.ListUserPermissionCodes(ctx, sqlcstore.ListUserPermissionCodesParams{
+		UserID: userID, TenantID: requestTenantID(ctx),
+	})
 }
 
 // Menus returns the sidebar tree source rows for one user, or every visible menu for a super administrator. Pruning of disabled plugins happens in SQL.
@@ -369,7 +424,9 @@ func (r *AuthRepository) Menus(ctx context.Context, userID uint64, superAdmin bo
 		}
 		return menus, nil
 	}
-	rows, err := r.queries.ListUserVisibleMenus(ctx, userID)
+	rows, err := r.queries.ListUserVisibleMenus(ctx, sqlcstore.ListUserVisibleMenusParams{
+		UserID: userID, TenantID: requestTenantID(ctx),
+	})
 	if err != nil {
 		return nil, err
 	}

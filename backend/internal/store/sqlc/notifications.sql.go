@@ -8,6 +8,7 @@ package sqlcstore
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const countMyNotifications = `-- name: CountMyNotifications :one
@@ -57,7 +58,19 @@ type CreateNotificationParams struct {
 	BizID   string `json:"biz_id"`
 }
 
-func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotificationParams) (SysNotification, error) {
+type CreateNotificationRow struct {
+	ID        int64        `json:"id"`
+	UserID    uint64       `json:"user_id"`
+	Channel   string       `json:"channel"`
+	Title     string       `json:"title"`
+	Content   string       `json:"content"`
+	BizType   string       `json:"biz_type"`
+	BizID     string       `json:"biz_id"`
+	ReadAt    sql.NullTime `json:"read_at"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
+func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotificationParams) (CreateNotificationRow, error) {
 	row := q.db.QueryRowContext(ctx, createNotification,
 		arg.UserID,
 		arg.Channel,
@@ -66,7 +79,7 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 		arg.BizType,
 		arg.BizID,
 	)
-	var i SysNotification
+	var i CreateNotificationRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -92,9 +105,21 @@ type GetNotificationForUserParams struct {
 	UserID uint64 `json:"user_id"`
 }
 
-func (q *Queries) GetNotificationForUser(ctx context.Context, arg GetNotificationForUserParams) (SysNotification, error) {
+type GetNotificationForUserRow struct {
+	ID        int64        `json:"id"`
+	UserID    uint64       `json:"user_id"`
+	Channel   string       `json:"channel"`
+	Title     string       `json:"title"`
+	Content   string       `json:"content"`
+	BizType   string       `json:"biz_type"`
+	BizID     string       `json:"biz_id"`
+	ReadAt    sql.NullTime `json:"read_at"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
+func (q *Queries) GetNotificationForUser(ctx context.Context, arg GetNotificationForUserParams) (GetNotificationForUserRow, error) {
 	row := q.db.QueryRowContext(ctx, getNotificationForUser, arg.ID, arg.UserID)
-	var i SysNotification
+	var i GetNotificationForUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -148,7 +173,19 @@ type ListMyNotificationsParams struct {
 	RowLimit   int32          `json:"row_limit"`
 }
 
-func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificationsParams) ([]SysNotification, error) {
+type ListMyNotificationsRow struct {
+	ID        int64        `json:"id"`
+	UserID    uint64       `json:"user_id"`
+	Channel   string       `json:"channel"`
+	Title     string       `json:"title"`
+	Content   string       `json:"content"`
+	BizType   string       `json:"biz_type"`
+	BizID     string       `json:"biz_id"`
+	ReadAt    sql.NullTime `json:"read_at"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
+func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificationsParams) ([]ListMyNotificationsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listMyNotifications,
 		arg.UserID,
 		arg.UnreadOnly,
@@ -160,9 +197,9 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SysNotification{}
+	items := []ListMyNotificationsRow{}
 	for rows.Next() {
-		var i SysNotification
+		var i ListMyNotificationsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -241,15 +278,22 @@ WHERE user_id = $1
 ORDER BY channel
 `
 
-func (q *Queries) ListNotifyPrefsForUser(ctx context.Context, userID uint64) ([]SysUserNotifyPref, error) {
+type ListNotifyPrefsForUserRow struct {
+	UserID    uint64    `json:"user_id"`
+	Channel   string    `json:"channel"`
+	Enabled   int16     `json:"enabled"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListNotifyPrefsForUser(ctx context.Context, userID uint64) ([]ListNotifyPrefsForUserRow, error) {
 	rows, err := q.db.QueryContext(ctx, listNotifyPrefsForUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SysUserNotifyPref{}
+	items := []ListNotifyPrefsForUserRow{}
 	for rows.Next() {
-		var i SysUserNotifyPref
+		var i ListNotifyPrefsForUserRow
 		if err := rows.Scan(
 			&i.UserID,
 			&i.Channel,

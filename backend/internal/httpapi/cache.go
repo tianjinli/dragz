@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"dragz-admin/backend/internal/app"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 )
 
 type clearCacheRequest struct {
@@ -19,12 +20,45 @@ type cacheKeyItem struct {
 	ValuePreview string `json:"valuePreview"`
 }
 
+// cacheScanPattern turns the operator's search term into a scan pattern inside
+// the caller's tenant namespace.
+//
+// The cache is shared by every tenant and also holds pre-authentication data
+// (captcha answers, login failure counters). The administration endpoints must
+// therefore never scan the keyspace directly: the pattern is always anchored at
+// the tenant's own prefix, and a term that tries to escape it — a colon or a
+// wildcard — is rejected instead of being pasted into the pattern.
+//
+// An empty term or "*" lists everything the tenant owns.
+func cacheScanPattern(tenantID uint64, term string) (string, bool) {
+	term = strings.TrimSpace(term)
+	base := app.PermissionCacheKeyPrefix(tenantID)
+	if term == "" || term == "*" {
+		return base + "*", true
+	}
+	if strings.ContainsAny(term, ":*?[]") {
+		return "", false
+	}
+	return base + "*" + term + "*", true
+}
+
+func tenantIDOf(r *http.Request) (uint64, bool) {
+	tenantID, _ := ctxkey.TenantIDFrom(r.Context())
+	return tenantID, tenantID != 0
+}
+
 func listCacheKeysHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID, okTenant := tenantIDOf(r)
+		if !okTenant {
+			fail(w, r, http.StatusForbidden, 40300, "errors.tenant_required")
+			return
+		}
 		query := r.URL.Query()
-		pattern := strings.TrimSpace(query.Get("pattern"))
-		if pattern == "" {
-			pattern = "*"
+		pattern, valid := cacheScanPattern(tenantID, query.Get("pattern"))
+		if !valid {
+			fail(w, r, http.StatusBadRequest, 40001, "errors.cache_pattern_invalid")
+			return
 		}
 		if len(pattern) > 128 {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.cache_pattern_too_long")
@@ -55,9 +89,20 @@ func listCacheKeysHandler(ctx *app.Context) http.HandlerFunc {
 
 func deleteCacheKeyHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID, okTenant := tenantIDOf(r)
+		if !okTenant {
+			fail(w, r, http.StatusForbidden, 40300, "errors.tenant_required")
+			return
+		}
 		key := strings.TrimSpace(pathvarValue(r, "key"))
 		if key == "" {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.cache_key_required")
+			return
+		}
+		// A key outside the tenant namespace is reported as missing rather than
+		// forbidden, so the endpoint cannot be used to probe other tenants.
+		if !strings.HasPrefix(key, app.PermissionCacheKeyPrefix(tenantID)) {
+			fail(w, r, http.StatusNotFound, 40400, "errors.cache_key_not_found")
 			return
 		}
 		deleted, err := ctx.Cache.DelCtx(r.Context(), key)
@@ -71,23 +116,30 @@ func deleteCacheKeyHandler(ctx *app.Context) http.HandlerFunc {
 
 func clearCacheHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID, okTenant := tenantIDOf(r)
+		if !okTenant {
+			fail(w, r, http.StatusForbidden, 40300, "errors.tenant_required")
+			return
+		}
 		var req clearCacheRequest
 		if !decode(w, r, &req) {
 			return
 		}
-		req.Pattern = strings.TrimSpace(req.Pattern)
-		if req.Pattern == "" || len(req.Pattern) > 128 {
+		pattern, valid := cacheScanPattern(tenantID, req.Pattern)
+		if !valid || len(pattern) > 128 {
 			fail(w, r, http.StatusBadRequest, 40001, "errors.cache_pattern_invalid")
 			return
 		}
-		if req.Pattern == "*" && req.Confirmation != "DELETE ALL CACHE" {
+		// Clearing everything the tenant owns still needs an explicit
+		// confirmation; the blast radius is one tenant, not the whole cache.
+		if strings.TrimSpace(req.Pattern) == "*" && req.Confirmation != "DELETE ALL CACHE" {
 			fail(w, r, http.StatusBadRequest, 40002, "errors.cache_clear_confirm")
 			return
 		}
 		var cursor uint64
 		deleted := 0
 		for {
-			keys, nextCursor, err := ctx.Cache.ScanCtx(r.Context(), cursor, req.Pattern, 200)
+			keys, nextCursor, err := ctx.Cache.ScanCtx(r.Context(), cursor, pattern, 200)
 			if err != nil {
 				fail(w, r, http.StatusBadGateway, 50201, "errors.cache_scan_failed")
 				return

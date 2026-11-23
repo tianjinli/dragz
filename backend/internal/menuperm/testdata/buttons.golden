@@ -50,4 +50,18 @@ system:webhook:manage|网络钩子管理|Webhook Management|system_webhook|GET|/
 system:cache:manage|缓存管理|Cache Management|system_cache|GET|/api/system/cache
 system:plugin:query|查询插件|Query Plugin|system_plugin|GET|/api/system/plugins
 system:plugin:manage|插件管理|Plugin Management|system_plugin|PUT|/api/system/plugins/:id/status
+system:member:query|查询成员|Query Member|system_member|GET|/api/tenant/members
+system:member:update|修改成员|Update Member|system_member|PUT|/api/tenant/members/:id
+system:member:delete|删除成员|Delete Member|system_member|DELETE|/api/tenant/members/:id
+system:member:invite|邀请成员|Invite Member|system_member|POST|/api/tenant/invites
 example:ping|连通性检查|连通性检查|example_page|GET|/api/example/ping
+notify:channel:query|notify:channel:query|notify:channel:query|notify_page|GET|/api/notify/channels
+notify:channel:create|notify:channel:create|notify:channel:create|notify_page|POST|/api/notify/channels
+notify:channel:update|notify:channel:update|notify:channel:update|notify_page|PUT|/api/notify/channels/:id
+notify:channel:delete|notify:channel:delete|notify:channel:delete|notify_page|DELETE|/api/notify/channels/:id
+notify:template:query|notify:template:query|notify:template:query|notify_page|GET|/api/notify/templates
+notify:template:create|notify:template:create|notify:template:create|notify_page|POST|/api/notify/templates
+notify:template:update|notify:template:update|notify:template:update|notify_page|PUT|/api/notify/templates/:id
+notify:template:delete|notify:template:delete|notify:template:delete|notify_page|DELETE|/api/notify/templates/:id
+notify:log:query|notify:log:query|notify:log:query|notify_page|GET|/api/notify/logs
+notify:send|notify:send|notify:send|notify_page|POST|/api/notify/send

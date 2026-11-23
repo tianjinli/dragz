@@ -104,6 +104,10 @@ type loginLockData struct {
 	FailedCount       int    `json:"failedCount,omitempty"`
 	AttemptsRemaining int    `json:"attemptsRemaining,omitempty"`
 	CaptchaRequired   bool   `json:"captchaRequired"`
+	// CaptchaError distinguishes the 40002 captcha branches for clients:
+	// "required" means no answer was supplied, "invalid" means it did not match,
+	// "expired" means the puzzle timed out or was already consumed.
+	CaptchaError string `json:"captchaError,omitempty"`
 }
 
 func newLoginLockData(until time.Time, duration time.Duration, locked bool, failedCount int, maxAttempts int, captchaRequired bool) loginLockData {

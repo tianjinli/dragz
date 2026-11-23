@@ -177,7 +177,7 @@ func (q *Queries) GetNoticeDetail(ctx context.Context, arg GetNoticeDetailParams
 }
 
 const listDueNoticesForNotify = `-- name: ListDueNoticesForNotify :many
-SELECT id, title, notice_type, priority, content, publish_at, published_by
+SELECT id, tenant_id, title, notice_type, priority, content, publish_at, published_by
 FROM sys_notice
 WHERE deleted_at IS NULL
   AND status = 'published'
@@ -190,6 +190,7 @@ LIMIT $1
 
 type ListDueNoticesForNotifyRow struct {
 	ID          int64         `json:"id"`
+	TenantID    uint64        `json:"tenant_id"`
 	Title       string        `json:"title"`
 	NoticeType  string        `json:"notice_type"`
 	Priority    string        `json:"priority"`
@@ -198,6 +199,8 @@ type ListDueNoticesForNotifyRow struct {
 	PublishedBy sql.NullInt64 `json:"published_by"`
 }
 
+// tenant_id travels with the row because the realtime push is tenant-scoped:
+// a socket only receives events for the tenant it authenticated into.
 func (q *Queries) ListDueNoticesForNotify(ctx context.Context, limit int32) ([]ListDueNoticesForNotifyRow, error) {
 	rows, err := q.db.QueryContext(ctx, listDueNoticesForNotify, limit)
 	if err != nil {
@@ -209,6 +212,7 @@ func (q *Queries) ListDueNoticesForNotify(ctx context.Context, limit int32) ([]L
 		var i ListDueNoticesForNotifyRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.TenantID,
 			&i.Title,
 			&i.NoticeType,
 			&i.Priority,

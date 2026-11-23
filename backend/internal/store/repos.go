@@ -18,11 +18,11 @@ type AuthStore interface {
 	RecordLoginFailure(ctx context.Context, username, ip, userAgent, reason string, lockUntil *time.Time) error
 	RecordLoginSuccess(ctx context.Context, userID uint64, username, ip, userAgent string) error
 	ClearLoginFailures(ctx context.Context, userID uint64) error
-	SaveRefreshToken(ctx context.Context, userID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error
+	SaveRefreshToken(ctx context.Context, userID, tenantID uint64, tokenHash, familyID, deviceID, deviceName, ip, userAgent string, expiresAt time.Time) error
 	FindRefreshSession(ctx context.Context, tokenHash string) (RefreshSession, error)
 	ForceLogoutUser(ctx context.Context, userID uint64) error
 	FeatureEnabled(ctx context.Context, key string, defaultValue bool) (bool, error)
-	UserRoleIDs(ctx context.Context, userID uint64) ([]uint64, error)
+	UserRoleIDs(ctx context.Context, userID, tenantID uint64) ([]uint64, error)
 	UserRoles(ctx context.Context, userID uint64) ([]UserRole, error)
 	DepartmentRef(ctx context.Context, departmentID sql.NullInt64) (NamedRef, error)
 	PermissionCodes(ctx context.Context, userID uint64, superAdmin bool) ([]string, error)

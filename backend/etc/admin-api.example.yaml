@@ -10,7 +10,25 @@ Timeout: 10000
 
 Database:
   Driver: postgres
-  DataSource: postgres://USER:PASSWORD@postgres:5432/dragz_admin?sslmode=require
+  # Three database identities, one job each. Splitting them is what makes the
+  # tenant row-level security enforced rather than merely configured:
+  #
+  #   DataSource          the runtime role. Must not be a superuser and must not
+  #                       have BYPASSRLS, or PostgreSQL skips every policy and
+  #                       the tenant boundary disappears. Startup refuses such a
+  #                       role unless AllowDevSecrets is on.
+  #   MigrateDataSource   the schema owner. Runs migrations; may create and
+  #                       alter tables. Optional: falls back to DataSource.
+  #   PlatformDataSource  the cross-tenant role. Used only by the platform
+  #                       console, the outbox relay, and the pre-login lookups
+  #                       that answer "which tenant is this token for". Optional:
+  #                       falls back to DataSource, which is correct only for
+  #                       local development against a database without RLS.
+  #
+  # deploy/postgres-init/002_roles.sql creates all three.
+  DataSource: postgres://dragz_app:PASSWORD@postgres:5432/dragz_admin?sslmode=require
+  MigrateDataSource: postgres://dragz_migrate:PASSWORD@postgres:5432/dragz_admin?sslmode=require
+  PlatformDataSource: postgres://dragz_platform:PASSWORD@postgres:5432/dragz_admin?sslmode=require
 
 Redis:
   Host: redis:6379
@@ -30,6 +48,17 @@ Auth:
   CookieSecure: true
   CookieDomain: ""
 
+# Host → tenant. BaseDomain turns {slug}.{BaseDomain} into a tenant
+# (acme.saas.example when BaseDomain is saas.example). A verified row in
+# sys_tenant_domain matches an exact host. PlatformHosts, localhost,
+# 127.0.0.1, and any raw IP never force a tenant. Uncomment to enable.
+# TenantHost:
+#   BaseDomain: saas.example
+#   PlatformHosts:
+#     - localhost
+#     - 127.0.0.1
+#     - api.saas.example
+
 Bootstrap:
   AdminUsername: admin
   AdminPassword: REPLACE_WITH_STRONG_PASSWORD
@@ -47,3 +76,10 @@ Security:
 #     - mymemory
 #     - google
 #   TimeoutMs: 8000
+
+# Prometheus scrape endpoint at GET /api/metrics. Off by default: it publishes
+# traffic shape (route templates, status codes, latency) and should be a
+# deliberate choice. Leave it off for a public deployment and read the endpoint
+# over the internal network when you do turn it on.
+# Metrics:
+#   Enabled: true

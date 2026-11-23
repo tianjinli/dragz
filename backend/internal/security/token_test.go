@@ -9,7 +9,7 @@ import (
 
 func TestIssueCreatesValidAccessAndOpaqueRefreshTokens(t *testing.T) {
 	manager := NewTokenManager("01234567890123456789012345678901", "dragz-admin-test", 60, 120)
-	pair, err := manager.Issue(42, "alice", 3)
+	pair, err := manager.Issue(42, "alice", 3, 9)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}
@@ -30,7 +30,7 @@ func TestIssueCreatesValidAccessAndOpaqueRefreshTokens(t *testing.T) {
 	if err != nil || !parsed.Valid {
 		t.Fatalf("issued access token is invalid: %v", err)
 	}
-	if claims.UserID != 42 || claims.Username != "alice" || claims.TokenVersion != 3 {
+	if claims.UserID != 42 || claims.Username != "alice" || claims.TokenVersion != 3 || claims.TenantID != 9 {
 		t.Fatalf("unexpected claims: %#v", claims)
 	}
 }

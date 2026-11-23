@@ -1,4 +1,4 @@
-﻿// Package all registers every compiled-in plugin. Adding a plugin = adding
+// Package all registers every compiled-in plugin. Adding a plugin = adding
 // one import + one slice entry here (the new-plugin scaffold appends
 // automatically at the //scaffold:insert marker).
 package all
@@ -6,6 +6,7 @@ package all
 import (
 	"dragz-admin/backend/internal/plugin"
 	"dragz-admin/backend/plugins/example"
+	"dragz-admin/backend/plugins/notify"
 	"dragz-admin/backend/plugins/system"
 )
 
@@ -15,6 +16,7 @@ func All() []plugin.Plugin {
 	return []plugin.Plugin{
 		system.Plugin{},
 		example.Plugin{},
+		notify.Plugin{},
 		// scaffold:insert
 	}
 }

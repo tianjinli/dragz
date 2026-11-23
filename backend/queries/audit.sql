@@ -1,7 +1,10 @@
 -- name: CreateAPIToken :one
 INSERT INTO sys_api_token
-  (user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
+VALUES (
+  sqlc.arg(tenant_id), sqlc.arg(user_id), sqlc.arg(name), sqlc.arg(token_prefix),
+  sqlc.arg(token_hash), sqlc.arg(scopes), sqlc.arg(ip_allowlist), sqlc.arg(expires_at)
+)
 RETURNING id;
 
 -- name: RevokeAPIToken :execrows
@@ -13,7 +16,7 @@ UPDATE sys_api_token SET status = 0, revoked_at = COALESCE(revoked_at, NOW())
 WHERE id = $1 AND user_id = $2;
 
 -- name: AuthenticateAPIToken :one
-SELECT t.id, t.user_id, u.username, t.scopes,
+SELECT t.id, t.user_id, t.tenant_id, u.username, t.scopes,
   COALESCE(t.ip_allowlist, '[]'::jsonb) AS ip_allowlist, t.expires_at
 FROM sys_api_token t
 INNER JOIN sys_user u ON u.id = t.user_id

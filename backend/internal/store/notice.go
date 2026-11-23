@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"time"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
 // Notice is one announcement as the admin list shows it. Content is omitted from list responses.
 type Notice struct {
 	ID          uint64          `json:"id"`
+	TenantID    uint64          `json:"tenantId,omitempty"`
 	Title       string          `json:"title"`
 	NoticeType  string          `json:"noticeType"`
 	Priority    string          `json:"priority"`
@@ -130,6 +132,33 @@ func (r *AuthRepository) PublishNotice(ctx context.Context, noticeID, publisherI
 	return nil
 }
 
+// PublishNoticeWithOutbox publishes the notice and appends one outbox row in the
+// same transaction. tenantID 0 is stored as the default tenant.
+func (r *AuthRepository) PublishNoticeWithOutbox(ctx context.Context, noticeID, publisherID, tenantID uint64, eventType string, payload []byte) error {
+	if tenantID == 0 {
+		tenantID = 1
+	}
+	ctx = ctxkey.WithTenantID(ctx, tenantID)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	affected, err := r.qtx(tx).PublishNotice(ctx, sqlcstore.PublishNoticeParams{
+		PublishedBy: sql.NullInt64{Int64: int64(publisherID), Valid: true}, ID: int64(noticeID),
+	})
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrCannotPublish
+	}
+	if _, err := NewTenantRepository(r.db).InsertOutbox(ctxkey.WithTx(ctx, tx.Tx), tenantID, eventType, payload); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ListDueNoticesForNotify returns published notices whose publish_at has arrived
 // but have not been pushed to their audience yet.
 func (r *AuthRepository) ListDueNoticesForNotify(ctx context.Context, limit int) ([]Notice, error) {
@@ -143,7 +172,8 @@ func (r *AuthRepository) ListDueNoticesForNotify(ctx context.Context, limit int)
 	items := make([]Notice, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, Notice{
-			ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
+			ID: uint64(row.ID), TenantID: row.TenantID,
+			Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
 			Content: row.Content, PublishAt: nullTimePtr(row.PublishAt),
 			PublishedBy: nullInt64Ptr(row.PublishedBy), Status: "published",
 		})

@@ -33,6 +33,12 @@ func TestLogoutHandlerRevokesCookieSessionWithoutAccessToken(t *testing.T) {
 
 	hash := security.HashOpaqueToken("cookie-refresh-token")
 	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT set_config\('app\.tenant_id'`).
+		WithArgs("0").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`SELECT set_config\('app\.rls_bypass'`).
+		WithArgs("false").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(regexp.QuoteMeta(revokeByHashSQL)).
 		WithArgs("logout", hash).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(7))

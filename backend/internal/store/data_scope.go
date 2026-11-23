@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"sort"
+
+	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
 // DataScope is the effective union of all enabled roles assigned to a user.
@@ -36,7 +38,9 @@ func (r *AuthRepository) ResolveUserDataScope(ctx context.Context, userID uint64
 		return DataScope{All: true}, nil
 	}
 
-	rows, err := r.queries.ListUserRoleDataScopes(ctx, userID)
+	rows, err := r.queries.ListUserRoleDataScopes(ctx, sqlcstore.ListUserRoleDataScopesParams{
+		UserID: userID, TenantID: requestTenantID(ctx),
+	})
 	if err != nil {
 		return DataScope{}, err
 	}

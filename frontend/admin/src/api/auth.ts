@@ -24,6 +24,7 @@ export interface CaptchaIssueResult {
 export interface LoginChallengeResult { captchaRequired: boolean }
 
 export const loginApi = (data: LoginInput) => apiPost<TokenResult>('/auth/login', data);
+export const switchTenantApi = (tenantId: number) => apiPost<TokenResult>('/auth/switch-tenant', { tenantId });
 export const issueCaptchaApi = () => apiGet<CaptchaIssueResult>('/auth/captcha');
 export const loginChallengeApi = (username: string) =>
   apiGet<LoginChallengeResult>('/auth/login-challenge', { params: { username } });
@@ -34,6 +35,13 @@ export const updateProfileApi = (data: { avatarFileId?: number; email?: string; 
 export const changePasswordApi = (data: { newPassword: string; oldPassword: string }) => apiPost<{ reloginRequired?: boolean; success: boolean }>('/auth/change-password', data);
 export const verifyPasswordApi = (data: { password: string }) => apiPost<{ success: boolean }>('/auth/verify-password', data);
 export const publicAuthProvidersApi = () => apiGet<Array<Record<string, unknown>>>('/auth/providers');
+export interface TenantContext {
+  name: string;
+  resolved: boolean;
+  slug: string;
+  tenantId: number;
+}
+export const getTenantContextApi = () => apiGet<TenantContext>('/auth/tenant-context');
 export const startOAuthApi = (id: number, returnPath = '/auth/oauth-callback') => apiGet<{ authorizationUrl: string }>(`/auth/oauth/${id}/start`, { params: { returnPath } });
 export const exchangeOAuthApi = (code: string) => apiPost<TokenResult>('/auth/oauth/exchange', { code });
 

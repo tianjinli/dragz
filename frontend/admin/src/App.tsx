@@ -6,6 +6,8 @@ import { PreferencesDrawer, type PreferenceTab } from '@/components/preferences/
 import { antdLocale } from '@/constants/locales';
 import { AdminLayout } from '@/layout/AdminLayout';
 import { LoginPage, OAuthCallbackPage } from '@/pages/auth/AuthPages';
+import { InvitePage } from '@/pages/auth/InvitePage';
+import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ComingSoonPage, ForbiddenPage, InternalErrorPage, NotFoundPage, OfflinePage } from '@/pages/fallback/FallbackPages';
 import { useAccessStore } from '@/stores/access';
 import { LOGOUT_REDIRECT_FLAG, useAuthStore } from '@/stores/auth';
@@ -257,6 +259,18 @@ function AppRoutes() {
           }
           path="/auth/login"
         />
+        <Route
+          element={
+            <AuthGuest>
+              <RegisterPage />
+            </AuthGuest>
+          }
+          path="/auth/register"
+        />
+        {/* Public: a signed-out visitor can read who invited them. Accepted in
+            place when a session exists, otherwise the page routes to login and
+            comes straight back here. */}
+        <Route element={<InvitePage />} path="/auth/invite/:token" />
         <Route element={<OAuthCallbackPage />} path="/auth/oauth-callback" />
         <Route element={<ForbiddenPage />} path="/403" />
         <Route element={<NotFoundPage />} path="/404" />

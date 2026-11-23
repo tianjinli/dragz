@@ -231,15 +231,25 @@ WHERE file_id = $1
 ORDER BY id
 `
 
-func (q *Queries) ListFileReferences(ctx context.Context, fileID uint64) ([]SysFileReference, error) {
+type ListFileReferencesRow struct {
+	ID           int64     `json:"id"`
+	FileID       uint64    `json:"file_id"`
+	BusinessType string    `json:"business_type"`
+	BusinessID   string    `json:"business_id"`
+	FieldName    string    `json:"field_name"`
+	CreatedBy    uint64    `json:"created_by"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) ListFileReferences(ctx context.Context, fileID uint64) ([]ListFileReferencesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listFileReferences, fileID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SysFileReference{}
+	items := []ListFileReferencesRow{}
 	for rows.Next() {
-		var i SysFileReference
+		var i ListFileReferencesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.FileID,

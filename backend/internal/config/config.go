@@ -20,8 +20,53 @@ type Config struct {
 	Security  SecurityConf
 	Asynq     AsynqConf
 	Translate TranslateConf
+	// TenantHost maps the request Host onto a tenant. Empty BaseDomain means
+	// only verified custom domains resolve; slug subdomains stay off.
+	TenantHost TenantHostConf `json:",optional"`
+	// Billing configures the payment webhook adapter. A deployment that does not
+	// sell anything leaves it empty; the webhook endpoint then refuses requests.
+	Billing BillingConf `json:",optional"`
 	// AllowDevSecrets permits known development default secrets (local only).
 	AllowDevSecrets bool `json:",optional"`
+	// Metrics exposes GET /api/metrics for a Prometheus scrape. Off by default:
+	// an endpoint that publishes traffic shape should be a deliberate choice.
+	Metrics MetricsConf `json:",optional"`
+}
+
+// MetricsConf turns on the in-process request meter.
+type MetricsConf struct {
+	Enabled bool `json:",optional"`
+}
+
+// BillingConf is the payment provider adapter.
+//
+// Provider selects the webhook dialect:
+//   - "none" (default) parses the JSON body without a signature and is only
+//     accepted in development mode;
+//   - "hmac" verifies an HMAC-SHA256 signature over "<timestamp>.<body>".
+//
+// SignatureHeader names the header carrying the signature (default
+// X-Signature) and EventIDHeader optionally carries the event id in a header
+// instead of the body. ToleranceSeconds bounds how old a signed request may be,
+// which is what makes a captured request expire.
+type BillingConf struct {
+	Provider         string `json:",default=none"`
+	WebhookSecret    string `json:",optional"`
+	SignatureHeader  string `json:",default=X-Signature"`
+	EventIDHeader    string `json:",optional"`
+	ToleranceSeconds int    `json:",default=300"`
+}
+
+// TenantHostConf is how a browser host becomes a tenant.
+//
+// BaseDomain is the parent of slug subdomains: slug "acme" and base
+// "localhost" resolve acme.localhost. PlatformHosts are exact hosts that
+// never force a tenant (the API called by IP, or a shared login host).
+// localhost and 127.0.0.1 are always treated as platform hosts even when
+// this list is empty; every raw IP is too.
+type TenantHostConf struct {
+	BaseDomain    string   `json:",optional"`
+	PlatformHosts []string `json:",optional"`
 }
 
 // TranslateConf configures the free machine-translation backends behind the
@@ -43,14 +88,28 @@ type TranslateConf struct {
 type AsynqConf struct {
 	Concurrency int            `json:",default=10"`
 	Queues      map[string]int `json:",optional"`
+	// PerTenantConcurrency caps how many scheduled jobs one tenant may run at
+	// the same time. It is what keeps one tenant's slow job from occupying
+	// every worker and delaying everyone else's cron. 0 disables the gate.
+	PerTenantConcurrency int `json:",default=2"`
 }
 
 // DatabaseConf selects and locates the SQL store.
 type DatabaseConf struct {
 	// Driver is the SQL driver name. Currently only "postgres" is implemented.
 	// Reserved for future MySQL (and other) store implementations.
-	Driver     string `json:",default=postgres"`
+	Driver string `json:",default=postgres"`
+	// DataSource is the application identity. It must NOT be a superuser or
+	// have BYPASSRLS; FORCE ROW LEVEL SECURITY is the last line of tenant
+	// isolation.
 	DataSource string
+	// MigrateDataSource is the schema-owner identity used by bootstrap and
+	// plugin migrations. Empty falls back to DataSource for local development.
+	MigrateDataSource string `json:",optional"`
+	// PlatformDataSource is the cross-tenant identity (BYPASSRLS) used by the
+	// platform console, membership lookup and outbox relay. Empty falls back to
+	// DataSource for local development.
+	PlatformDataSource string `json:",optional"`
 }
 
 // AuthConf configures token issuance. AccessSecret signs JWTs, AccessExpire and

@@ -212,6 +212,20 @@ func (r *AuthRepository) FeatureEnabled(ctx context.Context, key string, default
 	return parsed, nil
 }
 
+// ConfigValue reads one configuration value in the caller's tenant scope.
+// ErrNotFound means the key is not configured, which callers treat as "use the
+// built-in default" rather than as a failure.
+func (r *AuthRepository) ConfigValue(ctx context.Context, key string) (string, error) {
+	value, err := r.queries.GetConfigValue(ctx, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
+}
+
 // ListConfigs returns the configuration items of one group, or of every group when the group is empty.
 func (r *AuthRepository) ListConfigs(ctx context.Context, group string) ([]ConfigItem, error) {
 	group = strings.TrimSpace(group)

@@ -8,6 +8,8 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/zeromicro/go-zero/core/stores/redis"
+
+	"dragz-admin/backend/internal/pkg/ctxkey"
 )
 
 // serverLister is the subset of *asynq.Inspector used for worker discovery.
@@ -80,7 +82,8 @@ func (c *Client) EnqueueJob(ctx context.Context, jobID uint64, triggerType strin
 	if c == nil || c.inner == nil {
 		return nil, fmt.Errorf("asynq client is not initialized")
 	}
-	payload, err := json.Marshal(JobPayload{JobID: jobID, TriggerType: triggerType})
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	payload, err := json.Marshal(JobPayload{JobID: jobID, TriggerType: triggerType, TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}

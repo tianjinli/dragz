@@ -1,4 +1,9 @@
 .auth-shell {
+  /* 分栏表单半区的接缝色/渐变/文字色,随主题切换,融合带引用同一接缝色 */
+  --auth-form-seam: #eef5ff;
+  --auth-form-mid: #e3eeff;
+  --auth-form-end: #d9e9ff;
+  --auth-form-ink: #1f2937;
   position: relative;
   display: flex;
   min-height: 100vh;
@@ -7,6 +12,13 @@
   user-select: none;
   background: var(--surface);
   color: var(--text);
+}
+
+[data-theme='dark'] .auth-shell {
+  --auth-form-seam: #09090b;
+  --auth-form-mid: #0c0c11;
+  --auth-form-end: #101017;
+  --auth-form-ink: var(--text);
 }
 
 .auth-logo-mark {
@@ -91,13 +103,15 @@
   overflow-x: clip;
   overflow-y: visible;
   padding-block: 8px;
+  padding-inline: 3px 0;
   margin-block: -8px;
+  margin-inline: -3px 0;
   transition: width 0.5s ease, max-width 0.5s ease;
 }
 
 .auth-color-toggle:hover .auth-color-presets {
-  width: 208px;
-  max-width: 208px;
+  width: 211px;
+  max-width: 211px;
 }
 
 .auth-color-presets button {
@@ -123,6 +137,11 @@
   outline: none;
 }
 
+.auth-layout-button,
+.auth-layout-button svg {
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+}
+
 .auth-palette-button,
 .auth-palette-button svg {
   color: var(--primary);
@@ -138,11 +157,34 @@
 .auth-intro-bg {
   position: absolute;
   inset: 0;
-  background: var(--surface-soft);
+  overflow: hidden;
+  background-color: var(--surface-soft);
+}
+
+/* 去除静态网格，改用两团缓慢漂移的主色光晕，让介绍侧背景持续流动。 */
+.auth-intro-bg::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(ellipse 42% 38% at 30% 34%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 70%),
+    radial-gradient(ellipse 40% 42% at 72% 68%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 72%);
+  animation: auth-intro-glow 12s ease-in-out infinite alternate;
+}
+
+@keyframes auth-intro-glow {
+  from { transform: translate3d(-4%, -3%, 0) scale(1); }
+  to { transform: translate3d(5%, 4%, 0) scale(1.14); }
 }
 
 [data-theme='dark'] .auth-intro-bg {
-  background: #070709;
+  background-color: #070709;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-intro-bg::before {
+    animation: none;
+  }
 }
 
 .login-background {
@@ -154,6 +196,19 @@
 
 [data-theme='dark'] .login-background {
   background: linear-gradient(154deg, #07070915 30%, color-mix(in srgb, var(--primary) 20%, transparent) 48%, #07070915 64%);
+}
+
+.auth-intro-panel .login-background {
+  background:
+    radial-gradient(ellipse 52% 38% at 50% 52%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 72%),
+    linear-gradient(154deg, transparent 32%, color-mix(in srgb, var(--primary) 16%, transparent) 50%, transparent 68%);
+  filter: blur(72px);
+}
+
+[data-theme='dark'] .auth-intro-panel .login-background {
+  background:
+    radial-gradient(ellipse 52% 38% at 50% 52%, color-mix(in srgb, var(--primary) 20%, transparent), transparent 72%),
+    linear-gradient(154deg, transparent 32%, color-mix(in srgb, var(--primary) 18%, transparent) 50%, transparent 68%);
 }
 
 .auth-intro-content {
@@ -168,6 +223,45 @@
   text-align: center;
 }
 
+/* 打字机逐字打印：完整文本常驻 DOM，动态 keyframes 由 TypewriterText 组件生成。 */
+.auth-typewriter {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.auth-typewriter-text {
+  display: inline-block;
+}
+
+/* 光标绝对定位、跟随打字进度逐字右移，打完后停在末尾闪烁。 */
+.auth-typewriter-caret {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 1.1em;
+  background: currentColor;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+/* 内联 animation 优先级更高，这里用 !important 保证减少动态效果偏好下彻底关闭。 */
+@media (prefers-reduced-motion: reduce) {
+  .auth-typewriter-text,
+  .auth-typewriter-caret {
+    animation: none !important;
+  }
+
+  .auth-typewriter-text {
+    clip-path: none !important;
+  }
+
+  .auth-typewriter-caret {
+    display: none;
+  }
+}
+
 .auth-intro-content h2 {
   margin: 24px 0 0;
   font-size: clamp(20px, 2vw, 24px);
@@ -177,6 +271,114 @@
 .auth-intro-content p {
   margin: 8px 0 0;
   color: var(--muted);
+}
+
+.auth-intro-detail {
+  width: 100%;
+  max-width: 560px;
+}
+
+.auth-feature-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-feature-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  text-align: left;
+}
+
+.auth-feature-icon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.auth-feature-item h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.auth-feature-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-shell.is-split-layout .auth-intro-panel {
+  display: block;
+}
+
+.auth-shell.is-split-layout .auth-form-panel {
+  flex: 0 0 40%;
+  width: 40%;
+  min-height: 100vh;
+}
+
+/* 表单半区的渐变锚定接缝色,与介绍半区的融合带在接缝处同色相接 */
+.auth-shell.is-split-layout .auth-form-panel[data-side='left'] {
+  background:
+    radial-gradient(ellipse 70% 42% at 50% 108%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 72%),
+    linear-gradient(to left, var(--auth-form-seam) 0%, var(--auth-form-mid) 52%, var(--auth-form-end) 100%);
+}
+
+.auth-shell.is-split-layout .auth-form-panel[data-side='right'] {
+  background:
+    radial-gradient(ellipse 70% 42% at 50% 108%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 72%),
+    linear-gradient(to right, var(--auth-form-seam) 0%, var(--auth-form-mid) 52%, var(--auth-form-end) 100%);
+}
+
+/* 介绍半区靠接缝一侧渐隐到表单半区的接缝色,左右背景融为一体 */
+.auth-shell.is-split-layout .auth-intro-panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: clamp(120px, 16vw, 260px);
+  pointer-events: none;
+}
+
+.auth-shell.is-split-layout .auth-intro-panel.is-left::after {
+  left: 0;
+  background: linear-gradient(to right, var(--auth-form-seam), transparent);
+}
+
+.auth-shell.is-split-layout .auth-intro-panel.is-right::after {
+  right: 0;
+  background: linear-gradient(to left, var(--auth-form-seam), transparent);
+}
+
+.auth-shell.is-split-layout .auth-form-panel .auth-logo-mark {
+  display: none;
+}
+
+.auth-intro-panel.is-right .auth-intro-content {
+  margin-right: 0;
+  margin-left: 80px;
+}
+
+.auth-intro-content .auth-logo-mark {
+  margin-bottom: 24px;
+  transform: scale(1.6);
 }
 
 .auth-slogan {
@@ -226,6 +428,13 @@
   background: #09090b;
 }
 
+/* Split layouts: the form half carries its own tinted surface that follows the
+   active theme, anchored at the seam color shared with the intro blend strip. */
+.auth-shell.is-split-layout .auth-form-panel:not(.is-center) {
+  background-color: var(--auth-form-seam);
+  color: var(--auth-form-ink);
+}
+
 .auth-form-panel.is-center {
   width: fit-content;
   max-width: calc(100% - 48px);
@@ -239,9 +448,11 @@
   display: flex;
   width: 100%;
   min-height: 100vh;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  gap: 24px;
+  padding: 64px 24px 64px;
 }
 
 .auth-center-bg {
@@ -249,26 +460,199 @@
   inset: 0;
 }
 
+.auth-center-wrap .auth-center-bg {
+  background:
+    radial-gradient(ellipse 38% 32% at 50% 45%, color-mix(in srgb, var(--primary) 20%, transparent), transparent 75%),
+    linear-gradient(154deg, #07070915 30%, color-mix(in srgb, var(--primary) 30%, transparent) 48%, #07070915 64%);
+}
+
+[data-theme='dark'] .auth-center-wrap .auth-center-bg {
+  background:
+    radial-gradient(ellipse 38% 32% at 50% 45%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 75%),
+    linear-gradient(154deg, #07070915 30%, color-mix(in srgb, var(--primary) 20%, transparent) 48%, #07070915 64%);
+}
+
+.auth-center-intro {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 620px;
+  text-align: center;
+}
+
+.auth-center-brand {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-center-brand .auth-logo-mark {
+  margin-bottom: 24px;
+  transform: scale(1.6);
+}
+
+.auth-center-brand h1 {
+  margin: 0;
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.auth-center-intro p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.auth-feature-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-feature-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.auth-feature-chips svg {
+  color: var(--primary);
+}
+
+.auth-shell.is-center-layout .auth-form-panel.is-center .auth-title .auth-logo-mark {
+  display: none;
+}
+
+.auth-shell.is-center-layout .auth-form-panel.is-center .auth-title:not(:has(h2)) {
+  display: none;
+}
+
 .auth-center-wrap .auth-form-panel.is-center {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  width: fit-content;
-  max-width: calc(100% - 48px);
+  width: 344px;
+  max-width: calc(100% - 32px);
   min-height: auto;
-  padding: 40px var(--auth-form-gutter) 48px;
+  padding: 36px 32px 40px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
   background: var(--surface);
+  box-shadow: 0 20px 56px color-mix(in srgb, var(--primary) 10%, transparent), 0 8px 24px rgb(0 0 0 / 5%);
+}
+
+[data-theme='dark'] .auth-center-wrap .auth-form-panel.is-center {
+  background: #1a1a1e;
+  border-color: #32323a;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 55%), 0 0 48px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .auth-center-wrap .auth-form-panel.is-center .auth-form-content {
-  width: min(268px, calc(100vw - 88px));
-  max-width: 268px;
+  width: 100%;
+  max-width: none;
   margin-top: 0;
 }
 
 .auth-form-content {
   width: 100%;
   max-width: 268px;
+}
+
+/* 表单入场：淡入 + 轻微上浮。分栏作用于表单内容，居中让标题/卡片/介绍错落浮现。 */
+@keyframes auth-form-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+.auth-shell.is-split-layout .auth-form-content {
+  animation: auth-form-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-center-brand {
+  animation: auth-form-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-center-wrap .auth-form-panel.is-center {
+  animation: auth-form-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+.auth-center-intro {
+  animation: auth-form-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-shell.is-split-layout .auth-form-content,
+  .auth-center-brand,
+  .auth-center-wrap .auth-form-panel.is-center,
+  .auth-center-intro {
+    animation: none;
+  }
+}
+
+/* 登录页入场编排：表单字段、功能卡片、工具栏、版权依次浮现；居中光晕缓慢呼吸。 */
+@media (prefers-reduced-motion: no-preference) {
+  .auth-login-form > * {
+    animation: auth-form-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+  .auth-login-form > *:nth-child(1) { animation-delay: 0.14s; }
+  .auth-login-form > *:nth-child(2) { animation-delay: 0.22s; }
+  .auth-login-form > *:nth-child(3) { animation-delay: 0.3s; }
+  .auth-login-form > *:nth-child(4) { animation-delay: 0.38s; }
+  .auth-login-form > *:nth-child(5) { animation-delay: 0.46s; }
+
+  .auth-feature-item {
+    animation: auth-form-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+  }
+  .auth-feature-item:nth-child(1) { animation-delay: 0.28s; }
+  .auth-feature-item:nth-child(2) { animation-delay: 0.36s; }
+  .auth-feature-item:nth-child(3) { animation-delay: 0.44s; }
+  .auth-feature-item:nth-child(4) { animation-delay: 0.52s; }
+  .auth-feature-item:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
+  .auth-toolbar {
+    animation: auth-form-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.3s backwards;
+  }
+
+  .auth-page-copyright {
+    animation: auth-form-enter 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.5s backwards;
+  }
+
+  .auth-center-wrap .auth-center-bg {
+    animation: auth-glow-breathe 9s ease-in-out infinite alternate;
+  }
+
+  .auth-login-submit {
+    transition: transform 0.16s ease, box-shadow 0.2s ease;
+  }
+  .auth-login-submit:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+  .auth-login-submit:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--primary) 24%, transparent);
+  }
+}
+
+@keyframes auth-glow-breathe {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
 }
 
 .auth-page-copyright {
@@ -413,29 +797,196 @@
   }
 }
 
+/* Captcha mode mirrors tieba: rounded image, pill track, blue round arrow grip. */
+.auth-slide-captcha.is-captcha .auth-slide-captcha-stage {
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  background: #f5f6f8;
+}
+
+.auth-slide-captcha.is-captcha .auth-slide-captcha-track {
+  height: 40px;
+  margin-top: 10px;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  background: #f5f6f8;
+}
+
+.auth-slide-captcha.is-captcha .auth-slide-captcha-fill {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.auth-slide-captcha.is-captcha .auth-slide-captcha-hint {
+  color: #9aa0a6;
+  font-size: 12px;
+}
+
+/* 百度式蓝色圆角滑块 + 白色右箭头 */
+.auth-slide-captcha.is-captcha .auth-slide-captcha-handle {
+  top: 1px;
+  height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+.auth-slide-captcha.is-captcha .auth-slide-captcha-handle.is-dragging {
+  border: 0;
+  background: color-mix(in srgb, var(--primary) 82%, #000);
+  color: #fff;
+}
+
+/* 图片右下角悬浮工具条：刷新 / 关闭，鼠标移到图片上才显示 */
+.auth-slide-captcha-actions {
+  position: absolute;
+  z-index: 3;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.auth-slide-captcha-stage:hover .auth-slide-captcha-actions,
+.auth-slide-captcha-actions:focus-within {
+  opacity: 1;
+}
+
+.auth-slide-captcha-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 90%);
+  color: #475569;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 14%);
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.auth-slide-captcha-action:hover:not(:disabled) {
+  color: var(--primary);
+}
+
+.auth-slide-captcha-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (hover: none) {
+  .auth-slide-captcha-actions {
+    opacity: 1;
+  }
+}
+
 .auth-login-submit {
   margin-top: 2px;
+}
+
+/* Secondary row under the signup/invite forms: "already have an account" plus
+   the link out. Centred so it reads as a footnote, not a second action. */
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.auth-links a {
+  color: var(--primary);
+}
+
+/* 验证遮罩调淡：antd 默认 0.45 会把淡蓝表单压成脏灰，0.28 既能衬托弹窗，
+   又保留表单内容清晰可辨；居中布局没有介绍侧，同样适用。 */
+.auth-captcha-root .ant-modal-mask {
+  background: rgb(0 0 0 / 28%);
+}
+
+/* 分栏布局下把验证层整体收进表单所在那一列，弹窗显示在表单正上方。
+   遮罩也随之只覆盖表单侧，介绍侧不再被压暗，两侧各自完整、不再相互割裂。 */
+@media (min-width: 1024px) {
+  .auth-captcha-root--left .ant-modal-wrap,
+  .auth-captcha-root--left .ant-modal-mask {
+    right: auto;
+    width: 40%;
+  }
+
+  .auth-captcha-root--right .ant-modal-wrap,
+  .auth-captcha-root--right .ant-modal-mask {
+    left: 60%;
+    right: auto;
+    width: 40%;
+  }
+}
+
+/* Verify5-style light verification card: image, pill track and a small footer. */
+.auth-captcha-modal .ant-modal-container {
+  padding: 12px 12px 10px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(15 23 42 / 22%);
+}
+
+.auth-captcha-modal .ant-modal-header,
+.auth-captcha-modal .ant-modal-close {
+  display: none;
+}
+
+.auth-captcha-modal .ant-modal-body {
+  padding: 0;
 }
 
 .auth-verify-card {
   width: 100%;
 }
 
-/* 模态框内验证通过的状态：保持占位高度，避免切换时弹窗跳动 */
-.auth-verify-passed {
+/* 验证中/验证成功直接叠在拼图图片上，弹窗结构不跳动 */
+.auth-slide-captcha-status {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
   display: flex;
-  min-height: 210px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: #22c55e;
-  font-size: 16px;
+  gap: 6px;
+  color: #f8fafc;
+  font-size: 13px;
   font-weight: 600;
+  backdrop-filter: blur(3px);
 }
 
-.auth-verify-passed svg {
+.auth-slide-captcha-status.is-verifying {
+  background: rgb(15 23 42 / 62%);
+}
+
+.auth-slide-captcha-status.is-success {
+  background: rgb(22 101 52 / 78%);
+}
+
+.auth-slide-captcha-status.is-success svg {
   animation: auth-verify-pop 260ms ease-out;
+}
+
+.auth-slide-captcha-status-spin {
+  animation: auth-status-spin 900ms linear infinite;
+}
+
+@keyframes auth-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes auth-verify-pop {
@@ -448,6 +999,45 @@
     opacity: 1;
     transform: scale(1);
   }
+}
+
+.auth-slide-captcha-board {
+  position: relative;
+}
+
+.auth-slide-captcha-expired {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgb(15 23 42 / 78%);
+  backdrop-filter: blur(3px);
+  color: #f8fafc;
+  cursor: pointer;
+}
+
+.auth-slide-captcha-expired svg {
+  transition: transform 240ms ease;
+}
+
+.auth-slide-captcha-expired:hover svg {
+  transform: rotate(90deg);
+}
+
+.auth-slide-captcha-expired-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auth-slide-captcha-expired-hint {
+  font-size: 12px;
+  color: rgb(248 250 252 / 65%);
 }
 
 .auth-slide-captcha-stage {
@@ -479,34 +1069,6 @@
   filter: drop-shadow(0 2px 4px rgb(15 23 42 / 35%));
 }
 
-.auth-slide-captcha-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-}
-
-.auth-slide-captcha-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 60%, transparent);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.auth-slide-captcha-refresh:hover:not(:disabled) {
-  color: var(--primary);
-}
-
-.auth-slide-captcha-refresh:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .auth-slide-captcha-loading {
   display: flex;
   height: 150px;
@@ -522,13 +1084,29 @@
 .auth-slide-captcha-track {
   position: relative;
   width: 100%;
-  height: 38px;
+  height: 40px;
   margin-top: 8px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
   transition: border-color 160ms ease;
+}
+
+/* The whole track is the login button when captcha is off. Dimming only the
+   handle leaves half of the button looking live, so cover the full surface. */
+.auth-slide-captcha-track.is-disabled::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  cursor: not-allowed;
+}
+
+.auth-slide-captcha-track.is-disabled .auth-slide-captcha-handle:disabled {
+  opacity: 1;
 }
 
 /* 无验证码时滑块即登录入口，独占一行，无需与图片拉开间距 */
@@ -573,30 +1151,72 @@
   align-items: center;
   justify-content: center;
   color: color-mix(in srgb, var(--text) 55%, transparent);
-  font-size: 12px;
+  font-size: 13px;
   pointer-events: none;
+}
+
+.auth-slide-captcha-hint.is-error {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+/* 提示文案闪光：从左到右扫光 + 明暗脉冲，每秒一次，引导拖动方向 */
+@media (prefers-reduced-motion: no-preference) {
+  .auth-slide-captcha-hint.is-shimmer {
+    color: transparent;
+    background: linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--text) 55%, transparent) 40%,
+      var(--primary) 50%,
+      color-mix(in srgb, var(--text) 55%, transparent) 60%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    animation: auth-hint-shimmer 1s ease-in-out infinite;
+  }
+}
+
+@keyframes auth-hint-shimmer {
+  0% {
+    background-position: 100% 0;
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+
+  100% {
+    background-position: -100% 0;
+    opacity: 1;
+  }
 }
 
 .auth-slide-captcha-handle {
   position: absolute;
   z-index: 2;
   top: 2px;
+  display: flex;
   width: 40px;
-  height: 34px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 4px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 12%);
   cursor: grab;
-  font-size: 22px;
-  line-height: 1;
   touch-action: none;
   user-select: none;
 }
 
 .auth-slide-captcha-handle.is-dragging {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
   cursor: grabbing;
 }
 
@@ -675,6 +1295,26 @@
     width: 100%;
     padding-inline: 24px;
   }
+
+  .auth-shell.is-split-layout .auth-intro-panel {
+    display: none;
+  }
+
+  .auth-shell.is-split-layout .auth-form-panel {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  /* No intro half to contrast against at this width — follow the theme again. */
+  .auth-shell.is-split-layout .auth-form-panel:not(.is-center) {
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  [data-theme='dark'] .auth-shell.is-split-layout .auth-form-panel:not(.is-center) {
+    background: #09090b;
+    color: var(--text);
+  }
 }
 
 @media (max-width: 480px) {
@@ -684,5 +1324,22 @@
 
   .auth-form-panel {
     padding-inline: 16px;
+  }
+
+  .auth-center-wrap {
+    gap: 18px;
+    padding: 56px 16px 48px;
+  }
+
+  .auth-center-wrap .auth-form-panel.is-center {
+    padding-inline: 20px;
+  }
+
+  .auth-center-brand .auth-logo-mark {
+    transform: scale(1.4);
+  }
+
+  .auth-center-intro p {
+    font-size: 13px;
   }
 }

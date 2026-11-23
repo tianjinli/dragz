@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -168,14 +169,25 @@ func TestSoftDeleteKeysAreReusableAgainstPostgres(t *testing.T) {
 	// tables runs, in the same order the server runs them at startup.
 	applied := 0
 	for _, statement := range bootstrapStatements {
+		trimmed := strings.TrimSpace(statement)
+		// Seeds, views and row-level security also name these tables. They
+		// target the full production shape, which this legacy fixture does not
+		// have. The upgrade under test is the unique-index rebuild.
+		if !strings.HasPrefix(trimmed, "ALTER TABLE") &&
+			!strings.HasPrefix(trimmed, "DROP INDEX") &&
+			!strings.HasPrefix(trimmed, "CREATE UNIQUE INDEX") {
+			continue
+		}
 		for _, tc := range softDeleteKeyCases {
-			if strings.Contains(statement, tc.table) {
-				if _, err := tx.ExecContext(ctx, statement); err != nil {
-					t.Fatalf("%s: apply bootstrap statement %q: %v", tc.table, statement, err)
-				}
-				applied++
-				break
+			// Word boundary so sys_user does not match sys_user_role.
+			if !regexp.MustCompile(`\b` + regexp.QuoteMeta(tc.table) + `\b`).MatchString(statement) {
+				continue
 			}
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("%s: apply bootstrap statement %q: %v", tc.table, statement, err)
+			}
+			applied++
+			break
 		}
 	}
 	if applied < len(softDeleteKeyCases)*2 {

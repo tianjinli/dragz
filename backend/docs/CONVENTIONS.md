@@ -266,6 +266,29 @@ Layers: `plugins/ → platform/ → kernel/`. Dependencies point one way only;
   redis client exposes no subscriber, and a one-row-per-plugin query is cheaper
   than a second connection plus reconnect/dropped-message handling.
 
+### Cross-plugin capabilities
+
+Plugins must not import each other. When one plugin needs a capability from
+another, it consumes a narrow interface from `platform/` through the shared
+`app.Context` (`ctx.Notifier`, `ctx.Billing`, …). The composition root in
+`api.RegisterRoutes` is the only place that names the provider implementation.
+
+For outbound notifications:
+
+- Depend on `platform/notifier` and call
+  `ctx.Notifier.Send(ctx, notifier.SendInput{Recipient: ..., Content: ...})`.
+  Do **not** import `plugins/notify`.
+- Declare `DependsOn: []string{notifier.PluginID}`. `plugincenter` then refuses
+  to enable the caller while notify is off, and refuses to disable notify while
+  an enabled caller exists.
+- The event-bus alternative is `notifier.EventName` (`notify.send`) with a typed
+  `notifier.SendInput` payload; `notifier.DecodePayload` also accepts the old
+  map shape. The subscription is installed once at boot by `api.wireNotifier`,
+  not lazily on the first HTTP request, so startup publishers are not lost.
+- `ctx.Notifier` is `notifier.Noop` until wiring and returns
+  `notifier.ErrUnavailable` when notify is disabled or has no database. Callers
+  must handle that error; a missing provider never silently drops a message.
+
 ### Bootstrap DDL vs migrations
 
 - Plugin tables (`sys_plugin`, `sys_plugin_migration`) and the `sys_menu`

@@ -19,6 +19,7 @@ import (
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
 	"dragz-admin/backend/internal/ws"
+	"dragz-admin/backend/platform/eventbus"
 )
 
 var configFile = flag.String("f", "etc/jobs-runner.yaml", "the config file")
@@ -33,6 +34,12 @@ func main() {
 	db, err := store.Open(c.Database.Driver, c.Database.DataSource)
 	logx.Must(err)
 	defer db.Close()
+	platformDB := db
+	if dsn := c.Database.PlatformDataSource; dsn != "" && dsn != c.Database.DataSource {
+		platformDB, err = store.Open(c.Database.Driver, dsn)
+		logx.Must(err)
+		defer platformDB.Close()
+	}
 
 	var secretBox *security.SecretBox
 	if key := strings.TrimSpace(c.Security.ConfigMasterKey); key != "" {
@@ -40,10 +47,16 @@ func main() {
 		logx.Must(err)
 	}
 	repo := store.NewAuthRepository(db)
+	repo.SetPlatformDB(platformDB)
+	tenants := store.NewTenantRepository(db)
+	tenants.SetPlatformDB(platformDB)
 	hub, err := ws.NewHub(c.Redis.Host, c.Redis.Pass)
 	logx.Must(err)
 	defer hub.Close()
-	executor := jobs.NewExecutor(repo, db, secretBox).WithWS(hub)
+	executor := jobs.NewExecutor(repo, db, secretBox).
+		WithWS(hub).
+		WithTenants(tenants).
+		WithBus(eventbus.New())
 	r, err := runner.NewRunner(c, repo, executor)
 	logx.Must(err)
 

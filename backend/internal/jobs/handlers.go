@@ -10,6 +10,7 @@ import (
 	"dragz-admin/backend/internal/noticenotify"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
+	"dragz-admin/backend/platform/eventbus"
 )
 
 // HandlerEnv is what a maintenance handler is allowed to touch.
@@ -18,6 +19,8 @@ type HandlerEnv struct {
 	Repo    *store.AuthRepository
 	Secrets *security.SecretBox
 	WS      noticenotify.Pusher
+	Tenants *store.TenantRepository
+	Bus     *eventbus.Bus
 }
 
 var AllowedHandlers = []string{
@@ -27,6 +30,9 @@ var AllowedHandlers = []string{
 	"maintenance.cleanup_storage_test_files",
 	"maintenance.cleanup_orphan_files",
 	"notice.notify_due",
+	"outbox.publish",
+	"billing.reconcile_subscriptions",
+	"tenant.purge_due",
 }
 
 // HandlerAllowed reports whether a handler name is in the allowlist. A job row is data, so the handler name it carries must never reach arbitrary code.
@@ -121,6 +127,12 @@ func RunHandler(ctx context.Context, env HandlerEnv, job store.ScheduledJob) (st
 			return "", deliverErr
 		}
 		return fmt.Sprintf("delivered %d notice(s)", delivered), nil
+	case "outbox.publish":
+		return publishOutbox(ctx, env)
+	case "billing.reconcile_subscriptions":
+		return reconcileSubscriptions(ctx, env)
+	case "tenant.purge_due":
+		return purgeDueTenants(ctx, env)
 
 	default:
 		return "", errors.New("job handler is not allowlisted")

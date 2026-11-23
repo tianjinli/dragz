@@ -31,7 +31,13 @@ function isPublicAuthEndpoint(url?: string) {
     url.startsWith('/auth/login-challenge') ||
     url.startsWith('/auth/refresh') ||
     url.startsWith('/auth/providers') ||
-    url.startsWith('/auth/oauth/')
+    url.startsWith('/auth/oauth/') ||
+    url.startsWith('/auth/tenant-context') ||
+    // Signup and invite previews are resolved before any session exists. A 401
+    // here would send the interceptor into a refresh loop that can never win.
+    url.startsWith('/auth/signup-status') ||
+    url.startsWith('/auth/register') ||
+    url.startsWith('/auth/invites/')
   );
 }
 
@@ -39,7 +45,10 @@ function isPublicAuthEndpoint(url?: string) {
 function shouldSilentPublicAuthError(status?: number, url?: string) {
   // LoginPage renders every login failure itself (lock countdown, captcha refresh,
   // keeping typed credentials). Letting the interceptor also toast would show two.
-  if (url === '/auth/login') return true;
+  if (url === '/auth/login' || url === '/auth/tenant-context') return true;
+  // The signup and invite pages own their error display: an invalid or expired
+  // invite is an expected outcome there, not an unexpected request failure.
+  if (url?.startsWith('/auth/register') || url?.startsWith('/auth/invites/')) return true;
   return status === 401 && isPublicAuthEndpoint(url);
 }
 

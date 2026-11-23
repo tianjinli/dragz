@@ -22,11 +22,12 @@ type TokenManager struct {
 	refreshExpire time.Duration
 }
 
-// AccessClaims is the payload of an access token. TokenVersion is compared against the database so a forced logout invalidates tokens that have not expired yet.
+// AccessClaims is the payload of an access token. TokenVersion is compared against the database so a forced logout invalidates tokens that have not expired yet. TenantID is the tenant the token was issued for; zero means the platform domain.
 type AccessClaims struct {
 	UserID       uint64 `json:"uid"`
 	Username     string `json:"username"`
 	TokenVersion int64  `json:"tv"`
+	TenantID     uint64 `json:"tid"`
 	jwt.RegisteredClaims
 }
 
@@ -50,14 +51,16 @@ func NewTokenManager(secret, issuer string, accessExpireSeconds, refreshExpireSe
 	}
 }
 
-// Issue mints an access token and a refresh token. The refresh token is returned in clear exactly once; only its hash is meant to be stored.
-func (m *TokenManager) Issue(userID uint64, username string, tokenVersion int64) (Pair, error) {
+// Issue mints an access token and a refresh token. tenantID is written as tid.
+// The refresh token is returned in clear exactly once; only its hash is meant to be stored.
+func (m *TokenManager) Issue(userID uint64, username string, tokenVersion int64, tenantID uint64) (Pair, error) {
 	now := time.Now()
 	accessExpiresAt := now.Add(m.accessExpire)
 	claims := AccessClaims{
 		UserID:       userID,
 		Username:     username,
 		TokenVersion: tokenVersion,
+		TenantID:     tenantID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    m.issuer,
 			Subject:   fmt.Sprintf("%d", userID),
@@ -83,6 +86,35 @@ func (m *TokenManager) Issue(userID uint64, username string, tokenVersion int64)
 		AccessExpiresAt:  accessExpiresAt,
 		RefreshExpiresAt: now.Add(m.refreshExpire),
 	}, nil
+}
+
+// IssueAccess mints an access token that expires after ttl and has no refresh
+// token. ttl <= 0 uses the manager's configured access lifetime. tenantID is
+// written as tid.
+func (m *TokenManager) IssueAccess(userID uint64, username string, tokenVersion int64, tenantID uint64, ttl time.Duration) (string, time.Time, error) {
+	if ttl <= 0 {
+		ttl = m.accessExpire
+	}
+	now := time.Now()
+	expiresAt := now.Add(ttl)
+	claims := AccessClaims{
+		UserID:       userID,
+		Username:     username,
+		TokenVersion: tokenVersion,
+		TenantID:     tenantID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    m.issuer,
+			Subject:   fmt.Sprintf("%d", userID),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			ID:        uuid.NewString(),
+		},
+	}
+	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return accessToken, expiresAt, nil
 }
 
 // ValidateAccess parses and verifies an access token, rejecting a wrong issuer or a signing method other than HS256.

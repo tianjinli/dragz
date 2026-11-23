@@ -5,16 +5,18 @@ import { storageKey } from './storage';
 
 interface AccessStore {
   accessCodes: string[]; accessToken: string | null; checked: boolean;
-  menus: MenuRoute[]; userInfo: AdminUserInfo | null;
+  menus: MenuRoute[]; tenantId: number | null; userInfo: AdminUserInfo | null;
   clear: () => void; setAccessCodes: (value: string[]) => void; setAccessToken: (value: string | null) => void;
-  setChecked: (value: boolean) => void; setMenus: (value: MenuRoute[]) => void; setUserInfo: (value: AdminUserInfo | null) => void;
+  setChecked: (value: boolean) => void; setMenus: (value: MenuRoute[]) => void; setTenantId: (value: number | null) => void;
+  setUserInfo: (value: AdminUserInfo | null) => void;
 }
 
 export const useAccessStore = create<AccessStore>()(persist((set) => ({
-  accessCodes: [], accessToken: null, checked: false, menus: [], userInfo: null,
-  clear: () => set({ accessCodes: [], accessToken: null, checked: false, menus: [], userInfo: null }),
+  accessCodes: [], accessToken: null, checked: false, menus: [], tenantId: null, userInfo: null,
+  clear: () => set({ accessCodes: [], accessToken: null, checked: false, menus: [], tenantId: null, userInfo: null }),
   setAccessCodes: (accessCodes) => set({ accessCodes }), setAccessToken: (accessToken) => set({ accessToken }),
-  setChecked: (checked) => set({ checked }), setMenus: (menus) => set({ menus }), setUserInfo: (userInfo) => set({ userInfo }),
+  setChecked: (checked) => set({ checked }), setMenus: (menus) => set({ menus }),
+  setTenantId: (tenantId) => set({ tenantId }), setUserInfo: (userInfo) => set({ userInfo }),
 }), { name: storageKey('access'), partialize: (state) => ({ accessToken: state.accessToken, accessCodes: state.accessCodes }) }));
 
 export function hasAccessByCodes(codes: string[]) {

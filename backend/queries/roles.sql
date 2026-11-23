@@ -106,7 +106,7 @@ DELETE FROM sys_role_menu WHERE menu_id = $1;
 -- name: ListCasbinPolicies :many
 -- Casbin policies are the granted button nodes, mirroring
 -- ListUserPermissionCodes so the enforcer and /auth/codes can never disagree.
-SELECT rm.role_id, m.code
+SELECT rm.role_id, r.tenant_id, m.code
 FROM sys_role_menu rm
 INNER JOIN sys_menu m ON m.id = rm.menu_id
 INNER JOIN sys_role r ON r.id = rm.role_id

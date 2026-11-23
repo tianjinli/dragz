@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -20,11 +22,14 @@ type scheduledEntry struct {
 }
 
 // Reconciler keeps the asynq scheduler in step with the job table. The table is the source of truth; the scheduler is a derived view, rebuilt from scratch on every sync.
+//
+// Entries are keyed by tenant + code: job codes are only unique inside a
+// tenant, and an entry registered for one tenant must never fire for another.
 type Reconciler struct {
 	repo      *store.AuthRepository
 	scheduler *asynq.Scheduler
 	mu        sync.Mutex
-	entries   map[string]scheduledEntry // job code -> cron + asynq entryID
+	entries   map[string]scheduledEntry // "tenant:code" -> cron + asynq entryID
 }
 
 // NewReconciler builds a reconciler with an empty entry registry.
@@ -54,47 +59,60 @@ func (r *Reconciler) SyncAll(ctx context.Context) error {
 
 	desired := make(map[string]store.ScheduledJob, len(jobs))
 	for _, job := range jobs {
-		desired[job.Code] = job
+		desired[scheduleKey(job)] = job
 	}
 
 	if !enabled {
-		for code := range r.entries {
-			r.unregisterLocked(code)
+		for key := range r.entries {
+			r.unregisterLocked(key)
 		}
 		return nil
 	}
 
-	for code, job := range desired {
-		if current, ok := r.entries[code]; ok && current.cron == job.CronExpression {
+	for key, job := range desired {
+		if current, ok := r.entries[key]; ok && current.cron == job.CronExpression {
 			if err := r.updateNextRunAt(ctx, job); err != nil {
 				logx.Errorw("update job next run failed", logx.Field("jobId", job.ID), logx.Field("error", err.Error()))
 			}
 			continue
 		}
-		if _, ok := r.entries[code]; ok {
-			if !r.unregisterLocked(code) {
+		if _, ok := r.entries[key]; ok {
+			if !r.unregisterLocked(key) {
 				continue
 			}
 		}
 		if err := r.registerLocked(ctx, job); err != nil {
 			logx.Errorw("register scheduled job failed",
 				logx.Field("jobId", job.ID),
+				logx.Field("tenantId", job.TenantID),
 				logx.Field("code", job.Code),
 				logx.Field("error", err.Error()),
 			)
 		}
 	}
 
-	for code := range r.entries {
-		if _, ok := desired[code]; !ok {
-			r.unregisterLocked(code)
+	for key := range r.entries {
+		if _, ok := desired[key]; !ok {
+			r.unregisterLocked(key)
 		}
 	}
 	return nil
 }
 
+// scheduleKey scopes a job code to its tenant. The same code may exist in two
+// tenants, and the scheduler table is process-wide.
+func scheduleKey(job store.ScheduledJob) string {
+	return strconv.FormatUint(job.TenantID, 10) + ":" + job.Code
+}
+
 func (r *Reconciler) registerLocked(ctx context.Context, job store.ScheduledJob) error {
-	payload, err := json.Marshal(jobasynq.JobPayload{JobID: job.ID, TriggerType: "scheduled"})
+	// The tenant comes from the job row, not from the caller's context: the
+	// reconciler runs once for the whole process and its context carries no
+	// tenant, so a context lookup would enqueue every tenant's job as tenant 0.
+	if job.TenantID == 0 {
+		return fmt.Errorf("scheduled job %d (%s) has no tenant", job.ID, job.Code)
+	}
+	payload, err := json.Marshal(jobasynq.JobPayload{JobID: job.ID, TriggerType: "scheduled", TenantID: job.TenantID})
 	if err != nil {
 		return err
 	}
@@ -109,7 +127,7 @@ func (r *Reconciler) registerLocked(ctx context.Context, job store.ScheduledJob)
 	if err != nil {
 		return err
 	}
-	r.entries[job.Code] = scheduledEntry{
+	r.entries[scheduleKey(job)] = scheduledEntry{
 		cron:    job.CronExpression,
 		entryID: entryID,
 	}

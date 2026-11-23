@@ -22,6 +22,7 @@ import (
 
 	"dragz-admin/backend/internal/kernel"
 	"dragz-admin/backend/internal/menuperm"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	pkgi18n "dragz-admin/backend/internal/pkg/i18n"
 	"dragz-admin/backend/internal/plugin"
 	"dragz-admin/backend/internal/pluginstate"
@@ -162,6 +163,12 @@ func New(repo store.PluginStore, metas []plugin.Meta, sources []plugin.Migration
 // disabled and reported, but the process keeps booting; a builtin failure is
 // fatal because the platform itself would be broken.
 func (s *Service) RunStartup(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Schema repair and plugin migrations run as the platform, not as one
+	// tenant. BeginTx copies this flag into app.rls_bypass for the transaction.
+	ctx = ctxkey.WithRLSBypass(ctx, true)
 	release, err := s.repo.AcquireMigrationLock(ctx, startupLockTimeout)
 	if err != nil {
 		return fmt.Errorf("plugin startup: %w", err)

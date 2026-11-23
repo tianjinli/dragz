@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -20,8 +21,28 @@ import (
 
 	"dragz-admin/backend/internal/app"
 	"dragz-admin/backend/internal/filestore"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	"dragz-admin/backend/internal/store"
 )
+
+// tenantObjectPrefix is the leading path segment of every stored object.
+//
+// Object keys used to be date + uuid only, so two tenants shared one flat
+// namespace: a bucket listing, a replayed presigned URL, or a mis-scoped
+// deletion could cross tenants. The tenant now leads the key, which makes the
+// boundary visible in the bucket itself and lets maintenance prune per tenant.
+// prefix stays first so the storage-test reaper still matches on it.
+func tenantObjectPrefix(ctx context.Context, prefix string) string {
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	if tenantID == 0 {
+		// Uploads always arrive on an authenticated, tenant-scoped request, so a
+		// missing tenant is a wiring bug. Filing the object under the default
+		// tenant keeps it out of a shared namespace instead of failing the
+		// upload; the alternative — a global prefix — is what this replaces.
+		tenantID = 1
+	}
+	return fmt.Sprintf("%st%d/", prefix, tenantID)
+}
 
 type saveFileReferenceRequest struct {
 	BusinessType string `json:"businessType"`
@@ -116,6 +137,29 @@ func uploadFileHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, 40005, "errors.file_ext_not_allowed")
 			return
 		}
+		// Storage is a metered quota (quota.storage_bytes). Reserve the bytes
+		// before writing anything: a plan that cannot hold the object must fail
+		// before the bucket is billed for it. The reservation is released on
+		// every failure path below.
+		tenantID, _ := ctxkey.TenantIDFrom(r.Context())
+		reserved := false
+		if tenantID != 0 && ctx.Tenants != nil {
+			if err := ctx.Tenants.ConsumeQuotaIfConfigured(r.Context(), tenantID, "storage_bytes", uint64(header.Size)); err != nil {
+				if errors.Is(err, store.ErrQuotaExceeded) {
+					fail(w, r, http.StatusConflict, 40900, "errors.quota_exceeded")
+					return
+				}
+				fail(w, r, http.StatusInternalServerError, 50000, "errors.internal")
+				return
+			}
+			reserved = true
+		}
+		releaseStorage := func() {
+			if reserved && tenantID != 0 && ctx.Tenants != nil {
+				_ = ctx.Tenants.ReleaseQuota(r.Context(), tenantID, "storage_bytes", uint64(header.Size))
+				reserved = false
+			}
+		}
 		contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
 		if contentType == "" {
 			contentType = "application/octet-stream"
@@ -132,7 +176,8 @@ func uploadFileHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, 40006, "errors.file_access_invalid")
 			return
 		}
-		objectKey := time.Now().Format("2006/01/02") + "/" + uuid.NewString()
+		objectKey := tenantObjectPrefix(r.Context(), "") +
+			time.Now().Format("2006/01/02") + "/" + uuid.NewString()
 		if extension != "" {
 			objectKey += "." + extension
 		}
@@ -143,23 +188,27 @@ func uploadFileHandler(ctx *app.Context) http.HandlerFunc {
 			AccessType: accessType, UploaderID: uploaderID,
 		})
 		if err != nil {
+			releaseStorage()
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.file_meta_create_failed")
 			return
 		}
 		provider, err := storageProvider(ctx, config)
 		if err != nil {
+			releaseStorage()
 			ctx.Auth.FailFile(r.Context(), fileID, err.Error())
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.storage_driver_failed")
 			return
 		}
 		hash := sha256.New()
 		if err := provider.Put(r.Context(), objectKey, io.TeeReader(file, hash), header.Size, contentType); err != nil {
+			releaseStorage()
 			ctx.Auth.FailFile(r.Context(), fileID, err.Error())
 			fail(w, r, http.StatusBadGateway, 50201, "errors.file_write_failed")
 			return
 		}
 		checksum := hex.EncodeToString(hash.Sum(nil))
 		if err := ctx.Auth.CompleteFile(r.Context(), fileID, checksum); err != nil {
+			releaseStorage()
 			_ = provider.Delete(r.Context(), objectKey)
 			ctx.Auth.FailFile(r.Context(), fileID, err.Error())
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.file_confirm_failed")
@@ -348,6 +397,11 @@ func purgeFileHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.file_meta_purge_failed")
 			return
 		}
+		// The bytes are gone from the bucket, so the metered storage quota has
+		// to give them back; otherwise a tenant could never reclaim space.
+		if tenantID, okTenant := ctxkey.TenantIDFrom(r.Context()); okTenant && tenantID != 0 && ctx.Tenants != nil && item.Size > 0 {
+			_ = ctx.Tenants.ReleaseQuota(r.Context(), tenantID, "storage_bytes", item.Size)
+		}
 		ok(w, r, map[string]bool{"success": true})
 	}
 }
@@ -420,8 +474,8 @@ func testStorageConfigHandler(ctx *app.Context) http.HandlerFunc {
 		// Unique key per run so every connectivity test shows up as its own
 		// row in file management and expires independently. The
 		// _storage-test/ prefix is reaped by maintenance.cleanup_storage_test_files.
-		objectKey := filestore.StorageTestPrefix + time.Now().Format("2006/01/02") +
-			"/test-" + uuid.NewString() + ".svg"
+		objectKey := tenantObjectPrefix(r.Context(), filestore.StorageTestPrefix) +
+			time.Now().Format("2006/01/02") + "/test-" + uuid.NewString() + ".svg"
 		uploaderID, _ := currentUserID(r.Context())
 		fileID, err := ctx.Auth.CreatePendingFile(r.Context(), store.File{
 			StorageID: config.ID, OriginalName: "storage-connection-test.svg", ObjectKey: objectKey,

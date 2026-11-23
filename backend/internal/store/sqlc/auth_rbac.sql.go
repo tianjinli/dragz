@@ -191,15 +191,21 @@ WHERE ur.user_id = $1
   AND r.status = 1
   AND r.deleted_at IS NULL
   AND (m.plugin_id = '' OR COALESCE(p.enabled, FALSE))
+  AND (r.tenant_id = $2 OR ur.tenant_id = $2)
 ORDER BY m.code
 `
+
+type ListUserPermissionCodesParams struct {
+	UserID   uint64 `json:"user_id"`
+	TenantID uint64 `json:"tenant_id"`
+}
 
 // Permission codes are the button nodes of the menu tree. A code is granted
 // exactly when its menu row is granted, so this is the same grant table the
 // sidebar reads. The plugin filter matches the menu queries: a disabled
 // plugin's codes disappear together with its pages.
-func (q *Queries) ListUserPermissionCodes(ctx context.Context, userID uint64) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listUserPermissionCodes, userID)
+func (q *Queries) ListUserPermissionCodes(ctx context.Context, arg ListUserPermissionCodesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listUserPermissionCodes, arg.UserID, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -224,16 +230,24 @@ func (q *Queries) ListUserPermissionCodes(ctx context.Context, userID uint64) ([
 const listUserRoleDataScopes = `-- name: ListUserRoleDataScopes :many
 SELECT r.id, r.data_scope FROM sys_user_role ur
 INNER JOIN sys_role r ON r.id = ur.role_id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL
+WHERE ur.user_id = $1
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = $2 OR ur.tenant_id = $2)
 `
+
+type ListUserRoleDataScopesParams struct {
+	UserID   uint64 `json:"user_id"`
+	TenantID uint64 `json:"tenant_id"`
+}
 
 type ListUserRoleDataScopesRow struct {
 	ID        int64  `json:"id"`
 	DataScope string `json:"data_scope"`
 }
 
-func (q *Queries) ListUserRoleDataScopes(ctx context.Context, userID uint64) ([]ListUserRoleDataScopesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUserRoleDataScopes, userID)
+func (q *Queries) ListUserRoleDataScopes(ctx context.Context, arg ListUserRoleDataScopesParams) ([]ListUserRoleDataScopesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserRoleDataScopes, arg.UserID, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -258,12 +272,20 @@ func (q *Queries) ListUserRoleDataScopes(ctx context.Context, userID uint64) ([]
 const listUserRoleIDsActive = `-- name: ListUserRoleIDsActive :many
 SELECT ur.role_id FROM sys_user_role ur
 INNER JOIN sys_role r ON r.id = ur.role_id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL
+WHERE ur.user_id = $1
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = $2 OR ur.tenant_id = $2)
 ORDER BY ur.role_id
 `
 
-func (q *Queries) ListUserRoleIDsActive(ctx context.Context, userID uint64) ([]uint64, error) {
-	rows, err := q.db.QueryContext(ctx, listUserRoleIDsActive, userID)
+type ListUserRoleIDsActiveParams struct {
+	UserID   uint64 `json:"user_id"`
+	TenantID uint64 `json:"tenant_id"`
+}
+
+func (q *Queries) ListUserRoleIDsActive(ctx context.Context, arg ListUserRoleIDsActiveParams) ([]uint64, error) {
+	rows, err := q.db.QueryContext(ctx, listUserRoleIDsActive, arg.UserID, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -288,9 +310,17 @@ func (q *Queries) ListUserRoleIDsActive(ctx context.Context, userID uint64) ([]u
 const listUserRoles = `-- name: ListUserRoles :many
 SELECT r.code, r.name FROM sys_role r
 INNER JOIN sys_user_role ur ON ur.role_id = r.id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL
+WHERE ur.user_id = $1
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = $2 OR ur.tenant_id = $2)
 ORDER BY r.sort, r.id
 `
+
+type ListUserRolesParams struct {
+	UserID   uint64 `json:"user_id"`
+	TenantID uint64 `json:"tenant_id"`
+}
 
 type ListUserRolesRow struct {
 	Code string `json:"code"`
@@ -300,8 +330,8 @@ type ListUserRolesRow struct {
 // Code and name in one pass: the profile response needs the code to look up the
 // preset translation (role.<code>) and the name as the source-language
 // fallback, so two separately ordered queries would only risk drifting apart.
-func (q *Queries) ListUserRoles(ctx context.Context, userID uint64) ([]ListUserRolesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUserRoles, userID)
+func (q *Queries) ListUserRoles(ctx context.Context, arg ListUserRolesParams) ([]ListUserRolesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserRoles, arg.UserID, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -338,6 +368,7 @@ WITH RECURSIVE granted_menus AS (
     AND r.status = 1
     AND r.deleted_at IS NULL
     AND (m.plugin_id = '' OR COALESCE(p.enabled, FALSE))
+    AND (r.tenant_id = $2 OR ur.tenant_id = $2)
   UNION
   SELECT parent.id, parent.parent_id
   FROM sys_menu parent
@@ -375,6 +406,11 @@ INNER JOIN visible_menu vm ON vm.id = m.id
 ORDER BY m.sort, m.id
 `
 
+type ListUserVisibleMenusParams struct {
+	UserID   uint64 `json:"user_id"`
+	TenantID uint64 `json:"tenant_id"`
+}
+
 type ListUserVisibleMenusRow struct {
 	ID          int64  `json:"id"`
 	ParentID    uint64 `json:"parent_id"`
@@ -401,8 +437,8 @@ type ListUserVisibleMenusRow struct {
 // The intersection is what the sidebar may show. Filtering plugin state at
 // every level is what keeps a granted leaf from appearing when its parent
 // belongs to a disabled plugin.
-func (q *Queries) ListUserVisibleMenus(ctx context.Context, userID uint64) ([]ListUserVisibleMenusRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUserVisibleMenus, userID)
+func (q *Queries) ListUserVisibleMenus(ctx context.Context, arg ListUserVisibleMenusParams) ([]ListUserVisibleMenusRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserVisibleMenus, arg.UserID, arg.TenantID)
 	if err != nil {
 		return nil, err
 	}

@@ -76,6 +76,13 @@ func listAPITokensHandler(ctx *app.Context) http.HandlerFunc {
 	}
 }
 
+// createAPITokenHandler issues a ua_* token.
+//
+// scopes is a free-form JSON array. The admin token form types them as text,
+// not a fixed permission picker. To call /api/open/v1/*, include one or more of
+// open.me, open.tenant, and open.ping. "open" grants all three. "*" grants
+// every scope and stays limited to super administrators. requireOpenScope
+// checks these literals; they are not permission buttons.
 func createAPITokenHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createAPITokenRequest
@@ -242,6 +249,9 @@ func scopesAllowed(scopes, permissions []string, superAdmin bool) bool {
 			return false
 		}
 		if scope == "*" && superAdmin {
+			continue
+		}
+		if isOpenScopeLiteral(scope) {
 			continue
 		}
 		if _, exists := available[scope]; !exists {

@@ -27,10 +27,13 @@ const (
 )
 
 // envelope is the Redis message. Payload is the event already encoded for the socket.
+// TenantID scopes the fan-out: a socket belongs to exactly one tenant and must
+// never receive another tenant's event, even when the user id matches.
 type envelope struct {
-	Origin  string          `json:"origin"`
-	UserIDs []uint64        `json:"userIds"`
-	Payload json.RawMessage `json:"payload"`
+	Origin   string          `json:"origin"`
+	TenantID uint64          `json:"tenantId"`
+	UserIDs  []uint64        `json:"userIds"`
+	Payload  json.RawMessage `json:"payload"`
 }
 
 type publisher interface {
@@ -47,10 +50,13 @@ func (p redisPublisher) Publish(ctx context.Context, channel string, payload []b
 
 // peer is one upgraded socket. gorilla allows one concurrent reader and one
 // concurrent writer, so every write takes mu.
+// tenantID is the tenant the socket authenticated into; it is fixed for the
+// lifetime of the connection and gates every delivery.
 type peer struct {
-	userID uint64
-	conn   *websocket.Conn
-	mu     sync.Mutex
+	userID   uint64
+	tenantID uint64
+	conn     *websocket.Conn
+	mu       sync.Mutex
 }
 
 func (p *peer) write(messageType int, data []byte) error {
@@ -115,10 +121,12 @@ func newHub(client *redis.Client) *Hub {
 	}
 }
 
-// Push delivers payload to every local socket of userIDs and publishes the
-// same event for other processes. A nil hub or an empty audience is a no-op.
-func (h *Hub) Push(userIDs []uint64, payload any) error {
-	if h == nil {
+// Push delivers payload to every local socket of userIDs inside tenantID and
+// publishes the same event for other processes. A nil hub, a zero tenant, or an
+// empty audience is a no-op: a realtime event without a tenant would be a
+// cross-tenant broadcast, so it is refused rather than guessed.
+func (h *Hub) Push(tenantID uint64, userIDs []uint64, payload any) error {
+	if h == nil || tenantID == 0 {
 		return nil
 	}
 	ids := uniqueUserIDs(userIDs)
@@ -129,8 +137,8 @@ func (h *Hub) Push(userIDs []uint64, payload any) error {
 	if err != nil {
 		return err
 	}
-	h.deliver(ids, raw)
-	body, err := json.Marshal(envelope{Origin: h.origin, UserIDs: ids, Payload: raw})
+	h.deliver(tenantID, ids, raw)
+	body, err := json.Marshal(envelope{Origin: h.origin, TenantID: tenantID, UserIDs: ids, Payload: raw})
 	if err != nil {
 		return err
 	}
@@ -144,9 +152,10 @@ func (h *Hub) Push(userIDs []uint64, payload any) error {
 }
 
 // HandleHTTP upgrades the request and keeps the socket until it closes.
-// userID is the authenticated principal; the caller has already checked the token.
-func (h *Hub) HandleHTTP(w http.ResponseWriter, r *http.Request, userID uint64) {
-	if h == nil || userID == 0 {
+// userID is the authenticated principal and tenantID is the tenant the token is
+// scoped to; the caller has already checked both.
+func (h *Hub) HandleHTTP(w http.ResponseWriter, r *http.Request, tenantID, userID uint64) {
+	if h == nil || userID == 0 || tenantID == 0 {
 		http.Error(w, "realtime channel unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -155,7 +164,7 @@ func (h *Hub) HandleHTTP(w http.ResponseWriter, r *http.Request, userID uint64) 
 		logx.Errorf("ws upgrade: %v", err)
 		return
 	}
-	p := &peer{userID: userID, conn: conn}
+	p := &peer{userID: userID, tenantID: tenantID, conn: conn}
 	if !h.add(p) {
 		_ = conn.Close()
 		return
@@ -261,18 +270,20 @@ func (h *Hub) acceptRaw(payload string) {
 }
 
 func (h *Hub) accept(env envelope) {
-	if env.Origin == h.origin || len(env.UserIDs) == 0 || len(env.Payload) == 0 {
+	if env.Origin == h.origin || env.TenantID == 0 || len(env.UserIDs) == 0 || len(env.Payload) == 0 {
 		return
 	}
-	h.deliver(env.UserIDs, env.Payload)
+	h.deliver(env.TenantID, env.UserIDs, env.Payload)
 }
 
-func (h *Hub) deliver(userIDs []uint64, payload []byte) {
+func (h *Hub) deliver(tenantID uint64, userIDs []uint64, payload []byte) {
 	h.mu.RLock()
 	targets := make([]*peer, 0, len(userIDs))
 	for _, id := range userIDs {
 		for p := range h.conns[id] {
-			targets = append(targets, p)
+			if p.tenantID == tenantID {
+				targets = append(targets, p)
+			}
 		}
 	}
 	h.mu.RUnlock()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
@@ -451,13 +452,33 @@ func (r *AuthRepository) DeleteMenu(ctx context.Context, menuID uint64) error {
 
 // ListCasbinPolicies returns the (role, code) pairs the enforcer has to load, read from the button rows of granted menus.
 func (r *AuthRepository) ListCasbinPolicies(ctx context.Context) ([]RolePermissionPolicy, error) {
-	rows, err := r.queries.ListCasbinPolicies(ctx)
+	var policies []RolePermissionPolicy
+	db := r.platformHandle()
+	if db == nil {
+		return nil, ErrNotFound
+	}
+	policyCtx := ctxkey.WithRLSBypass(ctx, true)
+	tx, err := db.BeginTx(policyCtx, nil)
 	if err != nil {
 		return nil, err
 	}
-	policies := make([]RolePermissionPolicy, 0, len(rows))
+	defer func() { _ = tx.Rollback() }()
+	rows, err := sqlcstore.New(tx).ListCasbinPolicies(policyCtx)
+	if err != nil {
+		return nil, err
+	}
+	policies = make([]RolePermissionPolicy, 0, len(rows))
 	for _, row := range rows {
-		policies = append(policies, RolePermissionPolicy{RoleID: row.RoleID, PermissionCode: row.Code})
+		policies = append(policies, RolePermissionPolicy{RoleID: row.RoleID, TenantID: row.TenantID, PermissionCode: row.Code})
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	if policies == nil {
+		policies = []RolePermissionPolicy{}
 	}
 	return policies, nil
 }

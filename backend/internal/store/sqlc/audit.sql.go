@@ -15,7 +15,7 @@ import (
 )
 
 const authenticateAPIToken = `-- name: AuthenticateAPIToken :one
-SELECT t.id, t.user_id, u.username, t.scopes,
+SELECT t.id, t.user_id, t.tenant_id, u.username, t.scopes,
   COALESCE(t.ip_allowlist, '[]'::jsonb) AS ip_allowlist, t.expires_at
 FROM sys_api_token t
 INNER JOIN sys_user u ON u.id = t.user_id
@@ -26,6 +26,7 @@ WHERE t.token_hash = $1 AND t.status = 1 AND t.revoked_at IS NULL
 type AuthenticateAPITokenRow struct {
 	ID          int64                 `json:"id"`
 	UserID      uint64                `json:"user_id"`
+	TenantID    uint64                `json:"tenant_id"`
 	Username    string                `json:"username"`
 	Scopes      json.RawMessage       `json:"scopes"`
 	IpAllowlist pqtype.NullRawMessage `json:"ip_allowlist"`
@@ -38,6 +39,7 @@ func (q *Queries) AuthenticateAPIToken(ctx context.Context, tokenHash string) (A
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.TenantID,
 		&i.Username,
 		&i.Scopes,
 		&i.IpAllowlist,
@@ -158,12 +160,16 @@ func (q *Queries) CountSessionsFiltered(ctx context.Context, keywordPattern sql.
 
 const createAPIToken = `-- name: CreateAPIToken :one
 INSERT INTO sys_api_token
-  (user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
+VALUES (
+  $1, $2, $3, $4,
+  $5, $6, $7, $8
+)
 RETURNING id
 `
 
 type CreateAPITokenParams struct {
+	TenantID    uint64                `json:"tenant_id"`
 	UserID      uint64                `json:"user_id"`
 	Name        string                `json:"name"`
 	TokenPrefix string                `json:"token_prefix"`
@@ -175,6 +181,7 @@ type CreateAPITokenParams struct {
 
 func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, createAPIToken,
+		arg.TenantID,
 		arg.UserID,
 		arg.Name,
 		arg.TokenPrefix,

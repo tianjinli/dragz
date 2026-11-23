@@ -49,6 +49,25 @@ export const BUILT_IN_THEME_PRESETS: BuiltinThemePreset[] = [
   { color: '', type: 'custom' },
 ];
 
+/**
+ * Color pickers only expose common chromatic presets. Grayscale and dark
+ * variants stay in BUILT_IN_THEME_PRESETS so saved preferences still resolve.
+ */
+const MAINSTREAM_THEME_TYPES = new Set([
+  'default',
+  'violet',
+  'pink',
+  'yellow',
+  'sky-blue',
+  'green',
+  'orange',
+  'rose',
+]);
+
+export const PALETTE_THEME_PRESETS = BUILT_IN_THEME_PRESETS.filter(
+  (preset) => preset.type === 'custom' || MAINSTREAM_THEME_TYPES.has(preset.type),
+);
+
 /** Matches vben DEFAULT_TIME_ZONE_OPTIONS values; labels come from i18n. */
 export const TIMEZONE_OPTIONS = [
   { value: 'America/New_York' },

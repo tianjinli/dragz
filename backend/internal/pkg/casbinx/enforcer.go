@@ -1,5 +1,5 @@
-// Package casbinx wraps casbin with the platform's fixed 3-tuple policy model
-// (role, permission code, access).
+// Package casbinx wraps casbin with the platform's fixed 4-tuple policy model
+// (role, tenant domain, permission code, access).
 package casbinx
 
 import (
@@ -13,21 +13,23 @@ import (
 
 const defaultModel = `
 [request_definition]
-r = sub, obj, act
+r = sub, dom, obj, act
 
 [policy_definition]
-p = sub, obj, act
+p = sub, dom, obj, act
 
 [policy_effect]
 e = some(where (p.eft == allow))
 
 [matchers]
-m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
+m = r.sub == p.sub && r.dom == p.dom && r.obj == p.obj && r.act == p.act
 `
 
-// Policy is one role-to-code rule loaded into the enforcer.
+// Policy is one role-to-code rule loaded into the enforcer. TenantID is the
+// casbin domain (dom).
 type Policy struct {
 	RoleID         uint64
+	TenantID       uint64
 	PermissionCode string
 }
 
@@ -53,7 +55,7 @@ func (memoryAdapter) RemovePolicies(string, string, [][]string) error {
 	return nil
 }
 
-// Enforcer wraps casbin with the fixed 3-tuple model (role, permission code, access) used across the platform. Policies live in memory only: they are rebuilt from the database on startup and after every grant change.
+// Enforcer wraps casbin with the fixed 4-tuple model (role, tenant, permission code, access) used across the platform. Policies live in memory only: they are rebuilt from the database on startup and after every grant change.
 type Enforcer struct {
 	inner *casbin.Enforcer
 }
@@ -82,6 +84,7 @@ func (e *Enforcer) ReplacePolicies(policies []Policy) error {
 	for _, policy := range policies {
 		rules = append(rules, []string{
 			strconv.FormatUint(policy.RoleID, 10),
+			strconv.FormatUint(policy.TenantID, 10),
 			policy.PermissionCode,
 			"access",
 		})
@@ -93,13 +96,15 @@ func (e *Enforcer) ReplacePolicies(policies []Policy) error {
 	return err
 }
 
-// AllowAny reports whether any of the roles grants the code. A nil enforcer, an empty code or an empty role list denies by default.
-func (e *Enforcer) AllowAny(roleIDs []uint64, permissionCode string) bool {
+// AllowAny reports whether any of the roles grants the code inside tenantID.
+// A nil enforcer, an empty code or an empty role list denies by default.
+func (e *Enforcer) AllowAny(roleIDs []uint64, tenantID uint64, permissionCode string) bool {
 	if e == nil || e.inner == nil || permissionCode == "" {
 		return false
 	}
+	domain := strconv.FormatUint(tenantID, 10)
 	for _, roleID := range roleIDs {
-		allowed, err := e.inner.Enforce(strconv.FormatUint(roleID, 10), permissionCode, "access")
+		allowed, err := e.inner.Enforce(strconv.FormatUint(roleID, 10), domain, permissionCode, "access")
 		if err == nil && allowed {
 			return true
 		}

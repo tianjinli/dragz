@@ -101,6 +101,15 @@ type Route struct {
 	Public bool
 	// Permission is the single permission code required. Empty = login only.
 	Permission string
+	// Platform restricts the route to a platform operator or a super administrator.
+	// It does not create a permission button.
+	Platform bool
+	// OpenScopes lists API-token scopes that may call this route. The guard
+	// allows the request when the token includes any listed scope, the blanket
+	// scope "open", or "*". Empty means the route is not on the open API.
+	// JWT callers have no token scopes and are rejected. Like Platform, this
+	// does not create a permission button.
+	OpenScopes []string
 	// AnyOf grants access when ANY of the codes matches (see requireAnyPermission).
 	AnyOf []string
 	// FeatureKey gates the route behind a plugin/tenant feature switch
@@ -119,6 +128,11 @@ type Route struct {
 	// MenuName overrides the generated Chinese label of the permission button.
 	// Empty means "derive it from the permission code" (see internal/menuperm).
 	MenuName string
+	// RateLimit is the requests-per-minute budget for this route. 0 means the
+	// default for its class (see defaultRateLimit). Set a smaller value on
+	// endpoints that cost real work (login, signup, invite lookup) and a larger
+	// one on dashboards that poll.
+	RateLimit int
 	// Handler receives the shared app.Context at registration time and
 	// returns the endpoint handler. Existing handlers already have this
 	// exact signature, so they can be referenced directly.
@@ -165,18 +179,30 @@ type Migrator interface {
 // request chains. The kernel owns the ORDER; implementations live in the
 // platform layer (currently internal/httpapi until P6).
 //
-//	admin : Localize → Gate → Authenticate → Audit → Guard → handler
-//	public: Localize → Gate → handler
+//	admin : Localize → HostTenant → Gate → Authenticate → Tenant → Audit → Guard → handler
+//	public: Localize → HostTenant → Gate → handler
 //
 // Gate sits OUTSIDE Authenticate on purpose: a route belonging to a disabled
 // plugin must be indistinguishable from a route that does not exist, for
 // anonymous and authenticated callers alike. It sits INSIDE Localize so the
-// 404 body is translated like every other response.
+// 404 body is translated like every other response. HostTenant sits between
+// them so a public login page and a protected call both see the host tenant,
+// and a disabled plugin still answers 404 before authentication.
 type Hooks struct {
-	Localize     func(next http.HandlerFunc) http.HandlerFunc
+	Localize func(next http.HandlerFunc) http.HandlerFunc
+	// HostTenant resolves the request Host before Gate. Nil skips resolution.
+	HostTenant   func(next http.HandlerFunc) http.HandlerFunc
 	Authenticate func(next http.HandlerFunc) http.HandlerFunc
-	Audit        func(route Route, next http.HandlerFunc) http.HandlerFunc
-	Guard        func(route Route, next http.HandlerFunc) http.HandlerFunc
+	// Tenant resolves the caller's membership after authentication and stores
+	// the tenant id and platform-operator flag on the request context.
+	Tenant func(next http.HandlerFunc) http.HandlerFunc
+	Audit  func(route Route, next http.HandlerFunc) http.HandlerFunc
+	Guard  func(route Route, next http.HandlerFunc) http.HandlerFunc
+	// RateLimit enforces the route's per-minute budget. It runs after Authenticate
+	// and Tenant so the caller's identity (user + tenant) is available, and
+	// before Audit so a throttled request does not fill the audit log. Nil
+	// disables limiting.
+	RateLimit func(route Route, next http.HandlerFunc) http.HandlerFunc
 	// Gate answers 404 when the owning plugin is disabled. Nil means every
 	// plugin is treated as enabled.
 	Gate func(pluginID string, next http.HandlerFunc) http.HandlerFunc

@@ -9,7 +9,12 @@ AllowDevSecrets: true
 
 Database:
   Driver: postgres
-  DataSource: postgres://dragz_admin:dragz_admin@postgres:5432/dragz_admin?sslmode=disable
+  # Three identities, one job each — see deploy/postgres-init/002_roles.sql.
+  # DataSource must NOT be a superuser or have BYPASSRLS: either one silently
+  # disables row-level security, which is the whole tenant boundary.
+  DataSource: postgres://dragz_app:dragz_app@postgres:5432/dragz_admin?sslmode=disable
+  MigrateDataSource: postgres://dragz_migrate:dragz_migrate@postgres:5432/dragz_admin?sslmode=disable
+  PlatformDataSource: postgres://dragz_platform:dragz_platform@postgres:5432/dragz_admin?sslmode=disable
 
 Redis:
   Host: redis:6379

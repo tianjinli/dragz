@@ -1,7 +1,10 @@
 -- name: ListUserRoleIDsActive :many
 SELECT ur.role_id FROM sys_user_role ur
 INNER JOIN sys_role r ON r.id = ur.role_id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL
+WHERE ur.user_id = sqlc.arg(user_id)
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = sqlc.arg(tenant_id) OR ur.tenant_id = sqlc.arg(tenant_id))
 ORDER BY ur.role_id;
 
 -- name: ListUserRoles :many
@@ -10,7 +13,10 @@ ORDER BY ur.role_id;
 -- fallback, so two separately ordered queries would only risk drifting apart.
 SELECT r.code, r.name FROM sys_role r
 INNER JOIN sys_user_role ur ON ur.role_id = r.id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL
+WHERE ur.user_id = sqlc.arg(user_id)
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = sqlc.arg(tenant_id) OR ur.tenant_id = sqlc.arg(tenant_id))
 ORDER BY r.sort, r.id;
 
 -- name: GetDepartmentNameByID :one
@@ -31,13 +37,14 @@ INNER JOIN sys_role_menu rm ON rm.menu_id = m.id
 INNER JOIN sys_user_role ur ON ur.role_id = rm.role_id
 INNER JOIN sys_role r ON r.id = ur.role_id
 LEFT JOIN sys_plugin p ON p.plugin_id = m.plugin_id
-WHERE ur.user_id = $1
+WHERE ur.user_id = sqlc.arg(user_id)
   AND m.type = 'button'
   AND m.status = 1
   AND m.deleted_at IS NULL
   AND r.status = 1
   AND r.deleted_at IS NULL
   AND (m.plugin_id = '' OR COALESCE(p.enabled, FALSE))
+  AND (r.tenant_id = sqlc.arg(tenant_id) OR ur.tenant_id = sqlc.arg(tenant_id))
 ORDER BY m.code;
 
 -- name: ListAllVisibleMenus :many
@@ -86,13 +93,14 @@ WITH RECURSIVE granted_menus AS (
   INNER JOIN sys_user_role ur ON ur.role_id = rm.role_id
   INNER JOIN sys_role r ON r.id = ur.role_id
   LEFT JOIN sys_plugin p ON p.plugin_id = m.plugin_id
-  WHERE ur.user_id = $1
+  WHERE ur.user_id = sqlc.arg(user_id)
     AND m.status = 1
     AND m.deleted_at IS NULL
     AND m.type <> 'button'
     AND r.status = 1
     AND r.deleted_at IS NULL
     AND (m.plugin_id = '' OR COALESCE(p.enabled, FALSE))
+    AND (r.tenant_id = sqlc.arg(tenant_id) OR ur.tenant_id = sqlc.arg(tenant_id))
   UNION
   SELECT parent.id, parent.parent_id
   FROM sys_menu parent
@@ -132,7 +140,10 @@ ORDER BY m.sort, m.id;
 -- name: ListUserRoleDataScopes :many
 SELECT r.id, r.data_scope FROM sys_user_role ur
 INNER JOIN sys_role r ON r.id = ur.role_id
-WHERE ur.user_id = $1 AND r.status = 1 AND r.deleted_at IS NULL;
+WHERE ur.user_id = sqlc.arg(user_id)
+  AND r.status = 1
+  AND r.deleted_at IS NULL
+  AND (r.tenant_id = sqlc.arg(tenant_id) OR ur.tenant_id = sqlc.arg(tenant_id));
 
 -- name: ListDepartmentAndChildrenIDs :many
 SELECT id FROM sys_department

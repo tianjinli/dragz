@@ -24,13 +24,18 @@ var seedMenuIDs = map[string]uint64{
 	"system_role": 14, "system_menu": 15,
 	"settings": 20, "system_dict": 21, "system_config": 22, "system_storage": 23,
 	"system_translation": 24,
-	"messages": 30, "system_notice": 31, "my_messages": 32,
+	"messages":           30, "system_notice": 31, "my_messages": 32,
 	"files": 40, "system_file": 41, "system_file_recycle": 42,
 	"security": 50, "system_online": 51, "system_token": 52,
 	"system_login_log": 53, "system_operation_log": 54, "system_error_log": 55,
 	"tools": 60, "system_job": 61, "system_webhook": 62, "system_cache": 63,
 	"system_plugin": 87,
-	"example_page":  1000,
+	// Pages created by bootstrapStatements rather than by 001_system_init.sql.
+	// Their real ids come from the serial, so any unique value works here.
+	"system_member":      88,
+	"platform_operators": 89,
+	"example_page":       1000,
+	"notify_page":        1001,
 }
 
 // TestGoldenButtons pins code|name|parent for every declared permission code.

@@ -96,6 +96,71 @@ func (q *Queries) GetWebhookByID(ctx context.Context, id int64) (GetWebhookByIDR
 	return i, err
 }
 
+const listEnabledWebhooks = `-- name: ListEnabledWebhooks :many
+SELECT id, name, url, secret_encrypted, events,
+  COALESCE(headers_encrypted, '') AS headers_encrypted, allow_private_network, timeout_seconds, max_retries,
+  status, last_success_at, last_failure_at, created_at, updated_at
+FROM sys_webhook
+WHERE deleted_at IS NULL AND status = 1
+ORDER BY id
+`
+
+type ListEnabledWebhooksRow struct {
+	ID                  int64           `json:"id"`
+	Name                string          `json:"name"`
+	Url                 string          `json:"url"`
+	SecretEncrypted     string          `json:"secret_encrypted"`
+	Events              json.RawMessage `json:"events"`
+	HeadersEncrypted    string          `json:"headers_encrypted"`
+	AllowPrivateNetwork int16           `json:"allow_private_network"`
+	TimeoutSeconds      int32           `json:"timeout_seconds"`
+	MaxRetries          int32           `json:"max_retries"`
+	Status              int16           `json:"status"`
+	LastSuccessAt       sql.NullTime    `json:"last_success_at"`
+	LastFailureAt       sql.NullTime    `json:"last_failure_at"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
+}
+
+// Delivery only. Secrets stay encrypted; tenant RLS applies when the session is set.
+func (q *Queries) ListEnabledWebhooks(ctx context.Context) ([]ListEnabledWebhooksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledWebhooks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEnabledWebhooksRow{}
+	for rows.Next() {
+		var i ListEnabledWebhooksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.SecretEncrypted,
+			&i.Events,
+			&i.HeadersEncrypted,
+			&i.AllowPrivateNetwork,
+			&i.TimeoutSeconds,
+			&i.MaxRetries,
+			&i.Status,
+			&i.LastSuccessAt,
+			&i.LastFailureAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWebhooks = `-- name: ListWebhooks :many
 SELECT id, name, url, secret_encrypted, events,
   COALESCE(headers_encrypted, '') AS headers_encrypted, allow_private_network, timeout_seconds, max_retries,

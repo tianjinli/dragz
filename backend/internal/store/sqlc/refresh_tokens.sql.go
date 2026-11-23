@@ -12,7 +12,7 @@ import (
 )
 
 const findRefreshSession = `-- name: FindRefreshSession :one
-SELECT rt.id, rt.user_id, u.username, rt.token_hash, rt.family_id,
+SELECT rt.id, rt.user_id, rt.tenant_id, u.username, rt.token_hash, rt.family_id,
   rt.expires_at, rt.revoked_at
 FROM sys_refresh_token rt
 INNER JOIN sys_user u ON u.id = rt.user_id
@@ -21,13 +21,14 @@ LIMIT 1
 `
 
 type FindRefreshSessionRow struct {
-	ID        int64        `json:"id"`
-	UserID    uint64       `json:"user_id"`
-	Username  string       `json:"username"`
-	TokenHash string       `json:"token_hash"`
-	FamilyID  string       `json:"family_id"`
-	ExpiresAt time.Time    `json:"expires_at"`
-	RevokedAt sql.NullTime `json:"revoked_at"`
+	ID        int64         `json:"id"`
+	UserID    uint64        `json:"user_id"`
+	TenantID  sql.NullInt64 `json:"tenant_id"`
+	Username  string        `json:"username"`
+	TokenHash string        `json:"token_hash"`
+	FamilyID  string        `json:"family_id"`
+	ExpiresAt time.Time     `json:"expires_at"`
+	RevokedAt sql.NullTime  `json:"revoked_at"`
 }
 
 func (q *Queries) FindRefreshSession(ctx context.Context, tokenHash string) (FindRefreshSessionRow, error) {
@@ -36,6 +37,7 @@ func (q *Queries) FindRefreshSession(ctx context.Context, tokenHash string) (Fin
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.TenantID,
 		&i.Username,
 		&i.TokenHash,
 		&i.FamilyID,
@@ -47,23 +49,25 @@ func (q *Queries) FindRefreshSession(ctx context.Context, tokenHash string) (Fin
 
 const insertExternalRefreshToken = `-- name: InsertExternalRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, token_hash, family_id, login_method, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (user_id, tenant_id, token_hash, family_id, login_method, ip, user_agent, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertExternalRefreshTokenParams struct {
-	UserID      uint64    `json:"user_id"`
-	TokenHash   string    `json:"token_hash"`
-	FamilyID    string    `json:"family_id"`
-	LoginMethod string    `json:"login_method"`
-	Ip          string    `json:"ip"`
-	UserAgent   string    `json:"user_agent"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	UserID      uint64        `json:"user_id"`
+	TenantID    sql.NullInt64 `json:"tenant_id"`
+	TokenHash   string        `json:"token_hash"`
+	FamilyID    string        `json:"family_id"`
+	LoginMethod string        `json:"login_method"`
+	Ip          string        `json:"ip"`
+	UserAgent   string        `json:"user_agent"`
+	ExpiresAt   time.Time     `json:"expires_at"`
 }
 
 func (q *Queries) InsertExternalRefreshToken(ctx context.Context, arg InsertExternalRefreshTokenParams) error {
 	_, err := q.db.ExecContext(ctx, insertExternalRefreshToken,
 		arg.UserID,
+		arg.TenantID,
 		arg.TokenHash,
 		arg.FamilyID,
 		arg.LoginMethod,
@@ -76,24 +80,26 @@ func (q *Queries) InsertExternalRefreshToken(ctx context.Context, arg InsertExte
 
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  (user_id, tenant_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertRefreshTokenParams struct {
-	UserID     uint64    `json:"user_id"`
-	TokenHash  string    `json:"token_hash"`
-	FamilyID   string    `json:"family_id"`
-	DeviceID   string    `json:"device_id"`
-	DeviceName string    `json:"device_name"`
-	Ip         string    `json:"ip"`
-	UserAgent  string    `json:"user_agent"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	UserID     uint64        `json:"user_id"`
+	TenantID   sql.NullInt64 `json:"tenant_id"`
+	TokenHash  string        `json:"token_hash"`
+	FamilyID   string        `json:"family_id"`
+	DeviceID   string        `json:"device_id"`
+	DeviceName string        `json:"device_name"`
+	Ip         string        `json:"ip"`
+	UserAgent  string        `json:"user_agent"`
+	ExpiresAt  time.Time     `json:"expires_at"`
 }
 
 func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error {
 	_, err := q.db.ExecContext(ctx, insertRefreshToken,
 		arg.UserID,
+		arg.TenantID,
 		arg.TokenHash,
 		arg.FamilyID,
 		arg.DeviceID,

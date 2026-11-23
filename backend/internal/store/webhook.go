@@ -51,6 +51,22 @@ func mapWebhook(id int64, name, url, secret string, events []byte, headers strin
 	return item
 }
 
+// ListEnabledWebhooks returns enabled webhooks with encrypted secrets intact.
+// Delivery is the only caller. The tenant on ctx scopes the rows.
+func (r *AuthRepository) ListEnabledWebhooks(ctx context.Context) ([]Webhook, error) {
+	rows, err := r.queries.ListEnabledWebhooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]Webhook, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, mapWebhook(row.ID, row.Name, row.Url, row.SecretEncrypted, row.Events, row.HeadersEncrypted,
+			row.AllowPrivateNetwork, row.TimeoutSeconds, row.MaxRetries, row.Status,
+			row.LastSuccessAt, row.LastFailureAt, row.CreatedAt, row.UpdatedAt))
+	}
+	return items, nil
+}
+
 // ListWebhooks returns every webhook with its secret and headers masked, so the list can be shown without decrypting anything.
 func (r *AuthRepository) ListWebhooks(ctx context.Context) ([]Webhook, error) {
 	rows, err := r.queries.ListWebhooks(ctx)

@@ -60,13 +60,23 @@ INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_ag
 VALUES ($1, $2, $3, 1, $4, $5);
 
 -- name: GetUserDetail :one
+-- sys_user is global, so the tenant boundary is membership. A non-null
+-- tenant_id limits the row to an active member of that tenant; a NULL
+-- tenant_id is the platform view.
 SELECT u.id, u.department_id, COALESCE(d.name, '') AS department_name,
   COALESCE(d.code, '') AS department_code, u.username,
   u.display_name, u.email, u.mobile, u.gender, u.status, u.is_super_admin,
   u.must_change_password, u.last_login_at, u.last_login_ip, u.created_at, u.remark
 FROM sys_user u
 LEFT JOIN sys_department d ON d.id = u.department_id AND d.deleted_at IS NULL
-WHERE u.id = $1 AND u.deleted_at IS NULL;
+WHERE u.id = sqlc.arg(id) AND u.deleted_at IS NULL
+  AND (
+    sqlc.narg('tenant_id')::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = sqlc.narg('tenant_id') AND m.status = 1
+    )
+  );
 
 -- name: ListUserRoleIDs :many
 SELECT role_id FROM sys_user_role WHERE user_id = $1 ORDER BY role_id;
@@ -146,8 +156,18 @@ UPDATE sys_user SET failed_login_count = 0, locked_until = NULL,
   last_login_at = NOW(), last_login_ip = $1 WHERE id = $2;
 
 -- name: CountUsersFiltered :one
+-- Tenant membership is part of the filter, not a wrapper around it: sys_user is
+-- a global table, so without this clause a tenant administrator would count
+-- every account on the platform. A NULL tenant_id keeps the platform view.
 SELECT COUNT(*) FROM sys_user u
 WHERE u.deleted_at IS NULL
+  AND (
+    sqlc.narg('tenant_id')::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = sqlc.narg('tenant_id') AND m.status = 1
+    )
+  )
   AND (sqlc.narg('keyword_pattern')::text IS NULL OR (
     u.username LIKE sqlc.narg('keyword_pattern')
     OR u.display_name LIKE sqlc.narg('keyword_pattern')
@@ -187,6 +207,13 @@ SELECT u.id, u.department_id, COALESCE(d.name, '') AS department_name,
 FROM sys_user u
 LEFT JOIN sys_department d ON d.id = u.department_id AND d.deleted_at IS NULL
 WHERE u.deleted_at IS NULL
+  AND (
+    sqlc.narg('tenant_id')::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = sqlc.narg('tenant_id') AND m.status = 1
+    )
+  )
   AND (sqlc.narg('keyword_pattern')::text IS NULL OR (
     u.username LIKE sqlc.narg('keyword_pattern')
     OR u.display_name LIKE sqlc.narg('keyword_pattern')

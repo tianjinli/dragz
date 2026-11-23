@@ -1,5 +1,6 @@
 CREATE TABLE sys_department (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   parent_id BIGINT NOT NULL DEFAULT 0,
   ancestors VARCHAR(1000) NOT NULL DEFAULT '',
   code VARCHAR(64) NOT NULL,
@@ -15,6 +16,7 @@ CREATE TABLE sys_department (
 
 CREATE TABLE sys_position (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   sort INT NOT NULL DEFAULT 0,
@@ -53,6 +55,7 @@ CREATE TABLE sys_user (
 );
 
 CREATE TABLE sys_user_position (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NOT NULL,
   position_id BIGINT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -61,6 +64,7 @@ CREATE TABLE sys_user_position (
 
 CREATE TABLE sys_role (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   data_scope VARCHAR(32) NOT NULL DEFAULT 'self',
@@ -75,6 +79,7 @@ CREATE TABLE sys_role (
 );
 
 CREATE TABLE sys_user_role (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NOT NULL,
   role_id BIGINT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -82,6 +87,7 @@ CREATE TABLE sys_user_role (
 );
 
 CREATE TABLE sys_role_department (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   role_id BIGINT NOT NULL,
   department_id BIGINT NOT NULL,
   PRIMARY KEY (role_id, department_id)
@@ -126,6 +132,7 @@ CREATE TABLE sys_menu (
 );
 
 CREATE TABLE sys_role_menu (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   role_id BIGINT NOT NULL,
   menu_id BIGINT NOT NULL,
   PRIMARY KEY (role_id, menu_id)
@@ -133,6 +140,7 @@ CREATE TABLE sys_role_menu (
 
 CREATE TABLE sys_dict_type (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   code VARCHAR(128) NOT NULL,
   name VARCHAR(128) NOT NULL,
   display_type VARCHAR(32) NOT NULL DEFAULT 'segmented',
@@ -147,6 +155,7 @@ CREATE TABLE sys_dict_type (
 
 CREATE TABLE sys_dict_item (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   dict_type_id BIGINT NOT NULL,
   label VARCHAR(128) NOT NULL,
   value VARCHAR(255) NOT NULL,
@@ -164,6 +173,8 @@ CREATE TABLE sys_dict_item (
 
 CREATE TABLE sys_config (
   id BIGSERIAL,
+  -- 0 is the platform-global value. A positive id overrides it for that tenant.
+  tenant_id BIGINT NOT NULL DEFAULT 0,
   config_group VARCHAR(64) NOT NULL,
   config_key VARCHAR(128) NOT NULL,
   name VARCHAR(128) NOT NULL,
@@ -177,7 +188,7 @@ CREATE TABLE sys_config (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (id),
-  CONSTRAINT uk_config_key UNIQUE (config_key)
+  CONSTRAINT uk_config_key UNIQUE (tenant_id, config_key)
 );
 
 CREATE TABLE sys_auth_provider (
@@ -244,6 +255,7 @@ CREATE TABLE sys_storage_config (
 
 CREATE TABLE sys_file (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   storage_id BIGINT NOT NULL,
   original_name VARCHAR(500) NOT NULL,
   object_key VARCHAR(1000) NOT NULL,
@@ -267,6 +279,7 @@ CREATE TABLE sys_file (
 
 CREATE TABLE sys_file_reference (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   file_id BIGINT NOT NULL,
   business_type VARCHAR(64) NOT NULL,
   business_id VARCHAR(128) NOT NULL,
@@ -279,6 +292,7 @@ CREATE TABLE sys_file_reference (
 
 CREATE TABLE sys_notice (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   title VARCHAR(255) NOT NULL,
   notice_type VARCHAR(32) NOT NULL DEFAULT 'notice',
   priority VARCHAR(16) NOT NULL DEFAULT 'normal',
@@ -299,6 +313,7 @@ CREATE TABLE sys_notice (
 );
 
 CREATE TABLE sys_notice_read (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   notice_id BIGINT NOT NULL,
   user_id BIGINT NOT NULL,
   read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -307,6 +322,7 @@ CREATE TABLE sys_notice_read (
 
 CREATE TABLE sys_notification (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NOT NULL,
   channel VARCHAR(32) NOT NULL,
   title VARCHAR(255) NOT NULL,
@@ -320,6 +336,7 @@ CREATE TABLE sys_notification (
 CREATE INDEX idx_notification_user_created ON sys_notification (user_id, created_at DESC);
 
 CREATE TABLE sys_user_notify_pref (
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NOT NULL,
   channel VARCHAR(32) NOT NULL,
   enabled SMALLINT NOT NULL DEFAULT 1,
@@ -330,6 +347,10 @@ CREATE TABLE sys_user_notify_pref (
 CREATE TABLE sys_refresh_token (
   id BIGSERIAL,
   user_id BIGINT NOT NULL,
+  -- Tenant the session was opened in. Without it a refresh cannot tell which
+  -- tenant the client was using, so a multi-tenant user is silently moved back
+  -- to their first membership on every token refresh.
+  tenant_id BIGINT NULL,
   token_hash CHAR(64) NOT NULL,
   family_id CHAR(36) NOT NULL,
   device_id VARCHAR(128) NOT NULL DEFAULT '',
@@ -348,6 +369,7 @@ CREATE TABLE sys_refresh_token (
 
 CREATE TABLE sys_api_token (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NOT NULL,
   name VARCHAR(128) NOT NULL,
   token_prefix VARCHAR(32) NOT NULL,
@@ -384,6 +406,7 @@ CREATE TABLE sys_login_log (
 
 CREATE TABLE sys_operation_log (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   user_id BIGINT NULL,
   username VARCHAR(64) NOT NULL DEFAULT '',
   module VARCHAR(64) NOT NULL,
@@ -410,6 +433,7 @@ CREATE TABLE sys_operation_log (
 
 CREATE TABLE sys_error_log (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   request_id VARCHAR(64) NOT NULL DEFAULT '',
   user_id BIGINT NULL,
   module VARCHAR(64) NOT NULL DEFAULT '',
@@ -440,6 +464,7 @@ CREATE TABLE sys_config_log (
 
 CREATE TABLE sys_webhook (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   name VARCHAR(128) NOT NULL,
   url VARCHAR(1000) NOT NULL,
   secret_encrypted TEXT NOT NULL,
@@ -459,6 +484,7 @@ CREATE TABLE sys_webhook (
 
 CREATE TABLE sys_scheduled_job (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   name VARCHAR(128) NOT NULL,
   code VARCHAR(128) NOT NULL,
   handler VARCHAR(128) NOT NULL,
@@ -477,6 +503,7 @@ CREATE TABLE sys_scheduled_job (
 
 CREATE TABLE sys_job_log (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
   job_id BIGINT NOT NULL,
   trigger_type VARCHAR(32) NOT NULL,
   started_at TIMESTAMPTZ NOT NULL,
@@ -499,21 +526,23 @@ CREATE TABLE sys_job_log (
 -- table constraint, so these live next to the other indexes — and
 -- store.bootstrapStatements carries the same DDL for databases that were
 -- created before the constraints were dropped.
-CREATE UNIQUE INDEX uk_department_code ON sys_department (code) WHERE deleted_at IS NULL;
+-- Department, position, role, dictionary and job codes are unique per tenant.
+-- Username and menu code stay global.
+CREATE UNIQUE INDEX uk_department_code ON sys_department (tenant_id, code) WHERE deleted_at IS NULL;
 
-CREATE UNIQUE INDEX uk_position_code ON sys_position (code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_position_code ON sys_position (tenant_id, code) WHERE deleted_at IS NULL;
 
 CREATE UNIQUE INDEX uk_user_username ON sys_user (username) WHERE deleted_at IS NULL;
 
-CREATE UNIQUE INDEX uk_role_code ON sys_role (code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_role_code ON sys_role (tenant_id, code) WHERE deleted_at IS NULL;
 
 CREATE UNIQUE INDEX uk_menu_code ON sys_menu (code) WHERE deleted_at IS NULL;
 
-CREATE UNIQUE INDEX uk_dict_type_code ON sys_dict_type (code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_dict_type_code ON sys_dict_type (tenant_id, code) WHERE deleted_at IS NULL;
 
-CREATE UNIQUE INDEX uk_dict_item_value ON sys_dict_item (dict_type_id, value) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_dict_item_value ON sys_dict_item (tenant_id, dict_type_id, value) WHERE deleted_at IS NULL;
 
-CREATE UNIQUE INDEX uk_scheduled_job_code ON sys_scheduled_job (code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uk_scheduled_job_code ON sys_scheduled_job (tenant_id, code) WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_department_parent ON sys_department (parent_id);
 
@@ -736,3 +765,252 @@ CREATE VIEW v_preset_source_row AS
   UNION ALL
   SELECT 'storage', id, storage_type, name, '' FROM sys_storage_config
     WHERE deleted_at IS NULL;
+
+-- Shared-database tenants. Row level security for these tables, and the
+-- BEFORE INSERT trigger that fills tenant_id, live in migrations/013_multitenant.sql.
+-- Bootstrap must SET app.rls_bypass=on before it reads or writes them.
+CREATE TABLE sys_tenant (
+  id BIGSERIAL,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  status SMALLINT NOT NULL DEFAULT 1,
+  remark VARCHAR(500) NOT NULL DEFAULT '',
+  -- purge_status is '' | pending_delete | purged. purge_after is when a
+  -- pending delete becomes eligible for tenant.purge_due. Tenant id 1 is
+  -- never purged.
+  purge_after TIMESTAMPTZ NULL,
+  purge_status VARCHAR(32) NOT NULL DEFAULT '',
+  -- Public host label for {slug}.{base}. Empty means no subdomain.
+  -- Unique among live tenants when non-empty. id 1 is backfilled to 'default'.
+  slug VARCHAR(64) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ NULL,
+  PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX uk_tenant_code ON sys_tenant (code) WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX uk_tenant_slug ON sys_tenant (slug) WHERE deleted_at IS NULL AND slug <> '';
+
+-- Custom hosts. No row-level security: host resolution runs before a tenant
+-- is selected, and the lookup has to see every live tenant.
+CREATE TABLE sys_tenant_domain (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  host VARCHAR(255) NOT NULL,
+  verified_at TIMESTAMPTZ NULL,
+  is_primary SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX uk_tenant_domain_host ON sys_tenant_domain (host);
+
+CREATE INDEX idx_tenant_domain_tenant ON sys_tenant_domain (tenant_id);
+
+CREATE TABLE sys_tenant_member (
+  tenant_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  department_id BIGINT NULL,
+  is_tenant_admin SMALLINT NOT NULL DEFAULT 0,
+  -- Kept for the membership queries: true when the member was copied from a
+  -- super administrator.
+  is_platform_operator BOOLEAN NOT NULL DEFAULT FALSE,
+  status SMALLINT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, user_id)
+);
+
+CREATE INDEX idx_tenant_member_user ON sys_tenant_member (user_id);
+
+-- Platform staff, independent of any tenant. A platform operator may hold a
+-- membership, but does not need one: this table is the source of truth for
+-- "may enter the operator console".
+CREATE TABLE sys_platform_operator (
+  user_id BIGINT PRIMARY KEY,
+  granted_by BIGINT NOT NULL DEFAULT 0,
+  note VARCHAR(255) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE sys_tenant_invite (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL,
+  email VARCHAR(255) NOT NULL DEFAULT '',
+  role_ids BIGINT[] NOT NULL DEFAULT '{}'::bigint[],
+  department_id BIGINT NULL,
+  is_tenant_admin SMALLINT NOT NULL DEFAULT 0,
+  token_hash CHAR(64) NOT NULL,
+  -- pending | accepted | revoked | expired
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  invited_by BIGINT NOT NULL,
+  accepted_by BIGINT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE sys_plan (
+  id BIGSERIAL,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  status SMALLINT NOT NULL DEFAULT 1,
+  sort INT NOT NULL DEFAULT 0,
+  -- Bumped on every entitlement change. Subscription snapshots record the
+  -- version they were sold at.
+  version INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE sys_plan_version (
+  id BIGSERIAL PRIMARY KEY,
+  plan_id BIGINT NOT NULL,
+  version INT NOT NULL,
+  snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX uk_plan_code ON sys_plan (code);
+
+CREATE TABLE sys_plan_entitlement (
+  id BIGSERIAL,
+  plan_id BIGINT NOT NULL,
+  entitlement_key VARCHAR(128) NOT NULL,
+  entitlement_value TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX uk_plan_entitlement ON sys_plan_entitlement (plan_id, entitlement_key);
+
+CREATE TABLE sys_tenant_subscription (
+  id BIGSERIAL,
+  tenant_id BIGINT NOT NULL,
+  plan_id BIGINT NOT NULL,
+  -- trial | active | overdue | cancelled. cancelled is terminal.
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ NULL,
+  trial_ends_at TIMESTAMPTZ NULL,
+  -- When an overdue subscription must become cancelled.
+  grace_ends_at TIMESTAMPTZ NULL,
+  -- The plan version this subscription was sold at, plus its full snapshot.
+  -- Entitlement and quota lookups read the snapshot so a later plan edit does
+  -- not retroactively change what this tenant is entitled to.
+  plan_version_id BIGINT NULL,
+  plan_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX uk_tenant_subscription_active
+  ON sys_tenant_subscription (tenant_id) WHERE status = 'active';
+
+-- Billing skeleton. Platform reads it with app.rls_bypass; tenants do not.
+CREATE TABLE sys_invoice (
+  id BIGSERIAL,
+  tenant_id BIGINT NOT NULL,
+  subscription_id BIGINT NULL,
+  kind VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  amount_cents BIGINT NOT NULL DEFAULT 0,
+  currency CHAR(3) NOT NULL DEFAULT 'CNY',
+  period_start TIMESTAMPTZ NULL,
+  period_end TIMESTAMPTZ NULL,
+  memo VARCHAR(500) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_invoice_tenant_id ON sys_invoice (tenant_id, id DESC);
+
+-- One row per provider webhook delivery, keyed by the provider's event id.
+-- The unique (provider, event_id) pair is the idempotency guarantee.
+CREATE TABLE sys_payment_event (
+  id BIGSERIAL PRIMARY KEY,
+  provider VARCHAR(64) NOT NULL,
+  event_id VARCHAR(128) NOT NULL,
+  event_type VARCHAR(128) NOT NULL DEFAULT '',
+  tenant_id BIGINT NOT NULL DEFAULT 0,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- received | processing | processed | ignored | failed
+  status VARCHAR(16) NOT NULL DEFAULT 'received',
+  attempts INT NOT NULL DEFAULT 0,
+  last_error VARCHAR(1000) NOT NULL DEFAULT '',
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE sys_usage_counter (
+  tenant_id BIGINT NOT NULL,
+  quota_key VARCHAR(128) NOT NULL,
+  period_key VARCHAR(32) NOT NULL,
+  used_value BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, quota_key, period_key)
+);
+
+-- Direct per-tenant feature switch. Plan entitlements are the catalog;
+-- this row is the effective flag the request path reads.
+CREATE TABLE sys_tenant_entitlement (
+  tenant_id BIGINT NOT NULL,
+  feature_key VARCHAR(128) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, feature_key)
+);
+
+CREATE TABLE sys_tenant_quota (
+  tenant_id BIGINT NOT NULL,
+  quota_key VARCHAR(128) NOT NULL,
+  limit_value BIGINT NOT NULL,
+  used_value BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, quota_key)
+);
+
+CREATE TABLE sys_outbox (
+  id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
+  event_type VARCHAR(128) NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- 0 = pending, 1 = sent, 2 = dead, 3 = processing.
+  status SMALLINT NOT NULL DEFAULT 0,
+  attempts INT NOT NULL DEFAULT 0,
+  last_error VARCHAR(1000) NOT NULL DEFAULT '',
+  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Set while a worker is delivering. FOR UPDATE SKIP LOCKED on claim means a
+  -- second worker skips the row instead of delivering it again.
+  claimed_at TIMESTAMPTZ NULL,
+  claimed_by VARCHAR(64) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ NULL,
+  PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_outbox_pending ON sys_outbox (status, id);
+
+CREATE TABLE sys_tenant_impersonation (
+  id BIGSERIAL,
+  tenant_id BIGINT NOT NULL,
+  actor_user_id BIGINT NOT NULL,
+  target_user_id BIGINT NOT NULL,
+  reason VARCHAR(500) NOT NULL DEFAULT '',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  ended_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_tenant_impersonation_open ON sys_tenant_impersonation (tenant_id, actor_user_id)
+  WHERE ended_at IS NULL;

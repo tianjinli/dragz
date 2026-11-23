@@ -44,10 +44,10 @@ func ResolveHostPaths(start string) (HostPaths, error) {
 
 // PackOptions controls Pack.
 type PackOptions struct {
-	Host       HostPaths
-	PluginID   string
-	OutputZip  string // empty → <cwd>/plugin-<id>-v<ver>.zip
-	Manifest   *Manifest
+	Host      HostPaths
+	PluginID  string
+	OutputZip string // empty → <cwd>/plugin-<id>-v<ver>.zip
+	Manifest  *Manifest
 }
 
 // Pack builds a delivery zip from an assembled plugin already living in the

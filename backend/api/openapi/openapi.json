@@ -55,6 +55,37 @@
         ]
       }
     },
+    "/api/auth/invites/:token": {
+      "get": {
+        "operationId": "get_api_auth_invites__token",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/auth/invites/:token/accept": {
+      "post": {
+        "operationId": "post_api_auth_invites__token_accept",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/auth/login": {
       "post": {
         "operationId": "post_api_auth_login",
@@ -211,6 +242,63 @@
         ]
       }
     },
+    "/api/auth/register": {
+      "post": {
+        "operationId": "post_api_auth_register",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/auth/signup-status": {
+      "get": {
+        "operationId": "get_api_auth_signup-status",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/auth/switch-tenant": {
+      "post": {
+        "operationId": "post_api_auth_switch-tenant",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/auth/tenant-context": {
+      "get": {
+        "operationId": "get_api_auth_tenant-context",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/auth/verify-password": {
       "post": {
         "operationId": "post_api_auth_verify-password",
@@ -224,6 +312,55 @@
             "bearerAuth": []
           }
         ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/billing/summary": {
+      "get": {
+        "operationId": "get_api_billing_summary",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/billing/usage": {
+      "get": {
+        "operationId": "get_api_billing_usage",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/billing/webhook/:provider": {
+      "post": {
+        "operationId": "post_api_billing_webhook__provider",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
         "tags": [
           "system"
         ]
@@ -273,6 +410,683 @@
             "description": "OK"
           }
         },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "operationId": "get_api_metrics",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/notify/channels": {
+      "get": {
+        "operationId": "get_api_notify_channels",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_notify_channels",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/channels/:id": {
+      "delete": {
+        "operationId": "delete_api_notify_channels__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "get": {
+        "operationId": "get_api_notify_channels__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_notify_channels__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/channels/:id/test": {
+      "post": {
+        "operationId": "post_api_notify_channels__id_test",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/logs": {
+      "get": {
+        "operationId": "get_api_notify_logs",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/send": {
+      "post": {
+        "operationId": "post_api_notify_send",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/templates": {
+      "get": {
+        "operationId": "get_api_notify_templates",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_notify_templates",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/notify/templates/:id": {
+      "delete": {
+        "operationId": "delete_api_notify_templates__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "get": {
+        "operationId": "get_api_notify_templates__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_notify_templates__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notify"
+        ]
+      }
+    },
+    "/api/open/v1/me": {
+      "get": {
+        "operationId": "get_api_open_v1_me",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/open/v1/ping": {
+      "get": {
+        "operationId": "get_api_open_v1_ping",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/open/v1/tenant": {
+      "get": {
+        "operationId": "get_api_open_v1_tenant",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/invoices": {
+      "get": {
+        "operationId": "get_api_platform_invoices",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/operators": {
+      "get": {
+        "operationId": "get_api_platform_operators",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_platform_operators",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/operators/:id": {
+      "delete": {
+        "operationId": "delete_api_platform_operators__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/plans": {
+      "get": {
+        "operationId": "get_api_platform_plans",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_platform_plans",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/plans/:id": {
+      "put": {
+        "operationId": "put_api_platform_plans__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/plans/:id/status": {
+      "put": {
+        "operationId": "put_api_platform_plans__id_status",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants": {
+      "get": {
+        "operationId": "get_api_platform_tenants",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_platform_tenants",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/cancel-purge": {
+      "post": {
+        "operationId": "post_api_platform_tenants__id_cancel-purge",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/domains": {
+      "get": {
+        "operationId": "get_api_platform_tenants__id_domains",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_platform_tenants__id_domains",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/domains/:domainId": {
+      "delete": {
+        "operationId": "delete_api_platform_tenants__id_domains__domainId",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/domains/:domainId/verify": {
+      "post": {
+        "operationId": "post_api_platform_tenants__id_domains__domainId_verify",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/export": {
+      "post": {
+        "operationId": "post_api_platform_tenants__id_export",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/impersonate": {
+      "post": {
+        "operationId": "post_api_platform_tenants__id_impersonate",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/invoices": {
+      "get": {
+        "operationId": "get_api_platform_tenants__id_invoices",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/schedule-purge": {
+      "post": {
+        "operationId": "post_api_platform_tenants__id_schedule-purge",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/slug": {
+      "put": {
+        "operationId": "put_api_platform_tenants__id_slug",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/status": {
+      "put": {
+        "operationId": "put_api_platform_tenants__id_status",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/platform/tenants/:id/subscription": {
+      "put": {
+        "operationId": "put_api_platform_tenants__id_subscription",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "tags": [
           "system"
         ]
@@ -2205,6 +3019,110 @@
     "/api/system/webhooks/:id/test": {
       "post": {
         "operationId": "post_api_system_webhooks__id_test",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/tenant/invites": {
+      "get": {
+        "operationId": "get_api_tenant_invites",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "post": {
+        "operationId": "post_api_tenant_invites",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/tenant/invites/:id": {
+      "delete": {
+        "operationId": "delete_api_tenant_invites__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/tenant/members": {
+      "get": {
+        "operationId": "get_api_tenant_members",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/tenant/members/:id": {
+      "delete": {
+        "operationId": "delete_api_tenant_members__id",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "system"
+        ]
+      },
+      "put": {
+        "operationId": "put_api_tenant_members__id",
         "responses": {
           "200": {
             "description": "OK"

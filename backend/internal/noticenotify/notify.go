@@ -3,6 +3,7 @@ package noticenotify
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -10,9 +11,11 @@ import (
 	"dragz-admin/backend/internal/store"
 )
 
-// Pusher fans an event out to the given users (local sockets and/or Redis).
+// Pusher fans an event out to the given users inside one tenant (local sockets
+// and/or Redis). The tenant is explicit because a socket belongs to exactly one
+// tenant: the same user id in two tenants must not receive the same event.
 type Pusher interface {
-	Push(userIDs []uint64, payload any) error
+	Push(tenantID uint64, userIDs []uint64, payload any) error
 }
 
 // DeliverOne pushes one published notice when its publish_at is due, then marks
@@ -41,7 +44,12 @@ func DeliverOne(ctx context.Context, repo *store.AuthRepository, push Pusher, no
 		"priority":   notice.Priority,
 		"publishAt":  notice.PublishAt,
 	}
-	if err := push.Push(ids, map[string]any{"type": "notice", "data": data}); err != nil {
+	if notice.TenantID == 0 {
+		// Without a tenant the push would have to guess an audience, so the
+		// notice is left un-notified rather than broadcast across tenants.
+		return false, fmt.Errorf("notice %d has no tenant", notice.ID)
+	}
+	if err := push.Push(notice.TenantID, ids, map[string]any{"type": "notice", "data": data}); err != nil {
 		return false, err
 	}
 	for _, userID := range ids {
@@ -50,7 +58,7 @@ func DeliverOne(ctx context.Context, repo *store.AuthRepository, push Pusher, no
 			logx.Errorf("unread counts for %d: %v", userID, countErr)
 			continue
 		}
-		if err := push.Push([]uint64{userID}, map[string]any{"type": "unread", "data": counts}); err != nil {
+		if err := push.Push(notice.TenantID, []uint64{userID}, map[string]any{"type": "unread", "data": counts}); err != nil {
 			logx.Errorf("unread push for %d: %v", userID, err)
 		}
 	}

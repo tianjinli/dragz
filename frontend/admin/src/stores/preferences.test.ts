@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   BUILT_IN_THEME_PRESETS,
+  PALETTE_THEME_PRESETS,
   defaultPreferences,
   effectiveDark,
   resolveThemePrimaryColor,
@@ -45,6 +46,20 @@ describe('preferences store', () => {
       usePreferencesStore.getState().update({ app: { ...defaultPreferences.app, layout } });
       expect(usePreferencesStore.getState().preferences.app.layout).toBe(layout);
     }
+  });
+
+  it('exposes only mainstream colors in pickers but keeps legacy presets resolvable', () => {
+    expect(PALETTE_THEME_PRESETS.map((item) => item.type)).toEqual([
+      'default',
+      'violet',
+      'pink',
+      'yellow',
+      'sky-blue',
+      'green',
+      'orange',
+      'rose',
+      'custom',
+    ]);
   });
 
   it('uses vben default semantic colors and zero content padding', () => {

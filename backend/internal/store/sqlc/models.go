@@ -14,6 +14,7 @@ import (
 
 type SysApiToken struct {
 	ID          int64                 `json:"id"`
+	TenantID    uint64                `json:"tenant_id"`
 	UserID      uint64                `json:"user_id"`
 	Name        string                `json:"name"`
 	TokenPrefix string                `json:"token_prefix"`
@@ -53,6 +54,7 @@ type SysAuthProvider struct {
 
 type SysConfig struct {
 	ID           int64          `json:"id"`
+	TenantID     uint64         `json:"tenant_id"`
 	ConfigGroup  string         `json:"config_group"`
 	ConfigKey    string         `json:"config_key"`
 	Name         string         `json:"name"`
@@ -79,6 +81,7 @@ type SysConfigLog struct {
 
 type SysDepartment struct {
 	ID           int64         `json:"id"`
+	TenantID     uint64        `json:"tenant_id"`
 	ParentID     uint64        `json:"parent_id"`
 	Ancestors    string        `json:"ancestors"`
 	Code         string        `json:"code"`
@@ -93,6 +96,7 @@ type SysDepartment struct {
 
 type SysDictItem struct {
 	ID         int64        `json:"id"`
+	TenantID   uint64       `json:"tenant_id"`
 	DictTypeID uint64       `json:"dict_type_id"`
 	Label      string       `json:"label"`
 	Value      string       `json:"value"`
@@ -109,6 +113,7 @@ type SysDictItem struct {
 
 type SysDictType struct {
 	ID          int64        `json:"id"`
+	TenantID    uint64       `json:"tenant_id"`
 	Code        string       `json:"code"`
 	Name        string       `json:"name"`
 	DisplayType string       `json:"display_type"`
@@ -122,6 +127,7 @@ type SysDictType struct {
 
 type SysErrorLog struct {
 	ID         int64          `json:"id"`
+	TenantID   uint64         `json:"tenant_id"`
 	RequestID  string         `json:"request_id"`
 	UserID     sql.NullInt64  `json:"user_id"`
 	Module     string         `json:"module"`
@@ -140,6 +146,7 @@ type SysErrorLog struct {
 
 type SysFile struct {
 	ID           int64        `json:"id"`
+	TenantID     uint64       `json:"tenant_id"`
 	StorageID    uint64       `json:"storage_id"`
 	OriginalName string       `json:"original_name"`
 	ObjectKey    string       `json:"object_key"`
@@ -161,6 +168,7 @@ type SysFile struct {
 
 type SysFileReference struct {
 	ID           int64     `json:"id"`
+	TenantID     uint64    `json:"tenant_id"`
 	FileID       uint64    `json:"file_id"`
 	BusinessType string    `json:"business_type"`
 	BusinessID   string    `json:"business_id"`
@@ -169,8 +177,24 @@ type SysFileReference struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type SysInvoice struct {
+	ID             int64         `json:"id"`
+	TenantID       uint64        `json:"tenant_id"`
+	SubscriptionID sql.NullInt64 `json:"subscription_id"`
+	Kind           string        `json:"kind"`
+	Status         string        `json:"status"`
+	AmountCents    uint64        `json:"amount_cents"`
+	Currency       string        `json:"currency"`
+	PeriodStart    sql.NullTime  `json:"period_start"`
+	PeriodEnd      sql.NullTime  `json:"period_end"`
+	Memo           string        `json:"memo"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
+}
+
 type SysJobLog struct {
 	ID           int64          `json:"id"`
+	TenantID     uint64         `json:"tenant_id"`
 	JobID        uint64         `json:"job_id"`
 	TriggerType  string         `json:"trigger_type"`
 	StartedAt    time.Time      `json:"started_at"`
@@ -228,6 +252,7 @@ type SysMenu struct {
 
 type SysNotice struct {
 	ID          int64                 `json:"id"`
+	TenantID    uint64                `json:"tenant_id"`
 	Title       string                `json:"title"`
 	NoticeType  string                `json:"notice_type"`
 	Priority    string                `json:"priority"`
@@ -247,6 +272,7 @@ type SysNotice struct {
 }
 
 type SysNoticeRead struct {
+	TenantID uint64    `json:"tenant_id"`
 	NoticeID uint64    `json:"notice_id"`
 	UserID   uint64    `json:"user_id"`
 	ReadAt   time.Time `json:"read_at"`
@@ -254,6 +280,7 @@ type SysNoticeRead struct {
 
 type SysNotification struct {
 	ID        int64        `json:"id"`
+	TenantID  uint64       `json:"tenant_id"`
 	UserID    uint64       `json:"user_id"`
 	Channel   string       `json:"channel"`
 	Title     string       `json:"title"`
@@ -266,6 +293,7 @@ type SysNotification struct {
 
 type SysOperationLog struct {
 	ID           int64                 `json:"id"`
+	TenantID     uint64                `json:"tenant_id"`
 	UserID       sql.NullInt64         `json:"user_id"`
 	Username     string                `json:"username"`
 	Module       string                `json:"module"`
@@ -287,6 +315,72 @@ type SysOperationLog struct {
 	ErrorCode    string                `json:"error_code"`
 	ErrorMessage string                `json:"error_message"`
 	CreatedAt    time.Time             `json:"created_at"`
+}
+
+type SysOutbox struct {
+	ID          int64           `json:"id"`
+	TenantID    uint64          `json:"tenant_id"`
+	EventType   string          `json:"event_type"`
+	Payload     json.RawMessage `json:"payload"`
+	Status      int16           `json:"status"`
+	Attempts    int32           `json:"attempts"`
+	LastError   string          `json:"last_error"`
+	AvailableAt time.Time       `json:"available_at"`
+	ClaimedAt   sql.NullTime    `json:"claimed_at"`
+	ClaimedBy   string          `json:"claimed_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+	SentAt      sql.NullTime    `json:"sent_at"`
+}
+
+type SysPaymentEvent struct {
+	ID          int64           `json:"id"`
+	Provider    string          `json:"provider"`
+	EventID     string          `json:"event_id"`
+	EventType   string          `json:"event_type"`
+	TenantID    uint64          `json:"tenant_id"`
+	Payload     json.RawMessage `json:"payload"`
+	Status      string          `json:"status"`
+	Attempts    int32           `json:"attempts"`
+	LastError   string          `json:"last_error"`
+	ReceivedAt  time.Time       `json:"received_at"`
+	ProcessedAt sql.NullTime    `json:"processed_at"`
+}
+
+type SysPlan struct {
+	ID          int64     `json:"id"`
+	Code        string    `json:"code"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Status      int16     `json:"status"`
+	Sort        int32     `json:"sort"`
+	Version     int32     `json:"version"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type SysPlanEntitlement struct {
+	ID               int64     `json:"id"`
+	PlanID           uint64    `json:"plan_id"`
+	EntitlementKey   string    `json:"entitlement_key"`
+	EntitlementValue string    `json:"entitlement_value"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type SysPlanVersion struct {
+	ID        int64           `json:"id"`
+	PlanID    uint64          `json:"plan_id"`
+	Version   int32           `json:"version"`
+	Snapshot  json.RawMessage `json:"snapshot"`
+	CreatedBy uint64          `json:"created_by"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type SysPlatformOperator struct {
+	UserID    uint64    `json:"user_id"`
+	GrantedBy uint64    `json:"granted_by"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type SysPlugin struct {
@@ -313,6 +407,7 @@ type SysPluginMigration struct {
 
 type SysPosition struct {
 	ID        int64        `json:"id"`
+	TenantID  uint64       `json:"tenant_id"`
 	Code      string       `json:"code"`
 	Name      string       `json:"name"`
 	Sort      int32        `json:"sort"`
@@ -324,24 +419,26 @@ type SysPosition struct {
 }
 
 type SysRefreshToken struct {
-	ID           int64        `json:"id"`
-	UserID       uint64       `json:"user_id"`
-	TokenHash    string       `json:"token_hash"`
-	FamilyID     string       `json:"family_id"`
-	DeviceID     string       `json:"device_id"`
-	DeviceName   string       `json:"device_name"`
-	LoginMethod  string       `json:"login_method"`
-	Ip           string       `json:"ip"`
-	UserAgent    string       `json:"user_agent"`
-	ExpiresAt    time.Time    `json:"expires_at"`
-	LastUsedAt   sql.NullTime `json:"last_used_at"`
-	RevokedAt    sql.NullTime `json:"revoked_at"`
-	RevokeReason string       `json:"revoke_reason"`
-	CreatedAt    time.Time    `json:"created_at"`
+	ID           int64         `json:"id"`
+	UserID       uint64        `json:"user_id"`
+	TenantID     sql.NullInt64 `json:"tenant_id"`
+	TokenHash    string        `json:"token_hash"`
+	FamilyID     string        `json:"family_id"`
+	DeviceID     string        `json:"device_id"`
+	DeviceName   string        `json:"device_name"`
+	LoginMethod  string        `json:"login_method"`
+	Ip           string        `json:"ip"`
+	UserAgent    string        `json:"user_agent"`
+	ExpiresAt    time.Time     `json:"expires_at"`
+	LastUsedAt   sql.NullTime  `json:"last_used_at"`
+	RevokedAt    sql.NullTime  `json:"revoked_at"`
+	RevokeReason string        `json:"revoke_reason"`
+	CreatedAt    time.Time     `json:"created_at"`
 }
 
 type SysRole struct {
 	ID        int64        `json:"id"`
+	TenantID  uint64       `json:"tenant_id"`
 	Code      string       `json:"code"`
 	Name      string       `json:"name"`
 	DataScope string       `json:"data_scope"`
@@ -355,17 +452,20 @@ type SysRole struct {
 }
 
 type SysRoleDepartment struct {
+	TenantID     uint64 `json:"tenant_id"`
 	RoleID       uint64 `json:"role_id"`
 	DepartmentID uint64 `json:"department_id"`
 }
 
 type SysRoleMenu struct {
-	RoleID uint64 `json:"role_id"`
-	MenuID uint64 `json:"menu_id"`
+	TenantID uint64 `json:"tenant_id"`
+	RoleID   uint64 `json:"role_id"`
+	MenuID   uint64 `json:"menu_id"`
 }
 
 type SysScheduledJob struct {
 	ID             int64                 `json:"id"`
+	TenantID       uint64                `json:"tenant_id"`
 	Name           string                `json:"name"`
 	Code           string                `json:"code"`
 	Handler        string                `json:"handler"`
@@ -403,12 +503,113 @@ type SysStorageConfig struct {
 	DeletedAt          sql.NullTime   `json:"deleted_at"`
 }
 
+type SysTenant struct {
+	ID          int64        `json:"id"`
+	Code        string       `json:"code"`
+	Name        string       `json:"name"`
+	Status      int16        `json:"status"`
+	Remark      string       `json:"remark"`
+	PurgeAfter  sql.NullTime `json:"purge_after"`
+	PurgeStatus string       `json:"purge_status"`
+	Slug        string       `json:"slug"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	DeletedAt   sql.NullTime `json:"deleted_at"`
+}
+
+type SysTenantDomain struct {
+	ID         int64        `json:"id"`
+	TenantID   uint64       `json:"tenant_id"`
+	Host       string       `json:"host"`
+	VerifiedAt sql.NullTime `json:"verified_at"`
+	IsPrimary  int16        `json:"is_primary"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+}
+
+type SysTenantEntitlement struct {
+	TenantID   uint64    `json:"tenant_id"`
+	FeatureKey string    `json:"feature_key"`
+	Enabled    bool      `json:"enabled"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type SysTenantImpersonation struct {
+	ID           int64        `json:"id"`
+	TenantID     uint64       `json:"tenant_id"`
+	ActorUserID  uint64       `json:"actor_user_id"`
+	TargetUserID uint64       `json:"target_user_id"`
+	Reason       string       `json:"reason"`
+	StartedAt    time.Time    `json:"started_at"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	EndedAt      sql.NullTime `json:"ended_at"`
+	CreatedAt    time.Time    `json:"created_at"`
+}
+
+type SysTenantInvite struct {
+	ID            int64         `json:"id"`
+	TenantID      uint64        `json:"tenant_id"`
+	Email         string        `json:"email"`
+	RoleIds       []uint64      `json:"role_ids"`
+	DepartmentID  sql.NullInt64 `json:"department_id"`
+	IsTenantAdmin int16         `json:"is_tenant_admin"`
+	TokenHash     string        `json:"token_hash"`
+	Status        string        `json:"status"`
+	InvitedBy     uint64        `json:"invited_by"`
+	AcceptedBy    sql.NullInt64 `json:"accepted_by"`
+	ExpiresAt     time.Time     `json:"expires_at"`
+	AcceptedAt    sql.NullTime  `json:"accepted_at"`
+	CreatedAt     time.Time     `json:"created_at"`
+}
+
+type SysTenantMember struct {
+	TenantID           uint64        `json:"tenant_id"`
+	UserID             uint64        `json:"user_id"`
+	DepartmentID       sql.NullInt64 `json:"department_id"`
+	IsTenantAdmin      int16         `json:"is_tenant_admin"`
+	IsPlatformOperator bool          `json:"is_platform_operator"`
+	Status             int16         `json:"status"`
+	CreatedAt          time.Time     `json:"created_at"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+}
+
+type SysTenantQuotum struct {
+	TenantID   uint64    `json:"tenant_id"`
+	QuotaKey   string    `json:"quota_key"`
+	LimitValue uint64    `json:"limit_value"`
+	UsedValue  uint64    `json:"used_value"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type SysTenantSubscription struct {
+	ID            int64           `json:"id"`
+	TenantID      uint64          `json:"tenant_id"`
+	PlanID        uint64          `json:"plan_id"`
+	Status        string          `json:"status"`
+	StartedAt     time.Time       `json:"started_at"`
+	EndedAt       sql.NullTime    `json:"ended_at"`
+	TrialEndsAt   sql.NullTime    `json:"trial_ends_at"`
+	GraceEndsAt   sql.NullTime    `json:"grace_ends_at"`
+	PlanVersionID sql.NullInt64   `json:"plan_version_id"`
+	PlanSnapshot  json.RawMessage `json:"plan_snapshot"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
 type SysTranslation struct {
 	ID        int64     `json:"id"`
 	EntityKey string    `json:"entity_key"`
 	Lang      string    `json:"lang"`
 	Value     string    `json:"value"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type SysUsageCounter struct {
+	TenantID  uint64    `json:"tenant_id"`
+	QuotaKey  string    `json:"quota_key"`
+	PeriodKey string    `json:"period_key"`
+	UsedValue uint64    `json:"used_value"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -450,6 +651,7 @@ type SysUserIdentity struct {
 }
 
 type SysUserNotifyPref struct {
+	TenantID  uint64    `json:"tenant_id"`
 	UserID    uint64    `json:"user_id"`
 	Channel   string    `json:"channel"`
 	Enabled   int16     `json:"enabled"`
@@ -457,12 +659,14 @@ type SysUserNotifyPref struct {
 }
 
 type SysUserPosition struct {
+	TenantID   uint64    `json:"tenant_id"`
 	UserID     uint64    `json:"user_id"`
 	PositionID uint64    `json:"position_id"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
 type SysUserRole struct {
+	TenantID  uint64    `json:"tenant_id"`
 	UserID    uint64    `json:"user_id"`
 	RoleID    uint64    `json:"role_id"`
 	CreatedAt time.Time `json:"created_at"`
@@ -470,6 +674,7 @@ type SysUserRole struct {
 
 type SysWebhook struct {
 	ID                  int64           `json:"id"`
+	TenantID            uint64          `json:"tenant_id"`
 	Name                string          `json:"name"`
 	Url                 string          `json:"url"`
 	SecretEncrypted     string          `json:"secret_encrypted"`

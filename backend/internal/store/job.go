@@ -8,12 +8,14 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
 // ScheduledJob is one sys_scheduled_job row. The database stays the source of truth for the admin UI; jobs-runner mirrors it into asynq.
 type ScheduledJob struct {
 	ID             uint64          `json:"id"`
+	TenantID       uint64          `json:"tenantId"`
 	Name           string          `json:"name"`
 	Code           string          `json:"code"`
 	Handler        string          `json:"handler"`
@@ -67,7 +69,7 @@ func mapJobFromList(row sqlcstore.ListJobsRow) ScheduledJob {
 
 func mapJobFromEnabled(row sqlcstore.ListEnabledJobsRow) ScheduledJob {
 	return ScheduledJob{
-		ID: uint64(row.ID), Name: row.Name, Code: row.Code, Handler: row.Handler,
+		ID: uint64(row.ID), TenantID: row.TenantID, Name: row.Name, Code: row.Code, Handler: row.Handler,
 		CronExpression: row.CronExpression, Payload: rawFromNull(row.Payload),
 		TimeoutSeconds: int(row.TimeoutSeconds), MaxRetries: int(row.MaxRetries),
 		Status: int8(row.Status), LastRunAt: nullTimePtr(row.LastRunAt), NextRunAt: nullTimePtr(row.NextRunAt),
@@ -98,13 +100,33 @@ func (r *AuthRepository) ListJobs(ctx context.Context) ([]ScheduledJob, error) {
 	return items, nil
 }
 
-// JobByID loads one scheduled job by primary key.
-func (r *AuthRepository) JobByID(ctx context.Context, jobID uint64) (ScheduledJob, error) {
-	row, err := r.queries.GetJobByID(ctx, int64(jobID))
+// withSession runs fn on a transaction that carries the tenant session from ctx.
+func (r *AuthRepository) withSession(ctx context.Context, fn func(*sqlcstore.Queries) error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ScheduledJob{}, err
+		return err
 	}
-	return mapJobFromGet(row), nil
+	defer func() { _ = tx.Rollback() }()
+	if err := fn(r.qtx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// JobByID loads one scheduled job by primary key.
+// The read runs in a transaction so row-level security sees the caller's tenant
+// (or the bypass flag, which jobs-runner sets).
+func (r *AuthRepository) JobByID(ctx context.Context, jobID uint64) (ScheduledJob, error) {
+	var job ScheduledJob
+	err := r.withSession(ctx, func(q *sqlcstore.Queries) error {
+		row, err := q.GetJobByID(ctx, int64(jobID))
+		if err != nil {
+			return err
+		}
+		job = mapJobFromGet(row)
+		return nil
+	})
+	return job, err
 }
 
 func jobPayload(value json.RawMessage) pqtype.NullRawMessage {
@@ -154,22 +176,32 @@ func (r *AuthRepository) DeleteJob(ctx context.Context, jobID uint64) error {
 }
 
 // ListEnabledJobs returns the jobs the reconciler has to register with the scheduler.
+// The scheduler is process-wide, so the read bypasses tenant filters.
 func (r *AuthRepository) ListEnabledJobs(ctx context.Context) ([]ScheduledJob, error) {
-	rows, err := r.queries.ListEnabledJobs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]ScheduledJob, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, mapJobFromEnabled(row))
-	}
-	return items, nil
+	ctx = ctxkey.WithRLSBypass(ctx, true)
+	var items []ScheduledJob
+	err := r.withSession(ctx, func(q *sqlcstore.Queries) error {
+		rows, err := q.ListEnabledJobs(ctx)
+		if err != nil {
+			return err
+		}
+		items = make([]ScheduledJob, 0, len(rows))
+		for _, row := range rows {
+			items = append(items, mapJobFromEnabled(row))
+		}
+		return nil
+	})
+	return items, err
 }
 
 // UpdateJobNextRunAt records when the scheduler will fire the job next, so the list can show it.
+// The scheduler writes this for every tenant, so the update bypasses tenant filters.
 func (r *AuthRepository) UpdateJobNextRunAt(ctx context.Context, jobID uint64, next time.Time) error {
-	return r.queries.UpdateJobNextRunAt(ctx, sqlcstore.UpdateJobNextRunAtParams{
-		NextRunAt: sql.NullTime{Time: next, Valid: true}, ID: int64(jobID),
+	ctx = ctxkey.WithRLSBypass(ctx, true)
+	return r.withSession(ctx, func(q *sqlcstore.Queries) error {
+		return q.UpdateJobNextRunAt(ctx, sqlcstore.UpdateJobNextRunAtParams{
+			NextRunAt: sql.NullTime{Time: next, Valid: true}, ID: int64(jobID),
+		})
 	})
 }
 
@@ -198,25 +230,36 @@ func (r *AuthRepository) LatestJobLogSince(ctx context.Context, jobID uint64, tr
 }
 
 // StartJobLog opens an attempt row before the handler runs.
+// Worker bookkeeping bypasses tenant filters: the runner is not inside one tenant.
 func (r *AuthRepository) StartJobLog(ctx context.Context, jobID uint64, triggerType string, attempt int) (uint64, error) {
-	id, err := r.queries.StartJobLog(ctx, sqlcstore.StartJobLogParams{
-		JobID: jobID, TriggerType: triggerType, Attempt: int32(attempt),
+	ctx = ctxkey.WithRLSBypass(ctx, true)
+	var id int64
+	err := r.withSession(ctx, func(q *sqlcstore.Queries) error {
+		var insertErr error
+		id, insertErr = q.StartJobLog(ctx, sqlcstore.StartJobLogParams{
+			JobID: jobID, TriggerType: triggerType, Attempt: int32(attempt),
+		})
+		return insertErr
 	})
 	return uint64(id), err
 }
 
 // FinishJobLog closes an attempt and stamps the job's last_run_at. The stamp is best effort: the attempt result is the record that matters.
 func (r *AuthRepository) FinishJobLog(ctx context.Context, jobID, logID uint64, success bool, output, errorMessage string) error {
-	err := r.queries.FinishJobLog(ctx, sqlcstore.FinishJobLogParams{
-		Success:      nullBoolSmallInt(success),
-		Output:       sql.NullString{String: output, Valid: true},
-		ErrorMessage: sql.NullString{String: errorMessage, Valid: true},
-		ID:           int64(logID), JobID: jobID,
+	ctx = ctxkey.WithRLSBypass(ctx, true)
+	return r.withSession(ctx, func(q *sqlcstore.Queries) error {
+		err := q.FinishJobLog(ctx, sqlcstore.FinishJobLogParams{
+			Success:      nullBoolSmallInt(success),
+			Output:       sql.NullString{String: output, Valid: true},
+			ErrorMessage: sql.NullString{String: errorMessage, Valid: true},
+			ID:           int64(logID), JobID: jobID,
+		})
+		if err != nil {
+			return err
+		}
+		_ = q.TouchJobLastRunAt(ctx, int64(jobID))
+		return nil
 	})
-	if err == nil {
-		_ = r.queries.TouchJobLastRunAt(ctx, int64(jobID))
-	}
-	return err
 }
 
 // ListJobLogs returns one page of attempts for one job plus the total count.

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"strings"
@@ -8,11 +9,24 @@ import (
 
 	"github.com/sqlc-dev/pqtype"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
 func (r *AuthRepository) qtx(tx *Tx) *sqlcstore.Queries {
 	return r.queries.WithTx(tx.Tx)
+}
+
+// tenantFilter renders the request tenant as a nullable SQL parameter. A zero
+// tenant is the platform view: the query's tenant clause is skipped. Tenant
+// handlers always have a tenant on ctx, so the platform case only applies to
+// startup, bootstrap, and platform-console code.
+func tenantFilter(ctx context.Context) sql.NullInt64 {
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	if tenantID == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(tenantID), Valid: true}
 }
 
 func smallIntBool(v int16) bool { return v != 0 }

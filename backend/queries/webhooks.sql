@@ -6,6 +6,15 @@ FROM sys_webhook
 WHERE deleted_at IS NULL
 ORDER BY id DESC;
 
+-- name: ListEnabledWebhooks :many
+-- Delivery only. Secrets stay encrypted; tenant RLS applies when the session is set.
+SELECT id, name, url, secret_encrypted, events,
+  COALESCE(headers_encrypted, '') AS headers_encrypted, allow_private_network, timeout_seconds, max_retries,
+  status, last_success_at, last_failure_at, created_at, updated_at
+FROM sys_webhook
+WHERE deleted_at IS NULL AND status = 1
+ORDER BY id;
+
 -- name: GetWebhookByID :one
 SELECT id, name, url, secret_encrypted, events,
   COALESCE(headers_encrypted, '') AS headers_encrypted, allow_private_network, timeout_seconds, max_retries,

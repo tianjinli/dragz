@@ -12,4 +12,8 @@
 # Build context: repository root (see docker-compose*.yml).
 FROM postgres:16-alpine
 
+# 001 creates the schema as the initdb superuser; 002 creates the three runtime
+# identities and hands the schema to the migration role. Order matters: the
+# grants in 002 address the tables 001 already created.
 COPY backend/migrations/001_system_init.sql /docker-entrypoint-initdb.d/001_system_init.sql
+COPY deploy/postgres-init/002_roles.sql /docker-entrypoint-initdb.d/002_roles.sql

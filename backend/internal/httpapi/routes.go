@@ -14,18 +14,22 @@ import (
 func Routes() []plugin.Route {
 	return []plugin.Route{
 		// ---- public ----
-		{Method: http.MethodPost, Path: "/api/auth/login", Public: true, Handler: loginHandler},
-		{Method: http.MethodGet, Path: "/api/auth/captcha", Public: true, Handler: captchaIssueHandler},
+		{Method: http.MethodPost, Path: "/api/auth/login", Public: true, RateLimit: loginRateLimit, Handler: loginHandler},
+		{Method: http.MethodGet, Path: "/api/auth/captcha", Public: true, RateLimit: loginRateLimit, Handler: captchaIssueHandler},
 		{Method: http.MethodGet, Path: "/api/auth/login-challenge", Public: true, Handler: loginChallengeHandler},
-		{Method: http.MethodPost, Path: "/api/auth/refresh", Public: true, Handler: refreshHandler},
+		{Method: http.MethodPost, Path: "/api/auth/refresh", Public: true, RateLimit: 60, Handler: refreshHandler},
 		// Cookie-based: must stay public so an expired access token still ends the session.
 		{Method: http.MethodPost, Path: "/api/auth/logout", Public: true, Handler: logoutHandler},
 		{Method: http.MethodGet, Path: "/api/auth/providers", Public: true, Handler: publicAuthProvidersHandler},
 		{Method: http.MethodGet, Path: "/api/auth/oauth/:id/start", Public: true, Handler: startOAuthHandler},
 		{Method: http.MethodGet, Path: "/api/auth/oauth/:id/callback", Public: true, Handler: oauthCallbackHandler},
-		{Method: http.MethodPost, Path: "/api/auth/oauth/exchange", Public: true, Handler: exchangeOAuthHandler},
+		{Method: http.MethodPost, Path: "/api/auth/oauth/exchange", Public: true, RateLimit: loginRateLimit, Handler: exchangeOAuthHandler},
 		{Method: http.MethodGet, Path: "/api/health", Public: true, Handler: healthHandlerAdapter},
 		{Method: http.MethodGet, Path: "/api/ready", Public: true, Handler: readyHandler},
+		// Prometheus scrape, same exposure model as /api/health: read by a
+		// scraper on the internal network, and answering 404 unless
+		// metrics.enabled is on.
+		{Method: http.MethodGet, Path: "/api/metrics", Public: true, Handler: metricsHandler},
 		{Method: http.MethodGet, Path: "/api/system/files/:id/content", Public: true, Handler: publicFileContentHandler},
 
 		// ---- auth / profile (login only) ----
@@ -195,6 +199,87 @@ func Routes() []plugin.Route {
 		{Method: http.MethodPut, Path: "/api/system/notification-prefs", FeatureKey: "feature.notice.enabled", Handler: putNotifyPrefsHandler},
 		{Method: http.MethodPost, Path: "/api/system/notifications/test", Permission: "system:notice:manage", FeatureKey: "feature.notice.enabled", Handler: testNotificationHandler},
 		{Method: http.MethodGet, Path: "/api/ws", Public: true, Handler: wsHandler},
+
+		// Login-only: reissue the access token for a tenant the caller belongs to.
+		{Method: http.MethodPost, Path: "/api/auth/switch-tenant", Handler: switchTenantHandler},
+
+		// Platform operator console. requirePlatform allows a platform operator
+		// or a super administrator and does not create a permission button.
+		{Method: http.MethodGet, Path: "/api/platform/tenants", Platform: true, Handler: listPlatformTenantsHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants", Platform: true, AuditPermission: "platform", Handler: createPlatformTenantHandler},
+		{Method: http.MethodPut, Path: "/api/platform/tenants/:id/status", Platform: true, AuditPermission: "platform", Handler: updatePlatformTenantStatusHandler},
+		{Method: http.MethodGet, Path: "/api/platform/plans", Platform: true, Handler: listPlatformPlansHandler},
+		{Method: http.MethodPut, Path: "/api/platform/tenants/:id/subscription", Platform: true, AuditPermission: "platform", Handler: updatePlatformSubscriptionHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/impersonate", Platform: true, AuditPermission: "platform", Handler: impersonatePlatformTenantHandler},
+		{Method: http.MethodGet, Path: "/api/platform/tenants/:id/invoices", Platform: true, Handler: listPlatformTenantInvoicesHandler},
+		{Method: http.MethodGet, Path: "/api/platform/invoices", Platform: true, Handler: listPlatformInvoicesHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/export", Platform: true, AuditPermission: "platform", Handler: exportPlatformTenantHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/schedule-purge", Platform: true, AuditPermission: "platform", Handler: schedulePlatformPurgeHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/cancel-purge", Platform: true, AuditPermission: "platform", Handler: cancelPlatformPurgeHandler},
+		{Method: http.MethodPost, Path: "/api/platform/plans", Platform: true, AuditPermission: "platform", Handler: createPlatformPlanHandler},
+		{Method: http.MethodPut, Path: "/api/platform/plans/:id", Platform: true, AuditPermission: "platform", Handler: updatePlatformPlanHandler},
+		{Method: http.MethodPut, Path: "/api/platform/plans/:id/status", Platform: true, AuditPermission: "platform", Handler: updatePlatformPlanStatusHandler},
+		// Login only: any member of the current tenant can read their own bill.
+		{Method: http.MethodGet, Path: "/api/billing/summary", Handler: billingSummaryHandler},
+
+		// Open API for third-party callers. authenticate rejects JWTs on
+		// /api/open/; guard checks OpenScopes against the token. Scopes are
+		// free-form strings on the token (see createAPITokenHandler).
+		// GETs set Audit false so a future non-GET copy stays quiet too.
+		// These routes are metered: meterOpenAPI counts one api_calls usage
+		// row per call and enforces the tenant's api_calls_per_day quota.
+		{Method: http.MethodGet, Path: "/api/open/v1/me", OpenScopes: []string{openScopeMe}, Audit: &openSkipAudit, Handler: openMeHandler},
+		{Method: http.MethodGet, Path: "/api/open/v1/tenant", OpenScopes: []string{openScopeTenant}, Audit: &openSkipAudit, Handler: openTenantHandler},
+		{Method: http.MethodGet, Path: "/api/open/v1/ping", OpenScopes: []string{openScopePing}, Audit: &openSkipAudit, Handler: openPingHandler},
+
+		// Public: the login page reads the host tenant before anyone signs in.
+		{Method: http.MethodGet, Path: "/api/auth/tenant-context", Public: true, Handler: tenantContextHandler},
+		{Method: http.MethodPut, Path: "/api/platform/tenants/:id/slug", Platform: true, AuditPermission: "platform", Handler: setPlatformTenantSlugHandler},
+		{Method: http.MethodGet, Path: "/api/platform/tenants/:id/domains", Platform: true, Handler: listPlatformTenantDomainsHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/domains", Platform: true, AuditPermission: "platform", Handler: addPlatformTenantDomainHandler},
+		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/domains/:domainId/verify", Platform: true, AuditPermission: "platform", Handler: verifyPlatformTenantDomainHandler},
+		{Method: http.MethodDelete, Path: "/api/platform/tenants/:id/domains/:domainId", Platform: true, AuditPermission: "platform", Handler: removePlatformTenantDomainHandler},
+
+		// ---- self-service signup ----
+		// Public by design: the whole point is that nobody has an account yet.
+		// The feature switch (feature.signup.enabled) is checked in the handler,
+		// and the limiter keeps a signup flood from creating tenants in bulk.
+		{Method: http.MethodGet, Path: "/api/auth/signup-status", Public: true, Handler: signupStatusHandler},
+		{Method: http.MethodPost, Path: "/api/auth/register", Public: true, RateLimit: 5, Handler: registerHandler},
+
+		// Invitation links are resolved before the visitor signs in, so the page
+		// can name the tenant they are joining. Accepting needs a session: the
+		// account is what the membership is attached to.
+		{Method: http.MethodGet, Path: "/api/auth/invites/:token", Public: true, RateLimit: sensitiveRateLimit, Handler: invitePreviewHandler},
+		{Method: http.MethodPost, Path: "/api/auth/invites/:token/accept", RateLimit: sensitiveRateLimit, Handler: acceptInviteHandler},
+
+		// ---- tenant membership ----
+		// Membership has its own page (system_member): a member is a global
+		// account with a tenant-scoped membership row, an invitation, a role set
+		// and a seat. Hanging these buttons under the user page would let a
+		// tenant administrator grant "invite" to someone who cannot see the
+		// member list.
+		{Method: http.MethodGet, Path: "/api/tenant/members", Permission: "system:member:query", MenuCode: "system_member", Handler: listMembersHandler},
+		{Method: http.MethodPut, Path: "/api/tenant/members/:id", Permission: "system:member:update", MenuCode: "system_member", Handler: updateMemberHandler},
+		{Method: http.MethodDelete, Path: "/api/tenant/members/:id", Permission: "system:member:delete", MenuCode: "system_member", Handler: removeMemberHandler},
+		{Method: http.MethodGet, Path: "/api/tenant/invites", Permission: "system:member:query", MenuCode: "system_member", Handler: listInvitesHandler},
+		{Method: http.MethodPost, Path: "/api/tenant/invites", Permission: "system:member:invite", MenuCode: "system_member", Handler: createInviteHandler},
+		{Method: http.MethodDelete, Path: "/api/tenant/invites/:id", Permission: "system:member:invite", MenuCode: "system_member", Handler: deleteInviteHandler},
+
+		// ---- platform staff ----
+		// The directory is what replaced the membership flag. Only platform
+		// staff can edit it, and the gate does not create permission buttons.
+		{Method: http.MethodGet, Path: "/api/platform/operators", Platform: true, Handler: listPlatformOperatorsHandler},
+		{Method: http.MethodPost, Path: "/api/platform/operators", Platform: true, AuditPermission: "platform", Handler: grantPlatformOperatorHandler},
+		{Method: http.MethodDelete, Path: "/api/platform/operators/:id", Platform: true, AuditPermission: "platform", Handler: revokePlatformOperatorHandler},
+
+		// ---- usage metering ----
+		{Method: http.MethodGet, Path: "/api/billing/usage", Handler: billingUsageHandler},
+
+		// Payment provider callback. Public because the provider has no session;
+		// the signature is the credential, and the (provider, event id) pair
+		// makes a retry idempotent.
+		{Method: http.MethodPost, Path: "/api/billing/webhook/:provider", Public: true, RateLimit: 300, Handler: paymentWebhookHandler},
 	}
 }
 
@@ -207,25 +292,37 @@ func healthHandlerAdapter(*app.Context) http.HandlerFunc { return healthHandler(
 func Hooks(ctx *app.Context) plugin.Hooks {
 	return plugin.Hooks{
 		Localize:     localizeHook(ctx),
+		HostTenant:   hostTenantHook(ctx),
 		Authenticate: func(next http.HandlerFunc) http.HandlerFunc { return authenticate(ctx, next) },
+		Tenant:       tenantHook(ctx),
 		Audit:        func(route plugin.Route, next http.HandlerFunc) http.HandlerFunc { return auditRoute(ctx, route, next) },
 		Guard:        func(route plugin.Route, next http.HandlerFunc) http.HandlerFunc { return guard(ctx, route, next) },
+		RateLimit:    rateLimitHook(ctx),
 		Gate:         func(pluginID string, next http.HandlerFunc) http.HandlerFunc { return pluginGate(ctx, pluginID, next) },
 	}
 }
 
-// guard reproduces the current nesting exactly: permission OUTER, feature
-// INNER (requirePermission(ctx, code, requireFeature(ctx, key, handler))).
+// guard nests wrappers so the last wrap runs first: open scope, platform,
+// permission, then feature. Feature stays innermost, matching
+// requirePermission(ctx, code, requireFeature(ctx, key, handler)).
 func guard(ctx *app.Context, route plugin.Route, next http.HandlerFunc) http.HandlerFunc {
 	if route.FeatureKey != "" {
 		next = requireFeature(ctx, route.FeatureKey, next)
 	}
 	switch {
 	case len(route.AnyOf) > 0:
-		return requireAnyPermission(ctx, route.AnyOf, next)
+		next = requireAnyPermission(ctx, route.AnyOf, next)
 	case route.Permission != "":
-		return requirePermission(ctx, route.Permission, next)
-	default:
-		return next
+		next = requirePermission(ctx, route.Permission, next)
 	}
+	if route.Platform {
+		next = requirePlatform(ctx, next)
+	}
+	if len(route.OpenScopes) > 0 {
+		next = requireOpenScope(route.OpenScopes, next)
+		// Metering sits inside the scope check: a rejected token must not
+		// consume the tenant's billed API calls.
+		next = meterOpenAPI(ctx, next)
+	}
+	return next
 }

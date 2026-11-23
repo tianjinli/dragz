@@ -28,7 +28,9 @@ UPDATE sys_notice SET status = 'published',
 WHERE id = $2 AND deleted_at IS NULL AND status = 'draft';
 
 -- name: ListDueNoticesForNotify :many
-SELECT id, title, notice_type, priority, content, publish_at, published_by
+-- tenant_id travels with the row because the realtime push is tenant-scoped:
+-- a socket only receives events for the tenant it authenticated into.
+SELECT id, tenant_id, title, notice_type, priority, content, publish_at, published_by
 FROM sys_notice
 WHERE deleted_at IS NULL
   AND status = 'published'

@@ -11,6 +11,7 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 
 	"dragz-admin/backend/internal/app"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/store"
 )
@@ -103,7 +104,9 @@ func publishNoticeHandler(ctx *app.Context) http.HandlerFunc {
 			return
 		}
 		publisherID, _ := currentUserID(r.Context())
-		if err := ctx.Auth.PublishNotice(r.Context(), id, publisherID); err != nil {
+		tenantID, _ := ctxkey.TenantIDFrom(r.Context())
+		body, _ := json.Marshal(map[string]any{"noticeId": id, "publishedBy": publisherID})
+		if err := ctx.Auth.PublishNoticeWithOutbox(r.Context(), id, publisherID, tenantID, "notice.published", body); err != nil {
 			writeNoticeError(w, r, err)
 			return
 		}

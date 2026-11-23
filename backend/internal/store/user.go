@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
@@ -104,6 +105,7 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 		departmentIDs = uint64SliceOrEmpty(filter.Scope.DepartmentIDs)
 	}
 	params := sqlcstore.CountUsersFilteredParams{
+		TenantID:       tenantFilter(ctx),
 		KeywordPattern: optionalPattern(filter.Keyword),
 		DepartmentID:   optionalUint64Null(filter.DepartmentID),
 		Status:         optionalInt16(filter.Status),
@@ -117,6 +119,7 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 	}
 	rows, err := r.queries.ListUsersFiltered(ctx, sqlcstore.ListUsersFilteredParams{
 		Limit: int32(filter.PageSize), Offset: int32((filter.Page - 1) * filter.PageSize),
+		TenantID:       params.TenantID,
 		KeywordPattern: params.KeywordPattern, DepartmentID: params.DepartmentID, Status: params.Status,
 		ScopeAll: params.ScopeAll, SelfUserID: params.SelfUserID, DepartmentIds: params.DepartmentIds,
 	})
@@ -142,7 +145,9 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 
 // UserDetail loads one user together with its role and position assignments.
 func (r *AuthRepository) UserDetail(ctx context.Context, userID uint64) (UserDetail, error) {
-	row, err := r.queries.GetUserDetail(ctx, int64(userID))
+	row, err := r.queries.GetUserDetail(ctx, sqlcstore.GetUserDetailParams{
+		ID: int64(userID), TenantID: tenantFilter(ctx),
+	})
 	if err != nil {
 		return UserDetail{}, err
 	}
@@ -165,15 +170,37 @@ func (r *AuthRepository) UserDetail(ctx context.Context, userID uint64) (UserDet
 	return detail, err
 }
 
-// CreateUser inserts the account and its role/position assignments in one transaction.
+// CreateUser inserts the account, its role/position assignments, and the
+// tenant membership in one transaction.
+//
+// Seat metering happens inside that transaction: a tenant that meters seats
+// cannot create another member once the quota is full, and a later failure in
+// the same transaction gives the seat back. Tenants without a seats quota row
+// are unlimited.
+//
+// sys_user is a global account row; sys_tenant_member is what makes the account
+// visible inside one tenant. Writing the member row here is what stops a new
+// user from being created globally and then belonging to nobody.
 func (r *AuthRepository) CreateUser(ctx context.Context, input SaveUserInput) (uint64, error) {
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Bind the transaction to ctx so every helper below — including the quota
+	// consumption, which reads and writes sys_tenant_quota through the tenant
+	// repository — runs on this transaction instead of the pool.
+	txCtx := ctxkey.WithTx(ctx, tx.Tx)
+
+	if tenantID != 0 {
+		if err := NewTenantRepository(r.db).ConsumeQuotaIfConfigured(txCtx, tenantID, "seats", 1); err != nil {
+			return 0, err
+		}
+	}
+
 	q := r.qtx(tx)
-	userID, err := q.CreateUser(ctx, sqlcstore.CreateUserParams{
+	userID, err := q.CreateUser(txCtx, sqlcstore.CreateUserParams{
 		DepartmentID: ptrUint64Null(input.DepartmentID), Username: input.Username,
 		PasswordHash: input.PasswordHash, DisplayName: input.DisplayName, Email: input.Email,
 		Mobile: input.Mobile, Gender: int16(input.Gender), Status: int16(input.Status),
@@ -182,13 +209,59 @@ func (r *AuthRepository) CreateUser(ctx context.Context, input SaveUserInput) (u
 	if err != nil {
 		return 0, wrapDuplicate(err)
 	}
-	if err := replaceUserRelations(ctx, q, uint64(userID), input.RoleIDs, input.PositionIDs); err != nil {
+	if err := replaceUserRelations(txCtx, q, uint64(userID), input.RoleIDs, input.PositionIDs); err != nil {
 		return 0, err
+	}
+	if tenantID != 0 {
+		if err := addTenantMember(txCtx, tx, tenantID, uint64(userID), input.DepartmentID,
+			ctxkey.PlatformOperatorFrom(ctx)); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return uint64(userID), nil
+}
+
+// addTenantMember links a global account to one tenant. It is idempotent so a
+// retried create cannot fail on the (tenant_id, user_id) primary key.
+func addTenantMember(ctx context.Context, tx *Tx, tenantID, userID uint64, departmentID *uint64, platformOperator bool) error {
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status)
+VALUES ($1, $2, $3, 0, $4, 1)
+ON CONFLICT (tenant_id, user_id) DO UPDATE
+SET department_id = EXCLUDED.department_id,
+    is_platform_operator = EXCLUDED.is_platform_operator,
+    status = 1,
+    updated_at = NOW()`,
+		tenantID, userID, ptrUint64Null(departmentID), platformOperator)
+	return err
+}
+
+// requireTenantMember rejects work on an account that is not an active member of
+// the caller's tenant.
+//
+// sys_user is a global account table: the row carries no tenant_id and is not
+// protected by row-level security. An id alone must therefore never authorise a
+// write, otherwise one tenant's administrator could edit, disable, or reset the
+// password of another tenant's account by guessing an id. A zero tenant means
+// the platform view and is allowed.
+func (r *AuthRepository) requireTenantMember(ctx context.Context, q *sqlcstore.Queries, userID uint64) error {
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	if tenantID == 0 {
+		return nil
+	}
+	ok, err := q.IsTenantMember(ctx, sqlcstore.IsTenantMemberParams{
+		TenantID: tenantID, UserID: userID,
+	})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // UpdateUser rewrites the profile and the assignments in one transaction, and revokes refresh tokens when the account is disabled.
@@ -199,6 +272,9 @@ func (r *AuthRepository) UpdateUser(ctx context.Context, userID uint64, input Sa
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
+	if err := r.requireTenantMember(ctx, q, userID); err != nil {
+		return err
+	}
 	affected, err := q.UpdateUser(ctx, sqlcstore.UpdateUserParams{
 		DepartmentID: ptrUint64Null(input.DepartmentID), DisplayName: input.DisplayName,
 		Email: input.Email, Mobile: input.Mobile, Gender: int16(input.Gender),
@@ -214,6 +290,9 @@ func (r *AuthRepository) UpdateUser(ctx context.Context, userID uint64, input Sa
 	if err := replaceUserRelations(ctx, q, userID, input.RoleIDs, input.PositionIDs); err != nil {
 		return err
 	}
+	if err := r.syncMemberDepartment(ctx, q, userID, input.DepartmentID); err != nil {
+		return err
+	}
 	if input.Status != 1 {
 		if err := q.RevokeAllUserRefreshTokens(ctx, sqlcstore.RevokeAllUserRefreshTokensParams{
 			RevokeReason: "user disabled", UserID: userID,
@@ -224,6 +303,19 @@ func (r *AuthRepository) UpdateUser(ctx context.Context, userID uint64, input Sa
 	return tx.Commit()
 }
 
+// syncMemberDepartment keeps the membership row's department in step with the
+// account. The member row is what tenant-scoped department queries read.
+func (r *AuthRepository) syncMemberDepartment(ctx context.Context, q *sqlcstore.Queries, userID uint64, departmentID *uint64) error {
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	if tenantID == 0 {
+		return nil
+	}
+	err := q.UpdateTenantMemberDepartment(ctx, sqlcstore.UpdateTenantMemberDepartmentParams{
+		TenantID: tenantID, UserID: userID, DepartmentID: ptrUint64Null(departmentID),
+	})
+	return err
+}
+
 // UpdateUserStatus enables or disables an account and revokes its refresh tokens when disabling.
 func (r *AuthRepository) UpdateUserStatus(ctx context.Context, userID uint64, status int8) error {
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -232,6 +324,9 @@ func (r *AuthRepository) UpdateUserStatus(ctx context.Context, userID uint64, st
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
+	if err := r.requireTenantMember(ctx, q, userID); err != nil {
+		return err
+	}
 	affected, err := q.UpdateUserStatus(ctx, sqlcstore.UpdateUserStatusParams{
 		Status: int16(status), ID: int64(userID),
 	})
@@ -251,7 +346,13 @@ func (r *AuthRepository) UpdateUserStatus(ctx context.Context, userID uint64, st
 	return tx.Commit()
 }
 
-// DeleteUser soft deletes an account and revokes its refresh tokens. The built-in administrator is protected by the query's WHERE clause.
+// DeleteUser removes the account from the caller's tenant and revokes its
+// sessions. The built-in administrator is protected by the query's WHERE clause.
+//
+// sys_user is shared by every tenant the account belongs to, so the membership
+// row goes first and the account itself is only soft deleted once no tenant
+// claims it. Deleting the global row from one tenant would silently take the
+// account away from all the others.
 func (r *AuthRepository) DeleteUser(ctx context.Context, userID uint64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -259,17 +360,38 @@ func (r *AuthRepository) DeleteUser(ctx context.Context, userID uint64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
+	if err := r.requireTenantMember(ctx, q, userID); err != nil {
+		return err
+	}
+	if err := q.RevokeAllUserRefreshTokens(ctx, sqlcstore.RevokeAllUserRefreshTokensParams{
+		RevokeReason: "user deleted", UserID: userID,
+	}); err != nil {
+		return err
+	}
+	if tenantID, _ := ctxkey.TenantIDFrom(ctx); tenantID != 0 {
+		if _, err := q.DeleteTenantMember(ctx, sqlcstore.DeleteTenantMemberParams{
+			TenantID: tenantID, UserID: userID,
+		}); err != nil {
+			return err
+		}
+		if err := releaseQuota(ctx, q, tenantID, "seats", 1); err != nil {
+			return err
+		}
+		remaining, err := q.CountMembershipsForUser(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if remaining > 0 {
+			// Another tenant still owns this account; leave the global row alone.
+			return tx.Commit()
+		}
+	}
 	affected, err := q.SoftDeleteUser(ctx, int64(userID))
 	if err != nil {
 		return err
 	}
 	if affected != 1 {
 		return ErrUserProtected
-	}
-	if err := q.RevokeAllUserRefreshTokens(ctx, sqlcstore.RevokeAllUserRefreshTokensParams{
-		RevokeReason: "user deleted", UserID: userID,
-	}); err != nil {
-		return err
 	}
 	return tx.Commit()
 }
@@ -282,6 +404,9 @@ func (r *AuthRepository) ResetUserPassword(ctx context.Context, userID uint64, p
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
+	if err := r.requireTenantMember(ctx, q, userID); err != nil {
+		return err
+	}
 	affected, err := q.ResetUserPassword(ctx, sqlcstore.ResetUserPasswordParams{
 		PasswordHash: passwordHash, ID: int64(userID),
 	})
@@ -307,6 +432,9 @@ func (r *AuthRepository) ForceLogoutUser(ctx context.Context, userID uint64) err
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
+	if err := r.requireTenantMember(ctx, q, userID); err != nil {
+		return err
+	}
 	if err := q.BumpUserTokenVersion(ctx, int64(userID)); err != nil {
 		return err
 	}

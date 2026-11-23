@@ -12,6 +12,13 @@ func healthHandler() http.HandlerFunc {
 	}
 }
 
+// metricsHandler serves the Prometheus text exposition of the request meter.
+// The registry answers 404 itself when metrics.enabled is off, so this stays a
+// one-liner and there is no second place to check the switch.
+func metricsHandler(ctx *app.Context) http.HandlerFunc {
+	return ctx.Metrics.Handler()
+}
+
 func readyHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ctx.DB.PingContext(r.Context()); err != nil {

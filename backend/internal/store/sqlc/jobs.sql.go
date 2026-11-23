@@ -178,7 +178,7 @@ func (q *Queries) LatestJobLogSince(ctx context.Context, arg LatestJobLogSincePa
 }
 
 const listEnabledJobs = `-- name: ListEnabledJobs :many
-SELECT id, name, code, handler, cron_expression,
+SELECT id, tenant_id, name, code, handler, cron_expression,
   COALESCE(payload, '{}'::jsonb) AS payload, timeout_seconds, max_retries, status, last_run_at,
   next_run_at, created_at, updated_at
 FROM sys_scheduled_job
@@ -188,6 +188,7 @@ ORDER BY id
 
 type ListEnabledJobsRow struct {
 	ID             int64                 `json:"id"`
+	TenantID       uint64                `json:"tenant_id"`
 	Name           string                `json:"name"`
 	Code           string                `json:"code"`
 	Handler        string                `json:"handler"`
@@ -202,6 +203,8 @@ type ListEnabledJobsRow struct {
 	UpdatedAt      time.Time             `json:"updated_at"`
 }
 
+// tenant_id travels with the row: the scheduler is process-wide, and each
+// registered entry must fire inside the tenant that owns the job.
 func (q *Queries) ListEnabledJobs(ctx context.Context) ([]ListEnabledJobsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listEnabledJobs)
 	if err != nil {
@@ -213,6 +216,7 @@ func (q *Queries) ListEnabledJobs(ctx context.Context) ([]ListEnabledJobsRow, er
 		var i ListEnabledJobsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.TenantID,
 			&i.Name,
 			&i.Code,
 			&i.Handler,

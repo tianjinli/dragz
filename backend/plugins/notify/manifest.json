@@ -1,0 +1,9 @@
+{
+  "id": "notify",
+  "name": "外部通知通道",
+  "version": "0.1.0",
+  "description": "SMTP 邮件、阿里云短信、腾讯云短信：通道配置、消息模板、发送日志",
+  "dependsOn": ["system"],
+  "engineRange": ">=1.0.0 <2.0.0",
+  "components": ["/notify/index"]
+}

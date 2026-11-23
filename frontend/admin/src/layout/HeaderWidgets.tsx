@@ -1,4 +1,4 @@
-import { Avatar, Badge, Button, Dropdown, Empty, List, Popover, Space, Tooltip } from 'antd';
+import { Avatar, Badge, Button, Dropdown, Empty, List, message, Popover, Select, Space, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   Bell,
@@ -180,6 +180,8 @@ export function HeaderWidgets({
   const setLocale = useLocaleStore((state) => state.setLocale);
   const user = useAccessStore((state) => state.userInfo);
   const logout = useAuthStore((state) => state.logout);
+  const switchTenant = useAuthStore((state) => state.switchTenant);
+  const [switchingTenant, setSwitchingTenant] = useState(false);
   const inboxItems = useMessagesStore((state) => state.items);
   const unreadTotal = useMessagesStore((state) => state.unread.total);
   const markRead = useMessagesStore((state) => state.markRead);
@@ -356,6 +358,19 @@ export function HeaderWidgets({
 
   const displayName = user?.username || user?.realName || '';
   const description = user?.email || '';
+  const tenants = user?.tenants ?? [];
+  const onSwitchTenant = (tenantId: number) => {
+    if (!tenantId || tenantId === user?.tenantId) return;
+    setSwitchingTenant(true);
+    void switchTenant(tenantId)
+      .then(() => {
+        navigate(useAccessStore.getState().userInfo?.homePath || '/analytics', { replace: true });
+      })
+      .catch(() => {
+        void message.error(t('shell.switchTenantFailed'));
+      })
+      .finally(() => setSwitchingTenant(false));
+  };
 
   const dropdownItems: NonNullable<MenuProps['items']> = [
     { key: 'profile', icon: <UserRound size={15} />, label: t('profile'), onClick: () => navigate('/profile') },
@@ -415,6 +430,20 @@ export function HeaderWidgets({
   return (
     <Space align="center" className="header-widgets-inner" size={2}>
       {headerItems}
+      {tenants.length > 1 ? (
+        <Select
+          aria-label={t('shell.switchTenant')}
+          className="tenant-switcher"
+          disabled={switchingTenant}
+          loading={switchingTenant}
+          options={tenants.map((item) => ({ label: item.name || item.code, value: item.id }))}
+          popupMatchSelectWidth={false}
+          size="small"
+          value={user?.tenantId}
+          variant="borderless"
+          onChange={onSwitchTenant}
+        />
+      ) : null}
       <Dropdown
         getPopupContainer={() => document.body}
         menu={{ items: dropdownItems }}

@@ -84,7 +84,26 @@ func run(id, name string, withFrontend, withMigration bool) error {
 		if err := os.MkdirAll(migDir, 0o755); err != nil {
 			return err
 		}
-		sql := fmt.Sprintf("-- %s bootstrap table (optional; edit or add files as needed)\nCREATE TABLE IF NOT EXISTS %s (\n  id BIGSERIAL PRIMARY KEY,\n  name TEXT NOT NULL DEFAULT '',\n  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);\n", id, table)
+		sql := fmt.Sprintf(`-- %s bootstrap table.
+-- Plugin enable requires the host multitenant schema. app_rls_bypass,
+-- app_current_tenant_id, and app_fill_tenant_id are installed by the core
+-- multitenant migration; this file does not create them.
+CREATE TABLE IF NOT EXISTS %s (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL DEFAULT 1,
+  name TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE %s ENABLE ROW LEVEL SECURITY;
+ALTER TABLE %s FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON %s;
+CREATE POLICY tenant_isolation ON %s
+  USING (app_rls_bypass() OR tenant_id = app_current_tenant_id())
+  WITH CHECK (app_rls_bypass() OR tenant_id = app_current_tenant_id());
+DROP TRIGGER IF EXISTS trg_fill_tenant_id ON %s;
+CREATE TRIGGER trg_fill_tenant_id BEFORE INSERT ON %s
+  FOR EACH ROW EXECUTE FUNCTION app_fill_tenant_id();
+`, id, table, table, table, table, table, table, table)
 		if err := os.WriteFile(filepath.Join(migDir, "001_init.sql"), []byte(sql), 0o644); err != nil {
 			return err
 		}

@@ -9,10 +9,12 @@ import (
 )
 
 type fakePusher struct {
-	calls []any
+	tenants []uint64
+	calls   []any
 }
 
-func (p *fakePusher) Push(_ []uint64, payload any) error {
+func (p *fakePusher) Push(tenantID uint64, _ []uint64, payload any) error {
+	p.tenants = append(p.tenants, tenantID)
 	p.calls = append(p.calls, payload)
 	return nil
 }

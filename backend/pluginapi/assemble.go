@@ -21,7 +21,7 @@ type AssembleOptions struct {
 
 // AssembleResult summarizes what was written into the host tree.
 type AssembleResult struct {
-	Manifest Manifest
+	Manifest  Manifest
 	PluginDir string
 }
 

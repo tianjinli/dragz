@@ -11,6 +11,7 @@ import (
 
 	"dragz-admin/backend/internal/app"
 	"dragz-admin/backend/internal/noticenotify"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	"dragz-admin/backend/internal/store"
 )
 
@@ -159,7 +160,7 @@ func testNotificationHandler(ctx *app.Context) http.HandlerFunc {
 			return
 		}
 		if created {
-			pushEvent(ctx, []uint64{userID}, map[string]any{"type": "notification", "data": item})
+			pushEvent(ctx, r, []uint64{userID}, map[string]any{"type": "notification", "data": item})
 			pushUnread(ctx, r, userID)
 		}
 		ok(w, r, map[string]any{"id": item.ID, "created": created})
@@ -184,7 +185,7 @@ func notifyNoticeRevoked(ctx *app.Context, r *http.Request, noticeID uint64, aud
 	if ctx.WS == nil || len(audienceIDs) == 0 {
 		return
 	}
-	pushEvent(ctx, audienceIDs, map[string]any{
+	pushEvent(ctx, r, audienceIDs, map[string]any{
 		"type": "notice_revoked",
 		"data": map[string]any{"id": noticeID},
 	})
@@ -201,15 +202,23 @@ func pushUnread(ctx *app.Context, r *http.Request, userIDs ...uint64) {
 			logx.Errorf("unread counts for %d: %v", userID, err)
 			continue
 		}
-		pushEvent(ctx, []uint64{userID}, map[string]any{"type": "unread", "data": counts})
+		pushEvent(ctx, r, []uint64{userID}, map[string]any{"type": "unread", "data": counts})
 	}
 }
 
-func pushEvent(ctx *app.Context, userIDs []uint64, payload any) {
+// pushEvent delivers a realtime event inside the request's tenant. The tenant
+// comes from ctx rather than from the caller so no handler can accidentally
+// address another tenant's sockets.
+func pushEvent(ctx *app.Context, r *http.Request, userIDs []uint64, payload any) {
 	if ctx == nil || ctx.WS == nil || len(userIDs) == 0 {
 		return
 	}
-	if err := ctx.WS.Push(userIDs, payload); err != nil {
+	tenantID, _ := ctxkey.TenantIDFrom(r.Context())
+	if tenantID == 0 {
+		logx.Errorf("notification push skipped: no tenant on request")
+		return
+	}
+	if err := ctx.WS.Push(tenantID, userIDs, payload); err != nil {
 		logx.Errorf("notification push: %v", err)
 	}
 }

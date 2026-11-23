@@ -121,5 +121,21 @@ func syncPermissionMenus(ctx context.Context, tx *Tx, buttons []menuperm.Button)
 	if err := q.GrantAllButtonsToSystemRole(ctx); err != nil {
 		return fmt.Errorf("grant permissions to the super administrator role: %w", err)
 	}
+	// Every tenant's built-in administrator role means "all menus". Re-granting
+	// on boot is what makes a newly shipped permission button usable in tenants
+	// that were provisioned before it existed; without it an upgrade would
+	// silently lock tenant administrators out of the new feature.
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
+SELECT r.tenant_id, r.id, m.id
+FROM sys_role r
+CROSS JOIN sys_menu m
+WHERE r.code = 'tenant_admin'
+  AND r.deleted_at IS NULL
+  AND m.deleted_at IS NULL
+  AND m.status = 1
+ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("grant permission buttons to tenant administrator roles: %w", err)
+	}
 	return nil
 }

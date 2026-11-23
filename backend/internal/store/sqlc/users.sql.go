@@ -82,21 +82,29 @@ func (q *Queries) CountActiveUsers(ctx context.Context) (int64, error) {
 const countUsersFiltered = `-- name: CountUsersFiltered :one
 SELECT COUNT(*) FROM sys_user u
 WHERE u.deleted_at IS NULL
-  AND ($1::text IS NULL OR (
-    u.username LIKE $1
-    OR u.display_name LIKE $1
-    OR u.mobile LIKE $1))
-  AND ($2::bigint IS NULL OR u.department_id = $2)
-  AND ($3::smallint IS NULL OR u.status = $3)
   AND (
-    $4::boolean
-    OR ($5::bigint IS NOT NULL AND u.id = $5)
-    OR (cardinality(COALESCE($6::bigint[], '{}'::bigint[])) > 0
-        AND u.department_id = ANY(COALESCE($6::bigint[], '{}'::bigint[])))
+    $1::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = $1 AND m.status = 1
+    )
+  )
+  AND ($2::text IS NULL OR (
+    u.username LIKE $2
+    OR u.display_name LIKE $2
+    OR u.mobile LIKE $2))
+  AND ($3::bigint IS NULL OR u.department_id = $3)
+  AND ($4::smallint IS NULL OR u.status = $4)
+  AND (
+    $5::boolean
+    OR ($6::bigint IS NOT NULL AND u.id = $6)
+    OR (cardinality(COALESCE($7::bigint[], '{}'::bigint[])) > 0
+        AND u.department_id = ANY(COALESCE($7::bigint[], '{}'::bigint[])))
   )
 `
 
 type CountUsersFilteredParams struct {
+	TenantID       sql.NullInt64  `json:"tenant_id"`
 	KeywordPattern sql.NullString `json:"keyword_pattern"`
 	DepartmentID   sql.NullInt64  `json:"department_id"`
 	Status         sql.NullInt16  `json:"status"`
@@ -105,8 +113,12 @@ type CountUsersFilteredParams struct {
 	DepartmentIds  []uint64       `json:"department_ids"`
 }
 
+// Tenant membership is part of the filter, not a wrapper around it: sys_user is
+// a global table, so without this clause a tenant administrator would count
+// every account on the platform. A NULL tenant_id keeps the platform view.
 func (q *Queries) CountUsersFiltered(ctx context.Context, arg CountUsersFilteredParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countUsersFiltered,
+		arg.TenantID,
 		arg.KeywordPattern,
 		arg.DepartmentID,
 		arg.Status,
@@ -357,7 +369,19 @@ SELECT u.id, u.department_id, COALESCE(d.name, '') AS department_name,
 FROM sys_user u
 LEFT JOIN sys_department d ON d.id = u.department_id AND d.deleted_at IS NULL
 WHERE u.id = $1 AND u.deleted_at IS NULL
+  AND (
+    $2::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = $2 AND m.status = 1
+    )
+  )
 `
+
+type GetUserDetailParams struct {
+	ID       int64         `json:"id"`
+	TenantID sql.NullInt64 `json:"tenant_id"`
+}
 
 type GetUserDetailRow struct {
 	ID                 int64         `json:"id"`
@@ -378,8 +402,11 @@ type GetUserDetailRow struct {
 	Remark             string        `json:"remark"`
 }
 
-func (q *Queries) GetUserDetail(ctx context.Context, id int64) (GetUserDetailRow, error) {
-	row := q.db.QueryRowContext(ctx, getUserDetail, id)
+// sys_user is global, so the tenant boundary is membership. A non-null
+// tenant_id limits the row to an active member of that tenant; a NULL
+// tenant_id is the platform view.
+func (q *Queries) GetUserDetail(ctx context.Context, arg GetUserDetailParams) (GetUserDetailRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserDetail, arg.ID, arg.TenantID)
 	var i GetUserDetailRow
 	err := row.Scan(
 		&i.ID,
@@ -629,17 +656,24 @@ SELECT u.id, u.department_id, COALESCE(d.name, '') AS department_name,
 FROM sys_user u
 LEFT JOIN sys_department d ON d.id = u.department_id AND d.deleted_at IS NULL
 WHERE u.deleted_at IS NULL
-  AND ($3::text IS NULL OR (
-    u.username LIKE $3
-    OR u.display_name LIKE $3
-    OR u.mobile LIKE $3))
-  AND ($4::bigint IS NULL OR u.department_id = $4)
-  AND ($5::smallint IS NULL OR u.status = $5)
   AND (
-    $6::boolean
-    OR ($7::bigint IS NOT NULL AND u.id = $7)
-    OR (cardinality(COALESCE($8::bigint[], '{}'::bigint[])) > 0
-        AND u.department_id = ANY(COALESCE($8::bigint[], '{}'::bigint[])))
+    $3::bigint IS NULL
+    OR EXISTS (
+      SELECT 1 FROM sys_tenant_member m
+      WHERE m.user_id = u.id AND m.tenant_id = $3 AND m.status = 1
+    )
+  )
+  AND ($4::text IS NULL OR (
+    u.username LIKE $4
+    OR u.display_name LIKE $4
+    OR u.mobile LIKE $4))
+  AND ($5::bigint IS NULL OR u.department_id = $5)
+  AND ($6::smallint IS NULL OR u.status = $6)
+  AND (
+    $7::boolean
+    OR ($8::bigint IS NOT NULL AND u.id = $8)
+    OR (cardinality(COALESCE($9::bigint[], '{}'::bigint[])) > 0
+        AND u.department_id = ANY(COALESCE($9::bigint[], '{}'::bigint[])))
   )
 ORDER BY u.id DESC
 LIMIT $1 OFFSET $2
@@ -648,6 +682,7 @@ LIMIT $1 OFFSET $2
 type ListUsersFilteredParams struct {
 	Limit          int32          `json:"limit"`
 	Offset         int32          `json:"offset"`
+	TenantID       sql.NullInt64  `json:"tenant_id"`
 	KeywordPattern sql.NullString `json:"keyword_pattern"`
 	DepartmentID   sql.NullInt64  `json:"department_id"`
 	Status         sql.NullInt16  `json:"status"`
@@ -688,6 +723,7 @@ func (q *Queries) ListUsersFiltered(ctx context.Context, arg ListUsersFilteredPa
 	rows, err := q.db.QueryContext(ctx, listUsersFiltered,
 		arg.Limit,
 		arg.Offset,
+		arg.TenantID,
 		arg.KeywordPattern,
 		arg.DepartmentID,
 		arg.Status,

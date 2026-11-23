@@ -70,6 +70,7 @@ bash deploy/reset.sh         # 清库重建
 
 - 管理后台 <http://127.0.0.1:5279>
 - 健康检查 <http://127.0.0.1:5280/api/health>
+- 指标（Prometheus 文本格式）<http://127.0.0.1:5280/api/metrics>，需在配置里打开 `Metrics.Enabled`
 - 默认账号 `admin` / `Dragz!7xZ`（首次登录强制改密）
 
 端口被占用时用 `deploy/ports.override.yml` 改映射，不要改仓库里的 compose。细节见 [deploy/README_CN.md](deploy/README_CN.md)。
@@ -111,6 +112,21 @@ pnpm typecheck && pnpm lint && pnpm check:i18n && pnpm test && pnpm build
 1. **三层单向依赖**：`plugins/ → platform/ → kernel/`。插件之间不互相 import，只通过 eventbus / platform 接口通信；kernel 和 platform 不认识任何具体插件。`scripts/check-imports.sh` 强制这一条。
 2. **权限码就是菜单按钮**：每个权限码是 `sys_menu` 里 `type='button'` 的一行，码存在 `code` 列。没有独立的接口权限表，也没有第二棵授权树。路由表是唯一真源，启动时自动同步按钮。
 3. **插件停用即 404**：路由闸门在认证**外层**，匿名请求拿到的响应与"路径不存在"逐字节相同。菜单在 SQL 层按插件裁剪，停用插件的码和页面一起消失。
+
+## SaaS 能力（多租户）
+
+共享库 + `tenant_id` 行级隔离，由 PostgreSQL RLS 强制执行（`app_current_tenant_id()` + `ENABLE/FORCE ROW LEVEL SECURITY`）；
+平台侧用独立身份（`BYPASSRLS`）读跨租户数据，三条连接身份在 `app.Context` 里分开持有。
+
+- **自助开通**：打开 `feature.signup.enabled` 后，`POST /api/auth/register` 在一个事务里建租户、根部门、管理员角色、试用订阅与套餐配额。默认关闭，没配置就不会暴露开放注册。
+- **邀请与成员**：邀请令牌只存 SHA-256，链接只在创建时展示一次；接受时校验邮箱、占用席位，重复接受幂等。成员与用户分离：`sys_user` 是全局账号，`sys_tenant_member` 是租户内身份。
+- **套餐快照**：`sys_plan.version` + `sys_plan_version.snapshot`，订阅落库时写 `plan_snapshot`。之后改目录不会追溯改变已售套餐。
+- **配额与计量**：`sys_tenant_quota` / `sys_usage_counter`。存储按字节、接口按天计量，超限分别返回 409 / 429。
+- **支付回调**：`POST /api/billing/webhook/:provider`，HMAC 验签（时间戳防重放）+ `(provider, event_id)` 幂等；覆盖付款成功、失败进入宽限、退款终止、续费恢复、取消。
+- **跨租户公平调度**：任务按租户分配并发槽位，超限延迟重排（有重排上限），单租户占不满队列。
+- **代码生成**：`go run ./cmd/gen-module` 产出的迁移与 store 自带 `tenant_id`、填充触发器与 FORCE RLS，新模块默认就是租户安全的。
+
+平台运营身份单独建模（`sys_platform_operator`），不是成员表上的一个标记：退出某个租户不等于失去平台权限。
 
 ## 插件模型（30 秒版）
 

@@ -21,9 +21,13 @@ func traceHooks(order *[]string, disabledPlugin string) plugin.Hooks {
 	}
 	return plugin.Hooks{
 		Localize: func(next http.HandlerFunc) http.HandlerFunc { return mark("localize", next) },
+		HostTenant: func(next http.HandlerFunc) http.HandlerFunc {
+			return mark("hostTenant", next)
+		},
 		Authenticate: func(next http.HandlerFunc) http.HandlerFunc {
 			return mark("authenticate", next)
 		},
+		Tenant: func(next http.HandlerFunc) http.HandlerFunc { return mark("tenant", next) },
 		Audit: func(_ plugin.Route, next http.HandlerFunc) http.HandlerFunc {
 			return mark("audit", next)
 		},
@@ -73,7 +77,7 @@ func TestWrapRouteProtectedChainOrder(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	want := []string{"localize", "gate", "authenticate", "audit", "guard", "handler"}
+	want := []string{"localize", "hostTenant", "gate", "authenticate", "tenant", "audit", "guard", "handler"}
 	if strings.Join(order, ">") != strings.Join(want, ">") {
 		t.Fatalf("chain order = %v, want %v", order, want)
 	}
@@ -95,7 +99,7 @@ func TestWrapRoutePublicSkipsAuthChain(t *testing.T) {
 
 	serve(t, bound, traceHooks(&order, ""))
 
-	want := []string{"localize", "gate", "handler"}
+	want := []string{"localize", "hostTenant", "gate", "handler"}
 	if strings.Join(order, ">") != strings.Join(want, ">") {
 		t.Fatalf("chain order = %v, want %v", order, want)
 	}
@@ -127,7 +131,7 @@ func TestWrapRouteDisabledPluginReturns404BeforeAuth(t *testing.T) {
 		t.Fatalf("body = %q, want the not-found envelope", rec.Body.String())
 	}
 	for _, name := range order {
-		if name == "authenticate" || name == "guard" || name == "audit" || name == "handler" {
+		if name == "authenticate" || name == "tenant" || name == "guard" || name == "audit" || name == "handler" {
 			t.Fatalf("chain ran %q after the gate blocked the request: %v", name, order)
 		}
 	}

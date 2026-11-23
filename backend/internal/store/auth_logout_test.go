@@ -16,6 +16,15 @@ RETURNING user_id`
 const bumpTokenVersionSQL = `UPDATE sys_user SET token_version = token_version + 1, updated_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL`
 
+func expectTenantSession(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(`SELECT set_config\('app\.tenant_id'`).
+		WithArgs("0").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`SELECT set_config\('app\.rls_bypass'`).
+		WithArgs("false").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 // Logout must retire the exact session row so ListSessionsFiltered stops
 // returning it, and must bump the user's token version in the same transaction
 // so the access token issued by that login stops working immediately.
@@ -28,6 +37,7 @@ func TestRevokeRefreshTokenRetiresSessionAndBumpsVersion(t *testing.T) {
 	mock.MatchExpectationsInOrder(false)
 
 	mock.ExpectBegin()
+	expectTenantSession(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(revokeByHashSQL)).
 		WithArgs("logout", "token-hash").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(42))
@@ -60,6 +70,7 @@ func TestRevokeRefreshTokenIsIdempotentWhenSessionAlreadyGone(t *testing.T) {
 	mock.MatchExpectationsInOrder(false)
 
 	mock.ExpectBegin()
+	expectTenantSession(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(revokeByHashSQL)).
 		WithArgs("logout", "stale-hash").
 		WillReturnError(sql.ErrNoRows)

@@ -1,14 +1,20 @@
 import { Dropdown } from 'antd';
-import { Check, Languages, Palette } from 'lucide-react';
+import { Check, InspectionPanel, Languages, Palette, PanelLeft, PanelRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Preferences } from '@/types';
 import { ThemeModeButton } from '@/components/ThemeModeButton';
 import { LOCALE_CODES } from '@/constants/locales';
-import { BUILT_IN_THEME_PRESETS, resolveThemePrimaryColor, usePreferencesStore } from '@/stores/preferences';
+import { PALETTE_THEME_PRESETS, resolveThemePrimaryColor, usePreferencesStore } from '@/stores/preferences';
 import { useLocaleStore } from '@/stores/locale';
 
-/** Login toolbar color strip — first 8 built-in presets (excludes custom). */
-const AUTH_COLOR_PRESETS = BUILT_IN_THEME_PRESETS.filter((preset) => preset.type !== 'custom').slice(0, 8);
+/** Login toolbar color strip — mainstream presets only (excludes custom). */
+const AUTH_COLOR_PRESETS = PALETTE_THEME_PRESETS.filter((preset) => preset.type !== 'custom');
+
+const AUTH_LAYOUT_OPTIONS = [
+  { icon: PanelLeft, label: 'layout.authLeft', value: 'panel-left' },
+  { icon: InspectionPanel, label: 'layout.authCenter', value: 'panel-center' },
+  { icon: PanelRight, label: 'layout.authRight', value: 'panel-right' },
+] as const;
 
 export function AuthToolbar() {
   const { t } = useTranslation();
@@ -30,9 +36,25 @@ export function AuthToolbar() {
     })),
   };
 
+  const currentLayout = AUTH_LAYOUT_OPTIONS.find((option) => option.value === prefs.app.authPageLayout) ?? AUTH_LAYOUT_OPTIONS[1];
+  const CurrentLayoutIcon = currentLayout.icon;
+  const layoutMenu = {
+    selectedKeys: [prefs.app.authPageLayout],
+    items: AUTH_LAYOUT_OPTIONS.map(({ icon: Icon, label, value }) => ({
+      icon: <Icon size={14} />,
+      key: value,
+      label: t(label),
+      onClick: () => selectLayout(value),
+    })),
+  };
+
   const selectTheme = (type: string) => {
     const nextTheme = { ...prefs.theme, builtinType: type };
     update({ theme: { builtinType: type, colorPrimary: resolveThemePrimaryColor({ ...prefs, theme: nextTheme }) } } as Partial<Preferences>);
+  };
+
+  const selectLayout = (value: Preferences['app']['authPageLayout']) => {
+    update({ app: { authPageLayout: value } } as Partial<Preferences>);
   };
 
   return (
@@ -61,6 +83,11 @@ export function AuthToolbar() {
             <Palette size={16} />
           </button>
         </div>
+        <Dropdown menu={layoutMenu} trigger={['click']}>
+          <button aria-label={t('layout.authLayout')} className="auth-icon-button auth-layout-button" title={t('layout.authLayout')} type="button">
+            <CurrentLayoutIcon size={16} />
+          </button>
+        </Dropdown>
       </div>
       {prefs.widget.languageToggle ? (
         <Dropdown menu={languageMenu} trigger={['click']}>

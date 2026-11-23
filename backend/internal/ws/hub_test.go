@@ -32,7 +32,7 @@ func TestHubPushDeliversLocallyAndSkipsOwnOrigin(t *testing.T) {
 	defer hub.Close()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hub.HandleHTTP(w, r, 7)
+		hub.HandleHTTP(w, r, 1, 7)
 	}))
 	defer server.Close()
 
@@ -56,7 +56,12 @@ func TestHubPushDeliversLocallyAndSkipsOwnOrigin(t *testing.T) {
 	}()
 
 	payload := map[string]any{"type": "notice", "id": float64(3)}
-	if err := hub.Push([]uint64{7, 7, 0}, payload); err != nil {
+	// Another tenant addressing the same user id must not reach this socket.
+	if err := hub.Push(2, []uint64{7}, payload); err != nil {
+		t.Fatalf("Push other tenant: %v", err)
+	}
+	expectQuiet(t, incoming)
+	if err := hub.Push(1, []uint64{7, 7, 0}, payload); err != nil {
 		t.Fatalf("Push: %v", err)
 	}
 	want, err := json.Marshal(payload)
@@ -69,11 +74,11 @@ func TestHubPushDeliversLocallyAndSkipsOwnOrigin(t *testing.T) {
 	}
 
 	published.mu.Lock()
-	if len(published.bodies) != 1 {
+	if len(published.bodies) != 2 {
 		published.mu.Unlock()
-		t.Fatalf("published %d envelopes, want 1", len(published.bodies))
+		t.Fatalf("published %d envelopes, want 2", len(published.bodies))
 	}
-	raw := append([]byte(nil), published.bodies[0]...)
+	raw := append([]byte(nil), published.bodies[len(published.bodies)-1]...)
 	published.mu.Unlock()
 
 	var env envelope
@@ -82,6 +87,9 @@ func TestHubPushDeliversLocallyAndSkipsOwnOrigin(t *testing.T) {
 	}
 	if env.Origin != hub.origin {
 		t.Fatalf("origin = %q, want %q", env.Origin, hub.origin)
+	}
+	if env.TenantID != 1 {
+		t.Fatalf("tenantId = %d, want 1", env.TenantID)
 	}
 	if len(env.UserIDs) != 1 || env.UserIDs[0] != 7 {
 		t.Fatalf("userIds = %v, want [7]", env.UserIDs)

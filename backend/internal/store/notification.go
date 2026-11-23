@@ -57,7 +57,7 @@ func (r *AuthRepository) CreateUserNotification(ctx context.Context, input SaveN
 	if err != nil {
 		return Notification{}, false, err
 	}
-	return notificationFrom(row), true, nil
+	return notificationFromRow(row.ID, row.UserID, row.Channel, row.Title, row.Content, row.BizType, row.BizID, row.ReadAt, row.CreatedAt), true, nil
 }
 
 // ListMyNotifications returns one page of a user's inbox.
@@ -79,7 +79,7 @@ func (r *AuthRepository) ListMyNotifications(ctx context.Context, userID uint64,
 	}
 	items := make([]Notification, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, notificationFrom(row))
+		items = append(items, notificationFromRow(row.ID, row.UserID, row.Channel, row.Title, row.Content, row.BizType, row.BizID, row.ReadAt, row.CreatedAt))
 	}
 	return items, total, nil
 }
@@ -92,7 +92,7 @@ func (r *AuthRepository) GetNotificationForUser(ctx context.Context, id, userID 
 	if err != nil {
 		return Notification{}, err
 	}
-	return notificationFrom(row), nil
+	return notificationFromRow(row.ID, row.UserID, row.Channel, row.Title, row.Content, row.BizType, row.BizID, row.ReadAt, row.CreatedAt), nil
 }
 
 // MarkNotificationRead stamps read_at. Marking an already-read row is a no-op;
@@ -179,10 +179,10 @@ func (r *AuthRepository) ListNoticeAudienceUserIDs(ctx context.Context, noticeID
 	return ids, nil
 }
 
-func notificationFrom(row sqlcstore.SysNotification) Notification {
+func notificationFromRow(id int64, userID uint64, channel, title, content, bizType, bizID string, readAt sql.NullTime, createdAt time.Time) Notification {
 	return Notification{
-		ID: uint64(row.ID), UserID: row.UserID, Channel: row.Channel, Title: row.Title,
-		Content: row.Content, BizType: row.BizType, BizID: row.BizID,
-		Read: row.ReadAt.Valid, ReadAt: nullTimePtr(row.ReadAt), CreatedAt: row.CreatedAt,
+		ID: uint64(id), UserID: userID, Channel: channel, Title: title,
+		Content: content, BizType: bizType, BizID: bizID,
+		Read: readAt.Valid, ReadAt: nullTimePtr(readAt), CreatedAt: createdAt,
 	}
 }

@@ -35,7 +35,7 @@ func TestAuthenticateAcceptsValidAccessToken(t *testing.T) {
 	defer db.Close()
 
 	tokens := security.NewTokenManager("test-secret", "dragz", 3600, 7200)
-	pair, err := tokens.Issue(42, "admin", 0)
+	pair, err := tokens.Issue(42, "admin", 0, 0)
 	if err != nil {
 		t.Fatalf("issue token: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestRequirePermissionDeniesWithoutPolicy(t *testing.T) {
 			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
 		}).AddRow(9, 1, "user", "hash", "User", "", "", 1, 0, 0, 0, nil, 0, nil))
 	mock.ExpectQuery("SELECT ur.role_id FROM sys_user_role").
-		WithArgs(uint64(9)).
+		WithArgs(uint64(9), uint64(0)).
 		WillReturnRows(sqlmock.NewRows([]string{"role_id"}).AddRow(3))
 
 	handler := requirePermission(ctx, "system:user:query", func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func TestRequirePermissionUsesCasbinPolicy(t *testing.T) {
 			"status", "is_super_admin", "must_change_password", "failed_login_count", "locked_until", "token_version", "avatar_file_id",
 		}).AddRow(7, 1, "operator", "hash", "Operator", "", "", 1, 0, 0, 0, nil, 0, nil))
 	mock.ExpectQuery("SELECT ur.role_id FROM sys_user_role").
-		WithArgs(uint64(7)).
+		WithArgs(uint64(7), uint64(0)).
 		WillReturnRows(sqlmock.NewRows([]string{"role_id"}).AddRow(5))
 
 	handler := requirePermission(ctx, "system:user:query", func(w http.ResponseWriter, r *http.Request) {

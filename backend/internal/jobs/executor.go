@@ -10,6 +10,7 @@ import (
 	"dragz-admin/backend/internal/noticenotify"
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
+	"dragz-admin/backend/platform/eventbus"
 )
 
 // ExecutionResult is the outcome of one job attempt: whether it succeeded, how many attempts were used, and the truncated output or error.
@@ -26,6 +27,8 @@ type Executor struct {
 	db      *store.DB
 	Secrets *security.SecretBox
 	WS      noticenotify.Pusher
+	Tenants *store.TenantRepository
+	Bus     *eventbus.Bus
 }
 
 // NewExecutor binds the executor to the repository, the database handle and the secret box the storage handlers need.
@@ -36,6 +39,18 @@ func NewExecutor(repo *store.AuthRepository, db *store.DB, secrets *security.Sec
 // WithWS attaches a realtime pusher so notice delivery jobs can fan out over Redis.
 func (e *Executor) WithWS(push noticenotify.Pusher) *Executor {
 	e.WS = push
+	return e
+}
+
+// WithTenants attaches the tenant repository the outbox relay reads.
+func (e *Executor) WithTenants(tenants *store.TenantRepository) *Executor {
+	e.Tenants = tenants
+	return e
+}
+
+// WithBus attaches the process event bus the outbox relay publishes on.
+func (e *Executor) WithBus(bus *eventbus.Bus) *Executor {
+	e.Bus = bus
 	return e
 }
 
@@ -50,6 +65,7 @@ func (e *Executor) ExecuteOnce(parent context.Context, job store.ScheduledJob, t
 	runContext, cancel := context.WithTimeout(parent, timeout)
 	output, runErr := RunHandler(runContext, HandlerEnv{
 		DB: e.db, Repo: e.repo, Secrets: e.Secrets, WS: e.WS,
+		Tenants: e.Tenants, Bus: e.Bus,
 	}, job)
 	cancel()
 	if len(output) > 64*1024 {

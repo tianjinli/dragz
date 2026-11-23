@@ -24,6 +24,10 @@ func TestRoutesGolden(t *testing.T) {
 		route := bound.Route
 		auth := "-"
 		switch {
+		case route.Platform:
+			auth = "platform"
+		case len(route.OpenScopes) > 0:
+			auth = strings.Join(route.OpenScopes, ",")
 		case route.Permission != "":
 			auth = route.Permission
 		case len(route.AnyOf) > 0:

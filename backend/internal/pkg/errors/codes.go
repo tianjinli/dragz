@@ -24,6 +24,11 @@ const (
 	CodeAccountDisabled = 40301
 	// CodeForbidden is a missing permission code.
 	CodeForbidden = 40300
+	// CodeTenantForbidden means the caller is not a member of the requested tenant.
+	CodeTenantForbidden = 40320
+	// CodeTenantHostMismatch means the host resolved to one tenant and the
+	// token is acting inside a different one.
+	CodeTenantHostMismatch = 40920
 	// CodeNotFound is a missing or soft-deleted row.
 	CodeNotFound = 40401
 	// CodeConflict is a state conflict, such as editing a notice that is already published.
@@ -34,6 +39,9 @@ const (
 	CodeProtected = 40904
 	// CodeLocked is a resource held by another operation.
 	CodeLocked = 42301
+	// CodeRateLimited means the caller exceeded the request budget for the route.
+	// The response carries Retry-After.
+	CodeRateLimited = 42900
 	// CodeFeatureDisabled is a feature switched off by configuration.
 	CodeFeatureDisabled = 50301
 	// CodeInternal is an unhandled server-side failure.

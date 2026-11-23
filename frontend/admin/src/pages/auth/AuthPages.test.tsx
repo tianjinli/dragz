@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   loginChallengeApi: vi.fn(),
   issueCaptchaApi: vi.fn(),
   publicAuthProvidersApi: vi.fn(),
+  getTenantContextApi: vi.fn(),
   login: vi.fn(),
   navigate: vi.fn(),
   success: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/api/auth', () => ({
   exchangeOAuthApi: vi.fn(),
+  getTenantContextApi: mocks.getTenantContextApi,
   issueCaptchaApi: mocks.issueCaptchaApi,
   loginChallengeApi: mocks.loginChallengeApi,
   publicAuthProvidersApi: mocks.publicAuthProvidersApi,
@@ -94,6 +96,7 @@ describe('LoginPage 滑块验证', () => {
     mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: true });
     mocks.issueCaptchaApi.mockImplementation(() => Promise.resolve(captchaResult()));
     mocks.publicAuthProvidersApi.mockResolvedValue([]);
+    mocks.getTenantContextApi.mockResolvedValue({ resolved: false, tenantId: 0, slug: '', name: '' });
     mocks.login.mockResolvedValue('/analytics');
   });
 
@@ -125,6 +128,9 @@ describe('LoginPage 滑块验证', () => {
     expect(screen.getByRole('slider')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('请输入密码')).toBeInTheDocument();
     expect(screen.getByText('安全验证')).toBeInTheDocument();
+    expect(screen.queryByText('Dragz 安全验证')).not.toBeInTheDocument();
+    expect(document.querySelector('.auth-slide-captcha-handle svg')).toBeInTheDocument();
+    expect(document.querySelector('.auth-slide-captcha-hint')).toHaveClass('is-shimmer');
     expect(mocks.login).not.toHaveBeenCalled();
   });
 
@@ -139,18 +145,62 @@ describe('LoginPage 滑块验证', () => {
     expect(mocks.error).toHaveBeenCalledWith('用户名或密码错误');
   });
 
-  it('验证码错误时停留在模态框并换新图', async () => {
+  it('验证码验证失败时图片下方内联显示失败,延时换新图', async () => {
     mocks.login.mockRejectedValueOnce({
-      response: { data: { code: 40002, message: '验证错误', data: { captchaRequired: true } } },
+      response: {
+        data: {
+          code: 40002,
+          message: '滑块验证失败，请刷新验证码后重试',
+          data: { captchaRequired: true, captchaError: 'invalid' },
+        },
+      },
+    });
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    await waitFor(() => expect(document.querySelector('.auth-slide-captcha-hint.is-error')).toHaveTextContent('验证未通过，请重试'));
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('slider')).toBeInTheDocument();
+    expect(mocks.info).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(REMEMBER_ME_KEY)).toBeNull();
+  });
+
+  it('服务端判定失效时遮住图片与滑块,不弹提示,点击遮罩刷新', async () => {
+    mocks.login.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 40002,
+          message: '验证码已失效，请刷新验证码后重试',
+          data: { captchaRequired: true, captchaError: 'expired' },
+        },
+      },
+    });
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    const mask = await screen.findByRole('button', { name: '验证码已失效，点击刷新' });
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(1);
+    fireEvent.click(mask);
+    await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: '验证码已失效，点击刷新' })).not.toBeInTheDocument();
+  });
+
+  it('未提交验证码时提示完成验证', async () => {
+    mocks.login.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 40002,
+          message: '请完成滑块验证',
+          data: { captchaRequired: true, captchaError: 'required' },
+        },
+      },
     });
     await renderLogin();
     drag(screen.getByRole('slider'), 0, 60);
     await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('slider')).toBeInTheDocument();
-    expect(mocks.error).toHaveBeenCalledWith('验证错误');
-    expect(mocks.info).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(REMEMBER_ME_KEY)).toBeNull();
+    expect(mocks.error).toHaveBeenCalledWith('请完成滑块验证');
   });
 
   it('账号密码为空时点「登录」不签发验证码', async () => {
@@ -176,6 +226,31 @@ describe('LoginPage 滑块验证', () => {
     }));
   });
 
+  it('滑块可拖到最右端,右缘与轨道齐平', async () => {
+    await renderLogin();
+    const handle = screen.getByRole('slider');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 262, pointerId: 1 });
+    expect(handle).toHaveAttribute('aria-valuenow', '262');
+    expect(parseFloat(handle.style.left) + parseFloat(handle.style.width)).toBe(300);
+    fireEvent.pointerUp(handle, { clientX: 262, pointerId: 1 });
+    await waitFor(() => expect(mocks.login).toHaveBeenCalledWith(expect.objectContaining({ captchaCode: '262' })));
+  });
+
+  it('验证中与验证成功状态叠在拼图图片上', async () => {
+    let resolveLogin: (value: string) => void = () => {};
+    mocks.login.mockImplementationOnce(() => new Promise<string>((resolve) => { resolveLogin = resolve; }));
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    const verifying = await screen.findByRole('status');
+    expect(verifying).toHaveClass('is-verifying');
+    expect(verifying.textContent).toContain('正在验证，请稍候');
+    expect(verifying.closest('.auth-slide-captcha-stage')).not.toBeNull();
+    resolveLogin('/analytics');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveClass('is-success'));
+    expect(screen.getByText('验证通过').closest('.auth-slide-captcha-stage')).not.toBeNull();
+  });
+
   it('未拖动松手不提交登录', async () => {
     await renderLogin();
     drag(screen.getByRole('slider'), 10, 10);
@@ -197,16 +272,21 @@ describe('LoginPage 滑块验证', () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/analytics', { replace: true }), { timeout: 3000 });
   });
 
-  it('验证码过期时阻止提交并自动刷新', async () => {
+  it('本地过期时遮住图片与滑块,点击遮罩才刷新', async () => {
     let currentTime = 1000;
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => currentTime);
     await renderLogin();
     currentTime += 500_000;
     expect(nowSpy).toHaveBeenCalled();
     drag(screen.getByRole('slider'), 0, 60);
-    await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
+    const mask = await screen.findByRole('button', { name: '验证码已失效，点击刷新' });
+    expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(1);
     expect(mocks.login).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
     expect(mocks.info).not.toHaveBeenCalled();
+    fireEvent.click(mask);
+    await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: '验证码已失效，点击刷新' })).not.toBeInTheDocument();
   });
 
   it('锁定状态下退回表单且「登录」按钮禁用', async () => {
@@ -223,6 +303,25 @@ describe('LoginPage 滑块验证', () => {
     drag(screen.getByRole('slider'), 0, 60);
     await waitFor(() => expect(screen.getByTestId('login-submit')).toBeDisabled());
     expect(screen.getByPlaceholderText('请输入密码')).toHaveValue('pass1234');
+  });
+
+  it('无验证码模式锁定后整条滑块带禁用遮罩', async () => {
+    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: false });
+    mocks.login.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 42301,
+          message: '密码错误次数过多',
+          data: { kind: 'lock', lockedUntil: new Date(Date.now() + 60_000).toISOString() },
+        },
+      },
+    });
+    render(<LoginPage />);
+    await fillCredentials();
+    const handle = await screen.findByRole('slider');
+    drag(handle, 0, 260);
+    await waitFor(() => expect(handle.parentElement).toHaveClass('is-disabled'));
+    expect(handle).toBeDisabled();
   });
 
   it('账号被锁定后换成其他账号，登录按钮恢复可用', async () => {

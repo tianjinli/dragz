@@ -206,7 +206,7 @@ func (q *Queries) InsertRoleMenu(ctx context.Context, arg InsertRoleMenuParams) 
 }
 
 const listCasbinPolicies = `-- name: ListCasbinPolicies :many
-SELECT rm.role_id, m.code
+SELECT rm.role_id, r.tenant_id, m.code
 FROM sys_role_menu rm
 INNER JOIN sys_menu m ON m.id = rm.menu_id
 INNER JOIN sys_role r ON r.id = rm.role_id
@@ -221,8 +221,9 @@ ORDER BY rm.role_id, m.code
 `
 
 type ListCasbinPoliciesRow struct {
-	RoleID uint64 `json:"role_id"`
-	Code   string `json:"code"`
+	RoleID   uint64 `json:"role_id"`
+	TenantID uint64 `json:"tenant_id"`
+	Code     string `json:"code"`
 }
 
 // Casbin policies are the granted button nodes, mirroring
@@ -236,7 +237,7 @@ func (q *Queries) ListCasbinPolicies(ctx context.Context) ([]ListCasbinPoliciesR
 	items := []ListCasbinPoliciesRow{}
 	for rows.Next() {
 		var i ListCasbinPoliciesRow
-		if err := rows.Scan(&i.RoleID, &i.Code); err != nil {
+		if err := rows.Scan(&i.RoleID, &i.TenantID, &i.Code); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

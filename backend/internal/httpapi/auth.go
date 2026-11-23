@@ -1,5 +1,5 @@
 // Package httpapi is the HTTP layer: route declarations, thin handlers, and
-// the middleware chain (localize, plugin gate, authenticate, audit, guard).
+// the middleware chain (localize, plugin gate, authenticate, tenant, audit, guard).
 package httpapi
 
 import (
@@ -52,21 +52,23 @@ type tokenResponse struct {
 }
 
 type profileResponse struct {
-	ID                 uint64   `json:"id"`
-	UserID             string   `json:"userId"`
-	Username           string   `json:"username"`
-	RealName           string   `json:"realName"`
-	Email              string   `json:"email"`
-	Mobile             string   `json:"mobile"`
-	Avatar             string   `json:"avatar"`
-	DepartmentName     string   `json:"departmentName"`
-	Roles              []string `json:"roles"`
-	RoleNames          []string `json:"roleNames"`
-	Permissions        []string `json:"permissions"`
-	HomePath           string   `json:"homePath"`
-	IsSuperAdmin       bool     `json:"isSuperAdmin"`
-	MustChangePassword bool     `json:"mustChangePassword"`
-	PasswordMinLength  int      `json:"passwordMinLength"`
+	ID                 uint64          `json:"id"`
+	UserID             string          `json:"userId"`
+	Username           string          `json:"username"`
+	RealName           string          `json:"realName"`
+	Email              string          `json:"email"`
+	Mobile             string          `json:"mobile"`
+	Avatar             string          `json:"avatar"`
+	DepartmentName     string          `json:"departmentName"`
+	Roles              []string        `json:"roles"`
+	RoleNames          []string        `json:"roleNames"`
+	Permissions        []string        `json:"permissions"`
+	HomePath           string          `json:"homePath"`
+	IsSuperAdmin       bool            `json:"isSuperAdmin"`
+	MustChangePassword bool            `json:"mustChangePassword"`
+	PasswordMinLength  int             `json:"passwordMinLength"`
+	TenantID           uint64          `json:"tenantId"`
+	Tenants            []profileTenant `json:"tenants"`
 }
 
 type routeNode struct {
@@ -121,11 +123,18 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 		if needCaptcha {
 			if verifyErr := verifyAndConsumeCaptcha(ctx, r.Context(), req.CaptchaID, req.CaptchaCode); verifyErr != nil {
 				msg := "errors.captcha_required"
+				reason := "required"
 				if errors.Is(verifyErr, errCaptchaInvalid) {
 					msg = "errors.captcha_invalid"
+					reason = "invalid"
+				} else if errors.Is(verifyErr, errCaptchaExpired) {
+					msg = "errors.captcha_expired"
+					reason = "expired"
 				}
 				until := time.Now().Add(loginFailureCoolDown)
-				failData(w, r, http.StatusBadRequest, 40002, msg, newLoginLockData(until, loginFailureCoolDown, false, failedCountHint, securitySettings.MaxAttempts, true))
+				lockData := newLoginLockData(until, loginFailureCoolDown, false, failedCountHint, securitySettings.MaxAttempts, true)
+				lockData.CaptchaError = reason
+				failData(w, r, http.StatusBadRequest, 40002, msg, lockData)
 				return
 			}
 		}
@@ -179,12 +188,16 @@ func loginHandler(ctx *app.Context) http.HandlerFunc {
 		}
 
 		clearUnknownFailCount(ctx, r.Context(), req.Username)
-		pair, err := ctx.Tokens.Issue(user.ID, user.Username, user.TokenVersion)
+		tenantID, tenantErr := issueTenantID(r.Context(), ctx, user.ID)
+		if failIssuedTenant(w, r, tenantErr) {
+			return
+		}
+		pair, err := ctx.Tokens.Issue(user.ID, user.Username, user.TokenVersion, tenantID)
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.token_issue_failed")
 			return
 		}
-		if err := ctx.Auth.SaveRefreshToken(r.Context(), user.ID, pair.RefreshHash, pair.RefreshFamilyID,
+		if err := ctx.Auth.SaveRefreshToken(r.Context(), user.ID, tenantID, pair.RefreshHash, pair.RefreshFamilyID,
 			req.DeviceID, req.DeviceName, clientIP(r), r.UserAgent(), pair.RefreshExpiresAt); err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.session_create_failed")
 			return
@@ -232,13 +245,17 @@ func refreshHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusUnauthorized, 40105, "errors.account_unavailable")
 			return
 		}
-		pair, err := ctx.Tokens.Issue(session.UserID, session.Username, user.TokenVersion)
+		tenantID, tenantErr := refreshTenantID(r.Context(), ctx, session)
+		if failIssuedTenant(w, r, tenantErr) {
+			return
+		}
+		pair, err := ctx.Tokens.Issue(session.UserID, session.Username, user.TokenVersion, tenantID)
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.token_issue_failed")
 			return
 		}
 		pair.RefreshFamilyID = session.FamilyID
-		if err := ctx.Auth.RotateRefreshToken(r.Context(), session.ID, session.UserID, pair.RefreshHash,
+		if err := ctx.Auth.RotateRefreshToken(r.Context(), session.ID, session.UserID, tenantID, pair.RefreshHash,
 			pair.RefreshFamilyID, req.DeviceID, req.DeviceName, clientIP(r), r.UserAgent(), pair.RefreshExpiresAt); err != nil {
 			_ = ctx.Auth.RevokeRefreshFamily(r.Context(), session.FamilyID, "rotation failed")
 			fail(w, r, http.StatusUnauthorized, 40103, "errors.refresh_used")
@@ -332,12 +349,18 @@ func profileHandler(ctx *app.Context) http.HandlerFunc {
 		if user.AvatarFileID.Valid {
 			avatar = systemPublicFileURL(r, uint64(user.AvatarFileID.Int64))
 		}
+		tenantID, tenants, tenantErr := profileTenants(r, ctx, userID)
+		if tenantErr != nil {
+			fail(w, r, http.StatusInternalServerError, 50000, "errors.tenant_load_failed")
+			return
+		}
 		ok(w, r, profileResponse{
 			ID: user.ID, UserID: strconv.FormatUint(user.ID, 10),
 			Username: user.Username, RealName: user.DisplayName, Email: user.Email,
 			Mobile: user.Mobile, Avatar: avatar, DepartmentName: department.Name,
 			Roles: roleCodes, RoleNames: roleNames, Permissions: permissions, HomePath: "/analytics",
 			IsSuperAdmin: user.IsSuperAdmin, MustChangePassword: user.MustChangePassword, PasswordMinLength: settings.PasswordMinLength,
+			TenantID: tenantID, Tenants: tenants,
 		})
 	}
 }

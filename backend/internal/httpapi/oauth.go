@@ -146,13 +146,17 @@ func oauthCallbackHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusForbidden, 40310, "errors.oauth_not_bound")
 			return
 		}
-		pair, err := ctx.Tokens.Issue(user.ID, user.Username, user.TokenVersion)
+		tenantID, tenantErr := issueTenantID(r.Context(), ctx, user.ID)
+		if failIssuedTenant(w, r, tenantErr) {
+			return
+		}
+		pair, err := ctx.Tokens.Issue(user.ID, user.Username, user.TokenVersion, tenantID)
 		if err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.token_issue_failed")
 			return
 		}
 		loginMethod := "oauth:" + provider.ProviderType
-		if err := ctx.Auth.SaveExternalRefreshToken(r.Context(), user.ID, pair.RefreshHash,
+		if err := ctx.Auth.SaveExternalRefreshToken(r.Context(), user.ID, tenantID, pair.RefreshHash,
 			pair.RefreshFamilyID, loginMethod, clientIP(r), r.UserAgent(), pair.RefreshExpiresAt); err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.session_create_failed")
 			return

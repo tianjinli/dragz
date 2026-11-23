@@ -2,3 +2,6 @@
 !backend/
 !backend/migrations/
 !backend/migrations/*.sql
+!deploy/
+!deploy/postgres-init/
+!deploy/postgres-init/*.sql

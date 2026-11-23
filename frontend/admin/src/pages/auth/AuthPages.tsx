@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Alert, App, Button, Checkbox, Divider, Form, Input, Modal } from 'antd';
 import type { AxiosError } from 'axios';
-import { CheckCircle2, RefreshCw } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Loader2, MoveRight, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   exchangeOAuthApi,
+  getTenantContextApi,
   issueCaptchaApi,
   loginChallengeApi,
   publicAuthProvidersApi,
   startOAuthApi,
 } from '@/api/auth';
+import { getSignupStatus } from '@/api/lifecycle';
 import { REMEMBER_ME_KEY } from '@/constants/auth';
 import { AuthLayout, AuthTitle } from '@/layout/AuthLayout';
 import { useAccessStore } from '@/stores/access';
 import { useAuthStore } from '@/stores/auth';
+import { usePreferencesStore } from '@/stores/preferences';
 import type { ApiEnvelope } from '@/types';
 import { safeRedirectPath } from '@/utils/redirect';
 
@@ -34,6 +37,7 @@ type SlideFeedback = 'idle' | 'verifying' | 'success' | 'error';
 
 type LoginLockPayload = {
   attemptsRemaining?: number;
+  captchaError?: 'required' | 'invalid' | 'expired' | string;
   captchaRequired?: boolean;
   failedCount?: number;
   kind?: 'cooldown' | 'lock' | string;
@@ -87,6 +91,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login, loading } = useAuthStore();
+  const authPageLayout = usePreferencesStore((state) => state.preferences.app.authPageLayout);
+  const panelSide = authPageLayout.replace('panel-', '');
   const [form] = Form.useForm();
   const currentUsername = Form.useWatch<string>('username', form);
   const [remember, setRemember] = useState(false);
@@ -100,9 +106,12 @@ export function LoginPage() {
   const [captcha, setCaptcha] = useState<SlideCaptcha | null>(null);
   const [captchaExpiresAt, setCaptchaExpiresAt] = useState(0);
   const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [expired, setExpired] = useState(false);
   const [slideX, setSlideX] = useState(0);
   const [draggingSlide, setDraggingSlide] = useState(false);
   const [feedback, setFeedback] = useState<SlideFeedback>('idle');
+  const [tenantName, setTenantName] = useState('');
+  const [signupEnabled, setSignupEnabled] = useState(false);
   const [, forceScaleRefresh] = useState(0);
 
   const dragStart = useRef<{ clientX: number; base: number } | null>(null);
@@ -115,6 +124,7 @@ export function LoginPage() {
   const refreshSeqRef = useRef(0);
   const mountedRef = useRef(true);
   const successTimerRef = useRef<number | null>(null);
+  const errorRefreshTimerRef = useRef<number | null>(null);
 
   // Lockout is per-account on the backend (failedCount is tracked by username).
   // Only block the account that was actually locked; switching to another
@@ -130,10 +140,6 @@ export function LoginPage() {
     ? `${formatCountdown(lockRemaining)}`
     : t('login');
 
-  const slideMax = captcha
-    ? Math.max(0, captcha.width - captcha.pieceSize)
-    : SLIDE_TRACK_WIDTH - SLIDE_HANDLE_WIDTH;
-
   const getScale = useCallback(() => {
     const renderedWidth = trackRef.current?.clientWidth || SLIDE_TRACK_WIDTH;
     const logicalWidth = captcha?.width || SLIDE_TRACK_WIDTH;
@@ -142,17 +148,28 @@ export function LoginPage() {
     return clamp(renderedWidth / logicalWidth, 0.1, 4);
   }, [captcha]);
 
+  const scale = getScale();
+  // The captcha handle is a fixed round grip (verify5-style), while the
+  // password-only login slide keeps the wider button-shaped handle.
+  const handleWidth = captchaRequired && captcha ? 38 : SLIDE_HANDLE_WIDTH;
+  const slideMax = Math.max(0, Math.round(((trackRef.current?.clientWidth || SLIDE_TRACK_WIDTH) - handleWidth) / scale * 10) / 10);
+
   const isExpired = useCallback(() => (
     captchaExpiresAt > 0 && Date.now() >= captchaExpiresAt
   ), [captchaExpiresAt]);
 
   const refreshCaptcha = useCallback(async (force = false): Promise<boolean> => {
     if (lockedRef.current && !force) return false;
+    if (errorRefreshTimerRef.current !== null) {
+      window.clearTimeout(errorRefreshTimerRef.current);
+      errorRefreshTimerRef.current = null;
+    }
     const seq = ++refreshSeqRef.current;
     setCaptchaLoading(true);
     setSlideX(0);
     setDraggingSlide(false);
     setFeedback('idle');
+    setExpired(false);
     dragStart.current = null;
     try {
       const result = await issueCaptchaApi();
@@ -189,11 +206,16 @@ export function LoginPage() {
 
   const closeCaptchaModal = useCallback(() => {
     if (submittingRef.current || feedback === 'verifying' || feedback === 'success') return;
+    if (errorRefreshTimerRef.current !== null) {
+      window.clearTimeout(errorRefreshTimerRef.current);
+      errorRefreshTimerRef.current = null;
+    }
     setModalOpen(false);
     setCaptcha(null);
     setCaptchaExpiresAt(0);
     setSlideX(0);
     setFeedback('idle');
+    setExpired(false);
     credentialsRef.current = null;
   }, [feedback]);
 
@@ -202,12 +224,11 @@ export function LoginPage() {
     antMessage.error(message);
   }, [antMessage]);
 
-  const handleExpiredCaptcha = useCallback(async () => {
-    showLoginError(t('auth.captchaExpired'));
-    setFeedback('error');
+  const markExpired = useCallback(() => {
+    setExpired(true);
     setSlideX(0);
-    await refreshCaptcha();
-  }, [refreshCaptcha, showLoginError, t]);
+    setFeedback('idle');
+  }, []);
 
   const submit = async (values: { password: string; username: string }, slideOverride?: number) => {
     if (submittingRef.current || lockedRef.current) return;
@@ -219,8 +240,8 @@ export function LoginPage() {
       setFeedback('idle');
       return;
     }
-    if (captchaRequired && isExpired()) {
-      await handleExpiredCaptcha();
+    if (captchaRequired && (expired || isExpired())) {
+      markExpired();
       return;
     }
 
@@ -259,8 +280,15 @@ export function LoginPage() {
       const envelope = ax.response?.data;
       const payload = envelope?.data;
       const isCaptchaFailure = envelope?.code === 40002;
+      const captchaReason = isCaptchaFailure ? payload?.captchaError : undefined;
       const until = resolveLockUntil(payload);
-      showLoginError(envelope?.message || t('auth.loginFailed'));
+      // 40002 covers three cases. A wrong answer shows inline under the image;
+      // an expired puzzle gets the refresh mask; neither raises a toast.
+      if (captchaReason === 'required') {
+        showLoginError(t('auth.captchaRequired'));
+      } else if (captchaReason !== 'expired' && captchaReason !== 'invalid') {
+        showLoginError(envelope?.message || t('auth.loginFailed'));
+      }
       setSlideX(0);
       setLockUntil(until);
       setLockedUsername(values.username);
@@ -275,12 +303,22 @@ export function LoginPage() {
         credentialsRef.current = null;
         return;
       }
-      setFeedback('error');
-      if (payload?.captchaRequired || captchaRequired) {
-        if (modalOpen) {
-          await refreshCaptcha();
-        } else {
-          await openCaptchaModal(true);
+      if (captchaReason === 'expired') {
+        setExpired(true);
+        setFeedback('idle');
+      } else {
+        setFeedback('error');
+        if (payload?.captchaRequired || captchaRequired) {
+          if (modalOpen) {
+            if (captchaReason === 'invalid') {
+              // Let the inline failure text read before swapping the puzzle.
+              errorRefreshTimerRef.current = window.setTimeout(() => { void refreshCaptcha(true); }, 1200);
+            } else {
+              await refreshCaptcha();
+            }
+          } else {
+            await openCaptchaModal(true);
+          }
         }
       }
     } finally {
@@ -325,8 +363,8 @@ export function LoginPage() {
     }
     if (captchaRequired) {
       if (!captcha) return;
-      if (isExpired()) {
-        void handleExpiredCaptcha();
+      if (expired || isExpired()) {
+        markExpired();
         return;
       }
       if (finalX <= 0) {
@@ -363,8 +401,8 @@ export function LoginPage() {
 
   const beginSlide = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (captchaLoading || locked || loading || submittingRef.current || feedback === 'success' || (captchaRequired && !captcha)) return;
-    if (captchaRequired && isExpired()) {
-      void handleExpiredCaptcha();
+    if (captchaRequired && (expired || isExpired())) {
+      markExpired();
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -408,8 +446,8 @@ export function LoginPage() {
 
   const handleSlideKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (captchaLoading || locked || loading || submittingRef.current || feedback === 'success' || (captchaRequired && !captcha)) return;
-    if (captchaRequired && isExpired()) {
-      void handleExpiredCaptcha();
+    if (captchaRequired && (expired || isExpired())) {
+      markExpired();
       return;
     }
     const step = event.shiftKey ? SLIDE_KEYBOARD_BIG_STEP : SLIDE_KEYBOARD_STEP;
@@ -433,6 +471,19 @@ export function LoginPage() {
     return () => {
       mountedRef.current = false;
       if (successTimerRef.current !== null) window.clearTimeout(successTimerRef.current);
+      if (errorRefreshTimerRef.current !== null) window.clearTimeout(errorRefreshTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getTenantContextApi()
+      .then((result) => {
+        if (!cancelled && result.resolved && result.name) setTenantName(result.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -468,6 +519,18 @@ export function LoginPage() {
   }, [form]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getSignupStatus()
+      .then((status) => {
+        if (!cancelled) setSignupEnabled(status.enabled);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     void publicAuthProvidersApi()
       .then((items) => setProviders(items.filter((item): item is OAuthProvider => typeof item.id === 'number' && typeof item.name === 'string')))
       .catch(() => setProviders([]));
@@ -484,8 +547,21 @@ export function LoginPage() {
     setLockUntil(null);
     setLockedUsername(null);
     setFeedback('idle');
-    if (verifying && (!captcha || isExpired())) void refreshCaptcha();
-  }, [captcha, verifying, isExpired, lockUntil, now, refreshCaptcha]);
+    if (verifying && !captcha) void refreshCaptcha();
+  }, [captcha, verifying, lockUntil, now, refreshCaptcha]);
+
+  // Flip to the expired mask the moment the puzzle's TTL elapses, without
+  // waiting for the user to touch the slider.
+  useEffect(() => {
+    if (!captcha || captchaExpiresAt <= 0) return;
+    const delay = captchaExpiresAt - Date.now();
+    if (delay <= 0) {
+      setExpired(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setExpired(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [captcha, captchaExpiresAt]);
 
   useEffect(() => {
     if (feedback !== 'error') return;
@@ -506,89 +582,115 @@ export function LoginPage() {
   const feedbackMessage = feedback === 'verifying'
     ? t('auth.captchaVerifying')
     : feedback === 'error' ? t('auth.captchaFailed') : '';
-  const scale = getScale();
+  // The track itself is the login button when captcha is off. Dimming only the
+  // handle leaves the rest of the button looking live, so mark the whole track.
+  const slideDisabled = (captchaRequired && !captcha) || captchaLoading || locked
+    || loading || submittingRef.current || feedback === 'verifying' || feedback === 'success'
+    || feedback === 'error' || expired;
 
   const slideCaptcha = (
-    <div className={`auth-slide-captcha is-${feedback}`}>
-      {captchaRequired && (
-        captcha ? (
-          <div
-            className="auth-slide-captcha-stage"
-            style={{ aspectRatio: `${captcha.width} / ${captcha.height}` }}
-          >
-            <img alt={t('auth.captcha')} className="auth-slide-captcha-bg" draggable={false} src={captcha.imageBase64} />
-            <img
-              alt=""
-              className="auth-slide-captcha-piece"
-              draggable={false}
-              src={captcha.pieceBase64}
-              style={{
-                left: slideX * scale,
-                top: captcha.pieceTop * scale,
-                width: captcha.pieceSize * scale,
-                height: captcha.pieceSize * scale,
-              }}
-            />
-          </div>
-        ) : (
-          <div className="auth-slide-captcha-loading">{t('auth.captchaLoading')}</div>
-        )
-      )}
-      <div className="auth-slide-captcha-track" ref={trackRef}>
-        <div className="auth-slide-captcha-fill" style={{ width: slideX * scale + SLIDE_HANDLE_WIDTH / 2 }} />
-        {captchaRequired ? null : (
-          <span className="auth-slide-captcha-hint">
-            {locked && lockRemaining > 0 ? loginLabel : t('auth.slideToLogin')}
-          </span>
+    <div className={`auth-slide-captcha is-${feedback}${captchaRequired ? ' is-captcha' : ''}`}>
+      <div className="auth-slide-captcha-board">
+        {captchaRequired && (
+          captcha ? (
+            <div
+              className="auth-slide-captcha-stage"
+              style={{ aspectRatio: `${captcha.width} / ${captcha.height}` }}
+            >
+              <img alt={t('auth.captcha')} className="auth-slide-captcha-bg" draggable={false} src={captcha.imageBase64} />
+              <img
+                alt=""
+                className="auth-slide-captcha-piece"
+                draggable={false}
+                src={captcha.pieceBase64}
+                style={{
+                  left: slideX * scale,
+                  top: captcha.pieceTop * scale,
+                  width: captcha.pieceSize * scale,
+                  height: captcha.pieceSize * scale,
+                }}
+              />
+              {feedback === 'verifying' || feedback === 'success' ? (
+                <div className={`auth-slide-captcha-status is-${feedback}`} role="status">
+                  {feedback === 'success'
+                    ? <CheckCircle2 size={30} strokeWidth={2} />
+                    : <Loader2 className="auth-slide-captcha-status-spin" size={30} strokeWidth={2} />}
+                  <span>{feedback === 'success' ? t('auth.verifyPassed') : t('auth.captchaVerifying')}</span>
+                </div>
+              ) : null}
+              <div className="auth-slide-captcha-actions">
+                <button
+                  aria-label={t('auth.captchaRefreshLabel')}
+                  className="auth-slide-captcha-action"
+                  disabled={captchaLoading || locked || feedback === 'verifying' || feedback === 'success'}
+                  title={t('auth.captchaRefreshLabel')}
+                  type="button"
+                  onClick={() => void refreshCaptcha()}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="auth-slide-captcha-loading">{t('auth.captchaLoading')}</div>
+          )
         )}
-        <button
-          ref={handleRef}
-          aria-label={captchaRequired ? t('auth.captcha') : loginLabel}
-          aria-valuemax={slideMax}
-          aria-valuemin={0}
-          aria-valuenow={Math.round(slideX)}
-          className={`auth-slide-captcha-handle${draggingSlide ? ' is-dragging' : ''}${loading ? ' is-busy' : ''}`}
-          disabled={(captchaRequired && !captcha) || captchaLoading || locked || loading || submittingRef.current || feedback === 'success'}
-          role="slider"
-          style={{ left: slideX * scale }}
-          tabIndex={0}
-          type="button"
-          onKeyDown={handleSlideKeyDown}
-          onPointerCancel={cancelSlide}
-          onPointerDown={beginSlide}
-          onPointerMove={moveSlide}
-          onPointerUp={endSlide}
-        >
-          {loading ? '···' : '›'}
-        </button>
-      </div>
-      {captchaRequired && captcha ? (
-        <div className="auth-slide-captcha-actions">
+        <div className={`auth-slide-captcha-track${slideDisabled ? ' is-disabled' : ''}`} ref={trackRef}>
+          <div className="auth-slide-captcha-fill" style={{ width: slideX * scale + handleWidth / 2 }} />
+          <span className={`auth-slide-captcha-hint${captchaRequired && feedback === 'error' ? ' is-error' : ''}${captchaRequired && feedback === 'idle' && !expired ? ' is-shimmer' : ''}`}>
+            {captchaRequired
+              ? (feedback === 'error' ? t('auth.captchaFailed') : t('auth.captchaPlaceholder'))
+              : (locked && lockRemaining > 0 ? loginLabel : t('auth.slideToLogin'))}
+          </span>
           <button
-            className="auth-slide-captcha-refresh"
-            disabled={captchaLoading || locked || feedback === 'success'}
+            ref={handleRef}
+            aria-label={captchaRequired ? t('auth.captcha') : loginLabel}
+            aria-valuemax={slideMax}
+            aria-valuemin={0}
+            aria-valuenow={Math.round(slideX)}
+            className={`auth-slide-captcha-handle${draggingSlide ? ' is-dragging' : ''}${loading ? ' is-busy' : ''}`}
+            disabled={slideDisabled}
+            role="slider"
+            style={{ left: slideX * scale, width: handleWidth }}
+            tabIndex={0}
             type="button"
-            onClick={() => void refreshCaptcha()}
+            onKeyDown={handleSlideKeyDown}
+            onPointerCancel={cancelSlide}
+            onPointerDown={beginSlide}
+            onPointerMove={moveSlide}
+            onPointerUp={endSlide}
           >
-            <RefreshCw size={14} />
-            {t('auth.captchaRefreshLabel')}
+            {loading
+              ? <Loader2 className="auth-slide-captcha-status-spin" size={16} />
+              : captchaRequired
+                ? <ArrowRight size={18} strokeWidth={2.6} />
+                : <MoveRight size={18} />}
           </button>
         </div>
-      ) : null}
+        {captchaRequired && captcha && expired ? (
+          <button
+            aria-label={t('auth.captchaExpired')}
+            className="auth-slide-captcha-expired"
+            onClick={() => void refreshCaptcha(true)}
+            title={t('auth.captchaExpired')}
+            type="button"
+          >
+            <RefreshCw size={30} strokeWidth={1.8} />
+            <span className="auth-slide-captcha-expired-title">{t('auth.captchaExpiredTitle')}</span>
+            <span className="auth-slide-captcha-expired-hint">{t('auth.captchaExpiredHint')}</span>
+          </button>
+        ) : null}
+      </div>
       <span aria-live="polite" className="auth-slide-captcha-sr">{feedbackMessage}</span>
     </div>
   );
 
-  const modalBody = feedback === 'success' ? (
-    <div className="auth-verify-passed" role="status">
-      <CheckCircle2 size={48} strokeWidth={2} />
-      <span>{t('auth.verifyPassed')}</span>
-    </div>
-  ) : slideCaptcha;
-
   return (
     <AuthLayout>
       <AuthTitle />
+      {tenantName ? (
+        <Alert showIcon style={{ marginBottom: 16 }} title={t('auth.tenantBanner', { name: tenantName })} type="info" />
+      ) : null}
       <Form
         className="auth-login-form"
         form={form}
@@ -637,8 +739,16 @@ export function LoginPage() {
           </div>
         </div>
       ) : null}
+      {signupEnabled && !verifying ? (
+        <div className="auth-links">
+          <span>{t('signup.noAccount')}</span>
+          <Link to="/auth/register">{t('signup.submit')}</Link>
+        </div>
+      ) : null}
       {modalOpen ? (
         <Modal
+          className="auth-captcha-modal"
+          rootClassName={`auth-captcha-root auth-captcha-root--${panelSide}`}
           open
           title={t('auth.captchaTitle')}
           centered
@@ -648,7 +758,7 @@ export function LoginPage() {
           mask={{ closable: feedback !== 'verifying' && feedback !== 'success' }}
           onCancel={closeCaptchaModal}
         >
-          {modalBody}
+          {slideCaptcha}
         </Modal>
       ) : null}
     </AuthLayout>

@@ -30,7 +30,9 @@ UPDATE sys_scheduled_job SET deleted_at = NOW(), status = 0, next_run_at = NULL
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListEnabledJobs :many
-SELECT id, name, code, handler, cron_expression,
+-- tenant_id travels with the row: the scheduler is process-wide, and each
+-- registered entry must fire inside the tenant that owns the job.
+SELECT id, tenant_id, name, code, handler, cron_expression,
   COALESCE(payload, '{}'::jsonb) AS payload, timeout_seconds, max_retries, status, last_run_at,
   next_run_at, created_at, updated_at
 FROM sys_scheduled_job

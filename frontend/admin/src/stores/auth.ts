@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getAccessCodesApi, getMenusApi, getUserInfoApi, loginApi, logoutApi, refreshTokenApi, type LoginInput } from '@/api/auth';
+import { getAccessCodesApi, getMenusApi, getUserInfoApi, loginApi, logoutApi, refreshTokenApi, switchTenantApi, type LoginInput } from '@/api/auth';
 import { useAccessStore } from './access';
 import { useLockScreenStore } from './lock-screen';
 import { useMessagesStore } from './messages';
@@ -16,6 +16,7 @@ interface AuthStore {
   login: (input: LoginInput) => Promise<string>;
   logout: () => Promise<void>;
   loadAccess: () => Promise<void>;
+  switchTenant: (tenantId: number) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -26,6 +27,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       .then(([userInfo, accessCodes, menus]) => {
         const access = useAccessStore.getState();
         access.setUserInfo(userInfo);
+        access.setTenantId(userInfo.tenantId ?? null);
         access.setAccessCodes(accessCodes);
         access.setMenus(menus);
         access.setChecked(true);
@@ -43,6 +45,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         accessToken: null,
         checked: true,
         menus: [],
+        tenantId: null,
         userInfo: null,
       });
       return false;
@@ -78,6 +81,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       set({ loading: false });
     }
   },
+  switchTenant: async (tenantId) => {
+    const token = await switchTenantApi(tenantId);
+    useAccessStore.getState().setAccessToken(token.accessToken);
+    useAccessStore.getState().setTenantId(tenantId);
+    useTabsStore.setState({ activeKey: '', tabs: [], visitHistory: [], refreshKeys: {}, maximized: false });
+    await get().loadAccess();
+  },
   logout: async () => {
     try {
       await logoutApi();
@@ -89,6 +99,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         accessToken: null,
         checked: true,
         menus: [],
+        tenantId: null,
         userInfo: null,
       });
       useTabsStore.setState({ activeKey: '', tabs: [], visitHistory: [], refreshKeys: {}, maximized: false });

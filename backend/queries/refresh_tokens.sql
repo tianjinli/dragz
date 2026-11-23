@@ -1,15 +1,15 @@
 -- name: InsertRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+  (user_id, tenant_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: InsertExternalRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, token_hash, family_id, login_method, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+  (user_id, tenant_id, token_hash, family_id, login_method, ip, user_agent, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: FindRefreshSession :one
-SELECT rt.id, rt.user_id, u.username, rt.token_hash, rt.family_id,
+SELECT rt.id, rt.user_id, rt.tenant_id, u.username, rt.token_hash, rt.family_id,
   rt.expires_at, rt.revoked_at
 FROM sys_refresh_token rt
 INNER JOIN sys_user u ON u.id = rt.user_id

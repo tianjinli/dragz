@@ -1,4 +1,17 @@
-# routes.golden - P0 路由基线（131 条 = 13 公开 + 118 受保护）
+# routes.golden - P0 路由基线（185 条 = 20 公开 + 165 受保护）
+# 2026-11-23: 可观测性。GET /api/metrics（public，metrics.enabled 关闭时 404），公开路由 +1。
+#            成员管理页 system_member 独立成群，权限按钮从中挪出（路由本身未变）。
+# 2026-11-23: P1 自助闭环。自助注册 signup-status/register（public，限流 5/min）、
+#            邀请预览与接受（预览 public）、租户成员与邀请 6 条（system:member:*）、
+#            平台人员 3 条（auth=platform，不产生按钮）、GET /api/billing/usage、POST /api/billing/webhook/:provider（public，签名校验+幂等）。
+# 2026-11-22: 域名租户识别。GET /api/auth/tenant-context（public）与
+#            /api/platform/tenants/:id/slug|domains* 五条（auth=platform）。
+# 2026-11-21: 套餐 CRUD 三条 /api/platform/plans*（auth=platform）与
+#            GET /api/billing/summary（仅登录，当前租户账单）。
+# 2026-11-21: 开放 API /api/open/v1/{me,tenant,ping}，auth=open.*（仅 API 令牌；JWT 返回 401）。
+# 2026-11-21: 账单与租户导出/清除五条 /api/platform/*，auth=platform，不产生权限按钮。
+# 2026-11-21: 平台运营 /api/platform/* 六条，auth=platform（超管或平台运营），不产生权限按钮。
+# 2026-11-21: 新增 POST /api/auth/switch-tenant（登录后切换租户），受保护路由 +1。
 # 2026-11-19: 新增 POST /api/auth/verify-password（个人资料二次校验），受保护路由 +1。
 # 2026-11-19: 消息中心 my-notifications / notification-prefs / notifications/test，
 #            以及 GET /api/ws（public：浏览器不能带 Bearer，handler 内校验 ?token=）。
@@ -13,11 +26,13 @@
 # 2026-10-29: 接口管理模块整体移除（5 条 /api/system/api-permissions 路由），
 #            权限码改为菜单按钮节点（sys_menu.type=button），详见 CONVENTIONS.md。
 # 列: METHOD|PATH|AUTH|FEATURE|AUDIT|SCOPE
-#   AUTH    = 鉴权要求（requirePermission / AnyOf[0]；- = 仅需登录）
+#   AUTH    = 鉴权要求（platform / OpenScopes / requirePermission / AnyOf[0]；- = 仅需登录）
 #   FEATURE = requireFeature 开关键（- = 无）
 #   AUDIT   = 审计归属码（旧 routePermissionIndex；- = 现状无归属）
 # AUDIT 列为目标态：8 条 /status PUT 在旧 routePermissionIndex 中无归属，
 #       注册表落地后由 AuditPermission 回退到 Permission 补上（预期修复，已写入本文件）。
+# 2026-11-23: 外部通知通道插件（notify）。通道/模板 CRUD + 测试/日志/发送共 13 条，均受保护；
+#            权限码挂 notify_page（插件页），按钮由 startup sync 生成。
 POST|/api/auth/login|-|-|-|public
 GET|/api/auth/captcha|-|-|-|public
 GET|/api/auth/login-challenge|-|-|-|public
@@ -29,6 +44,7 @@ GET|/api/auth/oauth/:id/callback|-|-|-|public
 POST|/api/auth/oauth/exchange|-|-|-|public
 GET|/api/health|-|-|-|public
 GET|/api/ready|-|-|-|public
+GET|/api/metrics|-|-|-|public
 GET|/api/system/files/:id/content|-|-|-|public
 GET|/api/auth/profile|-|-|-|protected
 PUT|/api/auth/profile|-|-|-|protected
@@ -148,4 +164,57 @@ GET|/api/system/notification-prefs|-|feature.notice.enabled|-|protected
 PUT|/api/system/notification-prefs|-|feature.notice.enabled|-|protected
 POST|/api/system/notifications/test|system:notice:manage|feature.notice.enabled|system:notice:manage|protected
 GET|/api/ws|-|-|-|public
+POST|/api/auth/switch-tenant|-|-|-|protected
+GET|/api/platform/tenants|platform|-|-|protected
+POST|/api/platform/tenants|platform|-|platform|protected
+PUT|/api/platform/tenants/:id/status|platform|-|platform|protected
+GET|/api/platform/plans|platform|-|-|protected
+PUT|/api/platform/tenants/:id/subscription|platform|-|platform|protected
+POST|/api/platform/tenants/:id/impersonate|platform|-|platform|protected
+GET|/api/platform/tenants/:id/invoices|platform|-|-|protected
+GET|/api/platform/invoices|platform|-|-|protected
+POST|/api/platform/tenants/:id/export|platform|-|platform|protected
+POST|/api/platform/tenants/:id/schedule-purge|platform|-|platform|protected
+POST|/api/platform/tenants/:id/cancel-purge|platform|-|platform|protected
+POST|/api/platform/plans|platform|-|platform|protected
+PUT|/api/platform/plans/:id|platform|-|platform|protected
+PUT|/api/platform/plans/:id/status|platform|-|platform|protected
+GET|/api/billing/summary|-|-|-|protected
+GET|/api/open/v1/me|open.me|-|-|protected
+GET|/api/open/v1/tenant|open.tenant|-|-|protected
+GET|/api/open/v1/ping|open.ping|-|-|protected
+GET|/api/auth/tenant-context|-|-|-|public
+PUT|/api/platform/tenants/:id/slug|platform|-|platform|protected
+GET|/api/platform/tenants/:id/domains|platform|-|-|protected
+POST|/api/platform/tenants/:id/domains|platform|-|platform|protected
+POST|/api/platform/tenants/:id/domains/:domainId/verify|platform|-|platform|protected
+DELETE|/api/platform/tenants/:id/domains/:domainId|platform|-|platform|protected
+GET|/api/auth/signup-status|-|-|-|public
+POST|/api/auth/register|-|-|-|public
+GET|/api/auth/invites/:token|-|-|-|public
+POST|/api/auth/invites/:token/accept|-|-|-|protected
+GET|/api/tenant/members|system:member:query|-|-|protected
+PUT|/api/tenant/members/:id|system:member:update|-|system:member:update|protected
+DELETE|/api/tenant/members/:id|system:member:delete|-|system:member:delete|protected
+GET|/api/tenant/invites|system:member:query|-|-|protected
+POST|/api/tenant/invites|system:member:invite|-|system:member:invite|protected
+DELETE|/api/tenant/invites/:id|system:member:invite|-|system:member:invite|protected
+GET|/api/platform/operators|platform|-|-|protected
+POST|/api/platform/operators|platform|-|platform|protected
+DELETE|/api/platform/operators/:id|platform|-|platform|protected
+GET|/api/billing/usage|-|-|-|protected
+POST|/api/billing/webhook/:provider|-|-|-|public
 GET|/api/example/ping|example:ping|-|-|protected
+GET|/api/notify/channels|notify:channel:query|-|-|protected
+GET|/api/notify/channels/:id|notify:channel:query|-|-|protected
+POST|/api/notify/channels|notify:channel:create|-|notify:channel:create|protected
+PUT|/api/notify/channels/:id|notify:channel:update|-|notify:channel:update|protected
+DELETE|/api/notify/channels/:id|notify:channel:delete|-|notify:channel:delete|protected
+POST|/api/notify/channels/:id/test|notify:channel:update|-|notify:channel:update|protected
+GET|/api/notify/templates|notify:template:query|-|-|protected
+GET|/api/notify/templates/:id|notify:template:query|-|-|protected
+POST|/api/notify/templates|notify:template:create|-|notify:template:create|protected
+PUT|/api/notify/templates/:id|notify:template:update|-|notify:template:update|protected
+DELETE|/api/notify/templates/:id|notify:template:delete|-|notify:template:delete|protected
+GET|/api/notify/logs|notify:log:query|-|-|protected
+POST|/api/notify/send|notify:send|-|notify:send|protected

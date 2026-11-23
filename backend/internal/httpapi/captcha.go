@@ -195,8 +195,12 @@ func verifyAndConsumeCaptcha(ctx *app.Context, reqCtx context.Context, captchaID
 	key := captchaRedisPrefix + id
 	stored, err := ctx.Cache.GetCtx(reqCtx, key)
 	_, _ = ctx.Cache.DelCtx(reqCtx, key)
-	if err != nil || stored == "" {
+	if err != nil {
 		return errCaptchaInvalid
+	}
+	// go-zero returns ("", nil) for a missing key: timed out or already consumed.
+	if stored == "" {
+		return errCaptchaExpired
 	}
 	if !captchaAnswerMatches(stored, code) {
 		return errCaptchaInvalid
@@ -262,4 +266,5 @@ func bumpUnknownFailCount(ctx *app.Context, reqCtx context.Context, username str
 var (
 	errCaptchaRequired = errors.New("captcha required")
 	errCaptchaInvalid  = errors.New("captcha invalid")
+	errCaptchaExpired  = errors.New("captcha expired")
 )

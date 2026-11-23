@@ -92,7 +92,41 @@ var (
 	// ErrMigrationBusy is returned when another process holds the advisory
 	// lock that serialises plugin schema changes.
 	ErrMigrationBusy = errors.New("migration is busy")
+	// ErrQuotaExceeded means a tenant quota row is missing or the increment
+	// would pass its limit.
+	ErrQuotaExceeded = errors.New("tenant quota exceeded")
+	// ErrInvalidSubscriptionTransition means the requested status is not a
+	// legal move from the tenant's open subscription.
+	ErrInvalidSubscriptionTransition = errors.New("invalid subscription transition")
+	// ErrPurgeNotCancelable means the tenant is not waiting on a future purge.
+	ErrPurgeNotCancelable = errors.New("purge cannot be cancelled")
+	// ErrInvalidPurgeWindow means the requested purge delay is out of range.
+	ErrInvalidPurgeWindow = errors.New("purge window is invalid")
+	// ErrInviteInvalid means an invitation token is unknown, already used,
+	// revoked or expired.
+	ErrInviteInvalid = errors.New("invitation is invalid or expired")
+	// ErrInviteEmailMismatch means the signed-in account does not own the
+	// address the invitation was sent to.
+	ErrInviteEmailMismatch = errors.New("invitation belongs to another email address")
+	// ErrLastTenantAdmin means the change would leave the tenant with no active
+	// administrator, which cannot be repaired from inside the tenant.
+	ErrLastTenantAdmin = errors.New("tenant must keep at least one administrator")
+	// ErrTenantInactive means the tenant is disabled, so it cannot be entered.
+	ErrTenantInactive = errors.New("tenant is disabled")
+	// ErrPaymentEventInvalid means a provider webhook could not be verified or
+	// does not name a known event.
+	ErrPaymentEventInvalid = errors.New("payment event is invalid")
 )
+
+// ConstraintName returns the unique-index name behind a duplicate-key error.
+// An error that is not a Postgres unique violation returns "".
+func ConstraintName(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.ConstraintName
+	}
+	return ""
+}
 
 func wrapDuplicate(err error) error {
 	if err == nil {

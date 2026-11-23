@@ -29,6 +29,16 @@ Auth:
   CookieSecure: false
   CookieDomain: ""
 
+# Host → tenant. BaseDomain turns {slug}.{BaseDomain} into a tenant
+# (acme.localhost when BaseDomain is localhost). A verified row in
+# sys_tenant_domain matches an exact host. PlatformHosts, localhost,
+# 127.0.0.1, and any raw IP never force a tenant.
+# TenantHost:
+#   BaseDomain: localhost
+#   PlatformHosts:
+#     - localhost
+#     - 127.0.0.1
+
 Bootstrap:
   AdminUsername: admin
   # Must equal the password hashed in migrations/001_system_init.sql.

@@ -6,7 +6,7 @@ import (
 )
 
 func TestJobPayloadRoundTrip(t *testing.T) {
-	payload, err := json.Marshal(JobPayload{JobID: 42, TriggerType: "manual"})
+	payload, err := json.Marshal(JobPayload{JobID: 42, TriggerType: "manual", TenantID: 7})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -14,7 +14,7 @@ func TestJobPayloadRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.JobID != 42 || decoded.TriggerType != "manual" {
+	if decoded.JobID != 42 || decoded.TriggerType != "manual" || decoded.TenantID != 7 {
 		t.Fatalf("unexpected payload: %+v", decoded)
 	}
 }

@@ -42,6 +42,9 @@ func (w *auditResponseWriter) Write(value []byte) (int, error) {
 }
 
 func auditRoute(ctx *app.Context, route plugin.Route, next http.HandlerFunc) http.HandlerFunc {
+	if route.Audit != nil && !*route.Audit {
+		return next
+	}
 	if route.Method == http.MethodGet || route.Method == http.MethodHead || route.Method == http.MethodOptions {
 		return next
 	}

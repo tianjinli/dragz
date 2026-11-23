@@ -15,10 +15,14 @@ export interface MenuRoute {
   children?: MenuRoute[]; component?: string; meta?: RouteMeta; name?: string;
   path: string; redirect?: string;
 }
+export interface TenantMembership {
+  id: number; code: string; name: string; platformOperator: boolean;
+}
 export interface AdminUserInfo {
   avatar: string; departmentName: string; email: string; homePath: string;
   isSuperAdmin: boolean; mobile: string; mustChangePassword: boolean; passwordMinLength: number;
   permissions: string[]; realName: string; roleNames: string[]; roles: string[];
+  tenantId: number; tenants: TenantMembership[];
   userId: string; username: string;
 }
 export interface TabDefinition {

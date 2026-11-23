@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dragz-admin/backend/internal/app"
+	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/security"
 )
 
@@ -24,9 +25,24 @@ func authenticate(ctx *app.Context, next http.HandlerFunc) http.HandlerFunc {
 				fail(w, r, http.StatusUnauthorized, 40106, "errors.api_token_invalid")
 				return
 			}
-			request := withUserContext(r, principal.UserID, principal.Username)
+			claimed := principal.TenantID
+			if claimed == 0 {
+				claimed, err = apiTokenTenantID(ctx, r, principal.TokenID)
+				if err != nil {
+					fail(w, r, http.StatusInternalServerError, apierrors.CodeInternal, "errors.tenant_load_failed")
+					return
+				}
+			}
+			request := withClaimedTenant(r, principal.UserID, principal.Username, claimed)
 			request = withTokenScopes(request, principal.Scopes)
 			next(w, request)
+			return
+		}
+
+		// Open routes accept only API tokens. Any other bearer (a JWT session,
+		// or a token that never produced scopes) stops here.
+		if isOpenAPIPath(r.URL.Path) {
+			fail(w, r, http.StatusUnauthorized, apierrors.CodeUnauthorized, "errors.open_token_required")
 			return
 		}
 
@@ -48,6 +64,20 @@ func authenticate(ctx *app.Context, next http.HandlerFunc) http.HandlerFunc {
 			fail(w, r, http.StatusUnauthorized, 40100, "errors.unauthorized")
 			return
 		}
-		next(w, withUserContext(r, claims.UserID, claims.Username))
+		next(w, withClaimedTenant(r, claims.UserID, claims.Username, claims.TenantID))
 	}
+}
+
+// apiTokenTenantID uses the token's tenant_id column when the database has
+// one. A missing column, or a stored zero, leaves the claim at zero so the
+// tenant middleware falls back to the user's first membership.
+func apiTokenTenantID(ctx *app.Context, r *http.Request, tokenID uint64) (uint64, error) {
+	if ctx.Tenants == nil {
+		return 0, nil
+	}
+	id, exists, err := ctx.Tenants.APITokenTenantID(r.Context(), tokenID)
+	if err != nil || !exists {
+		return 0, err
+	}
+	return id, nil
 }

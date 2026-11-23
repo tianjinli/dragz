@@ -34,8 +34,8 @@ type Route struct {
 
 // Button is one sys_menu row to upsert.
 type Button struct {
-	Code      string
-	Name      string
+	Code string
+	Name string
 	// NameEn is the English label seeded into sys_translation at sync time.
 	// It is a starting value only: the seed insert is absent-on-conflict, so
 	// administrator-edited translations are never clobbered.
@@ -175,6 +175,7 @@ var actionTemplates = map[string]string{
 	"upload":         "上传%s",
 	"reset-password": "重置%s密码",
 	"force-logout":   "%s强制下线",
+	"invite":         "邀请%s",
 }
 
 // nounLabels maps the object part of a permission code to Chinese. Multi
@@ -202,6 +203,7 @@ var nounLabels = map[string]string{
 	"cache":                "缓存",
 	"plugin":               "插件",
 	"translation":          "翻译",
+	"member":               "成员",
 }
 
 // actionTemplatesEn is the English twin of actionTemplates. Both label sets
@@ -218,6 +220,7 @@ var actionTemplatesEn = map[string]string{
 	"upload":         "Upload %s",
 	"reset-password": "Reset %s password",
 	"force-logout":   "Force %s offline",
+	"invite":         "Invite %s",
 }
 
 // nounLabelsEn is the English twin of nounLabels.
@@ -243,6 +246,7 @@ var nounLabelsEn = map[string]string{
 	"cache":                "Cache",
 	"plugin":               "Plugin",
 	"translation":          "Translation",
+	"member":               "Member",
 }
 
 // nameFrom builds a label with the given template/noun tables. Shared by

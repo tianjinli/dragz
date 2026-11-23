@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
@@ -46,6 +47,7 @@ type APIToken struct {
 type APITokenPrincipal struct {
 	TokenID   uint64
 	UserID    uint64
+	TenantID  uint64
 	Username  string
 	Scopes    []string
 	Allowlist []string
@@ -223,11 +225,16 @@ func (r *AuthRepository) ListAPITokens(ctx context.Context, keyword string, user
 }
 
 // CreateAPIToken stores the hash of a freshly minted token together with its scopes and IP allowlist.
+// tenant_id comes from the request context. Zero, including a missing value, is stored as 1.
 func (r *AuthRepository) CreateAPIToken(ctx context.Context, userID uint64, name, prefix, hash string, scopes, allowlist []string, expiresAt *time.Time) (uint64, error) {
 	scopesJSON, _ := json.Marshal(scopes)
 	allowlistJSON, _ := json.Marshal(allowlist)
+	tenantID, _ := ctxkey.TenantIDFrom(ctx)
+	if tenantID == 0 {
+		tenantID = 1
+	}
 	id, err := r.queries.CreateAPIToken(ctx, sqlcstore.CreateAPITokenParams{
-		UserID: userID, Name: name, TokenPrefix: prefix, TokenHash: hash,
+		TenantID: tenantID, UserID: userID, Name: name, TokenPrefix: prefix, TokenHash: hash,
 		Scopes: scopesJSON, IpAllowlist: jsonNullRaw(allowlistJSON), ExpiresAt: nullTimeFromPtr(expiresAt),
 	})
 	return uint64(id), err
@@ -255,6 +262,9 @@ func (r *AuthRepository) RevokeAPIToken(ctx context.Context, tokenID uint64, own
 
 // AuthenticateAPIToken resolves a presented token to a principal and enforces its expiry and IP allowlist. A successful call also stamps last_used_at.
 func (r *AuthRepository) AuthenticateAPIToken(ctx context.Context, tokenHash, ip string) (APITokenPrincipal, error) {
+	// The token is what teaches the request which tenant to use, so this lookup
+	// cannot depend on a tenant session. sys_api_token is under FORCE RLS.
+	ctx = ctxkey.WithRLSBypass(ctx, true)
 	row, err := r.queries.AuthenticateAPIToken(ctx, tokenHash)
 	if err != nil {
 		return APITokenPrincipal{}, err
@@ -265,6 +275,7 @@ func (r *AuthRepository) AuthenticateAPIToken(ctx context.Context, tokenHash, ip
 	var principal APITokenPrincipal
 	principal.TokenID = uint64(row.ID)
 	principal.UserID = row.UserID
+	principal.TenantID = row.TenantID
 	principal.Username = row.Username
 	if err := json.Unmarshal(row.Scopes, &principal.Scopes); err != nil {
 		return APITokenPrincipal{}, err
