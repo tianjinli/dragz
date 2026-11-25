@@ -629,6 +629,7 @@ export function RolePage() {
         updateCode="system:role:update"
       />
       <FormDrawer
+        form={grantForm}
         open={!!grant}
         title={t("system.users.roleGrant")}
         width={720}

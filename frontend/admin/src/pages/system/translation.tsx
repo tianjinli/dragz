@@ -205,6 +205,8 @@ export function TranslationPage() {
     "post",
     "job",
     "storage",
+    "dicttype",
+    "dict",
   ] as const;
 
   return (

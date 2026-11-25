@@ -542,25 +542,27 @@ CREATE UNIQUE INDEX uk_dict_type_code ON sys_dict_type (tenant_id, code) WHERE d
 
 CREATE UNIQUE INDEX uk_dict_item_value ON sys_dict_item (tenant_id, dict_type_id, value) WHERE deleted_at IS NULL;
 
+-- A dictionary type has at most one default item among LIVE rows. The write
+-- path enforces the same rule with a two-step save (clear the type's other
+-- defaults first, then set the new one), so the immediate constraint is never
+-- tripped in normal operation; it stands as the concurrency guard.
+CREATE UNIQUE INDEX uk_dict_item_default ON sys_dict_item (tenant_id, dict_type_id) WHERE is_default = 1 AND deleted_at IS NULL;
+
 CREATE UNIQUE INDEX uk_scheduled_job_code ON sys_scheduled_job (tenant_id, code) WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_department_parent ON sys_department (parent_id);
 
-CREATE INDEX idx_department_deleted ON sys_department (deleted_at);
-
-CREATE INDEX idx_position_deleted ON sys_position (deleted_at);
-
 CREATE INDEX idx_user_department ON sys_user (department_id);
 
-CREATE INDEX idx_user_mobile ON sys_user (mobile);
+-- Addresses are login/invite identities, so they must not repeat. The partial
+-- predicate keeps "not set" (empty string) unconstrained.
+CREATE UNIQUE INDEX uk_user_email ON sys_user (lower(email))
+  WHERE email <> '' AND deleted_at IS NULL;
 
-CREATE INDEX idx_user_email ON sys_user (email);
-
-CREATE INDEX idx_user_deleted ON sys_user (deleted_at);
+CREATE UNIQUE INDEX uk_user_mobile ON sys_user (mobile)
+  WHERE mobile <> '' AND deleted_at IS NULL;
 
 CREATE INDEX idx_user_position_position ON sys_user_position (position_id);
-
-CREATE INDEX idx_role_deleted ON sys_role (deleted_at);
 
 CREATE INDEX idx_user_role_role ON sys_user_role (role_id);
 
@@ -568,37 +570,28 @@ CREATE INDEX idx_role_department_department ON sys_role_department (department_i
 
 CREATE INDEX idx_menu_parent ON sys_menu (parent_id);
 
-CREATE INDEX idx_menu_deleted ON sys_menu (deleted_at);
-
 CREATE INDEX idx_role_menu_menu ON sys_role_menu (menu_id);
-
-CREATE INDEX idx_dict_type_deleted ON sys_dict_type (deleted_at);
-
-CREATE INDEX idx_dict_item_deleted ON sys_dict_item (deleted_at);
 
 CREATE INDEX idx_config_group ON sys_config (config_group);
 
 CREATE INDEX idx_auth_provider_type ON sys_auth_provider (provider_type);
 
-CREATE INDEX idx_auth_provider_deleted ON sys_auth_provider (deleted_at);
-
 CREATE INDEX idx_storage_default ON sys_storage_config (is_default, status);
-
-CREATE INDEX idx_storage_deleted ON sys_storage_config (deleted_at);
 
 CREATE INDEX idx_file_uploader ON sys_file (uploader_id);
 
 CREATE INDEX idx_file_status ON sys_file (status);
 
-CREATE INDEX idx_file_deleted ON sys_file (deleted_at);
+CREATE INDEX idx_file_tenant_created ON sys_file (tenant_id, created_at DESC);
 
-CREATE INDEX idx_file_reference_business ON sys_file_reference (business_type, business_id);
+CREATE INDEX idx_file_reference_tenant_business
+  ON sys_file_reference (tenant_id, business_type, business_id);
+
+CREATE INDEX idx_notice_tenant_status ON sys_notice (tenant_id, status, publish_at);
 
 CREATE INDEX idx_notice_status_publish ON sys_notice (status, publish_at);
 CREATE INDEX idx_notice_due_notify ON sys_notice (publish_at)
   WHERE deleted_at IS NULL AND status = 'published' AND notified_at IS NULL;
-
-CREATE INDEX idx_notice_deleted ON sys_notice (deleted_at);
 
 CREATE INDEX idx_notice_read_user ON sys_notice_read (user_id, read_at);
 
@@ -607,6 +600,8 @@ CREATE INDEX idx_refresh_token_user ON sys_refresh_token (user_id, revoked_at, e
 CREATE INDEX idx_refresh_token_family ON sys_refresh_token (family_id);
 
 CREATE INDEX idx_api_token_user ON sys_api_token (user_id, status);
+
+CREATE INDEX idx_api_token_tenant_user ON sys_api_token (tenant_id, user_id, status);
 
 CREATE INDEX idx_login_log_user ON sys_login_log (user_id, created_at);
 
@@ -622,21 +617,26 @@ CREATE INDEX idx_operation_log_target ON sys_operation_log (target_type, target_
 
 CREATE INDEX idx_operation_log_request ON sys_operation_log (request_id);
 
+CREATE INDEX idx_operation_log_tenant_created ON sys_operation_log (tenant_id, created_at DESC);
+
 CREATE INDEX idx_error_log_created ON sys_error_log (created_at);
 
 CREATE INDEX idx_error_log_resolved ON sys_error_log (resolved, created_at);
 
 CREATE INDEX idx_error_log_request ON sys_error_log (request_id);
 
+CREATE INDEX idx_error_log_tenant_created ON sys_error_log (tenant_id, created_at DESC);
+
 CREATE INDEX idx_config_log_key ON sys_config_log (config_type, config_key, created_at);
-
-CREATE INDEX idx_webhook_deleted ON sys_webhook (deleted_at);
-
-CREATE INDEX idx_scheduled_job_deleted ON sys_scheduled_job (deleted_at);
 
 CREATE INDEX idx_job_log_job ON sys_job_log (job_id, started_at);
 
 CREATE INDEX idx_job_log_success ON sys_job_log (success, started_at);
+
+CREATE INDEX idx_job_log_tenant_job ON sys_job_log (tenant_id, job_id, started_at DESC);
+
+-- Notification history is read per tenant+user in reverse time order.
+CREATE INDEX idx_notification_tenant_user ON sys_notification (tenant_id, user_id, created_at DESC);
 
 -- Runtime state of every compiled-in plugin. Rows are upserted from the
 -- plugin registry on startup; a plugin that is compiled in but has no row is
@@ -699,18 +699,28 @@ $$;
 --   post.<position code>      sys_position
 --   job.<job code>            sys_scheduled_job
 --   storage.<storage type>    sys_storage_config
+--   dicttype.<dict code>      sys_dict_type
+--   dict.<dict code>.<value>  sys_dict_item
+--
+-- tenant_id 0 is the platform default. Entity keys are built from business
+-- codes, and those codes repeat per tenant (role.admin exists in every
+-- tenant), so a translation without tenant_id would make one tenant's label
+-- change another's. A tenant row wins over the platform row of the same
+-- (entity_key, lang); deleting a tenant row falls back to the platform text.
 CREATE TABLE sys_translation (
   id BIGSERIAL,
+  tenant_id BIGINT NOT NULL DEFAULT 0,
   entity_key VARCHAR(191) NOT NULL,
   lang VARCHAR(16) NOT NULL,
   value TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (id),
-  CONSTRAINT uk_translation_entity_lang UNIQUE (entity_key, lang)
+  CONSTRAINT uk_translation_entity_lang UNIQUE (tenant_id, entity_key, lang),
+  CONSTRAINT ck_sys_translation_tenant CHECK (tenant_id >= 0)
 );
 
-CREATE INDEX idx_translation_lang ON sys_translation (lang);
+CREATE INDEX idx_translation_lang ON sys_translation (tenant_id, lang);
 
 -- Every preset entity that can carry a translation, as
 -- (entity_key, source text, updated_at). One view so a translatable namespace is
@@ -741,7 +751,14 @@ CREATE VIEW v_preset_entity AS
   SELECT 'job.' || code, name, updated_at FROM sys_scheduled_job WHERE deleted_at IS NULL
   UNION ALL
   SELECT 'storage.' || storage_type, name, updated_at FROM sys_storage_config
-    WHERE deleted_at IS NULL;
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dicttype.' || code, name, updated_at FROM sys_dict_type
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dict.' || dt.code || '.' || di.value, di.label, di.updated_at
+    FROM sys_dict_item di JOIN sys_dict_type dt ON dt.id = di.dict_type_id
+    WHERE di.deleted_at IS NULL AND dt.deleted_at IS NULL;
 
 -- The same catalog addressed by row id instead of entity key, for the write
 -- side: a save made in another language has to keep the source columns intact
@@ -849,8 +866,18 @@ CREATE TABLE sys_tenant_invite (
   accepted_by BIGINT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   accepted_at TIMESTAMPTZ NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  revoked_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX uk_tenant_invite_token ON sys_tenant_invite (token_hash);
+
+CREATE INDEX idx_tenant_invite_tenant ON sys_tenant_invite (tenant_id, id DESC);
+
+CREATE UNIQUE INDEX uk_tenant_invite_pending_email
+  ON sys_tenant_invite (tenant_id, lower(email))
+  WHERE status = 'pending' AND email <> '';
 
 CREATE TABLE sys_plan (
   id BIGSERIAL,
@@ -877,6 +904,10 @@ CREATE TABLE sys_plan_version (
 );
 
 CREATE UNIQUE INDEX uk_plan_code ON sys_plan (code);
+
+CREATE UNIQUE INDEX uk_plan_version ON sys_plan_version (plan_id, version);
+
+CREATE INDEX idx_plan_version_plan ON sys_plan_version (plan_id, version DESC);
 
 CREATE TABLE sys_plan_entitlement (
   id BIGSERIAL,
@@ -950,6 +981,12 @@ CREATE TABLE sys_payment_event (
   processed_at TIMESTAMPTZ NULL
 );
 
+-- Webhook retries deliver the same event id more than once; this pair is the
+-- idempotency guarantee.
+CREATE UNIQUE INDEX uk_payment_event ON sys_payment_event (provider, event_id);
+
+CREATE INDEX idx_payment_event_pending ON sys_payment_event (status, id);
+
 CREATE TABLE sys_usage_counter (
   tenant_id BIGINT NOT NULL,
   quota_key VARCHAR(128) NOT NULL,
@@ -1014,3 +1051,44 @@ CREATE TABLE sys_tenant_impersonation (
 
 CREATE INDEX idx_tenant_impersonation_open ON sys_tenant_impersonation (tenant_id, actor_user_id)
   WHERE ended_at IS NULL;
+
+-- ---- tenant-composite referential integrity -------------------------------
+-- RLS filters reads but says nothing about what a row may point at: a child
+-- could reference a parent id owned by another tenant and pass WITH CHECK.
+-- Every tenant-scoped parent is therefore unique on (tenant_id, id) and every
+-- child references that pair. The same DDL runs from
+-- store.bootstrapStatements, which is what actually creates it on existing
+-- databases (migrations/022_schema_hardening.sql is the written record).
+CREATE UNIQUE INDEX uk_department_tenant_id ON sys_department (tenant_id, id);
+CREATE UNIQUE INDEX uk_position_tenant_id ON sys_position (tenant_id, id);
+CREATE UNIQUE INDEX uk_role_tenant_id ON sys_role (tenant_id, id);
+CREATE UNIQUE INDEX uk_dict_type_tenant_id ON sys_dict_type (tenant_id, id);
+CREATE UNIQUE INDEX uk_file_tenant_id ON sys_file (tenant_id, id);
+CREATE UNIQUE INDEX uk_notice_tenant_id ON sys_notice (tenant_id, id);
+CREATE UNIQUE INDEX uk_scheduled_job_tenant_id ON sys_scheduled_job (tenant_id, id);
+
+ALTER TABLE sys_user_role ADD CONSTRAINT fk_user_role_role_tenant
+  FOREIGN KEY (tenant_id, role_id) REFERENCES sys_role (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_user_position ADD CONSTRAINT fk_user_position_position_tenant
+  FOREIGN KEY (tenant_id, position_id) REFERENCES sys_position (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_role_department ADD CONSTRAINT fk_role_department_department_tenant
+  FOREIGN KEY (tenant_id, department_id) REFERENCES sys_department (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_dict_item ADD CONSTRAINT fk_dict_item_type_tenant
+  FOREIGN KEY (tenant_id, dict_type_id) REFERENCES sys_dict_type (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_file_reference ADD CONSTRAINT fk_file_reference_file_tenant
+  FOREIGN KEY (tenant_id, file_id) REFERENCES sys_file (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_notice_read ADD CONSTRAINT fk_notice_read_notice_tenant
+  FOREIGN KEY (tenant_id, notice_id) REFERENCES sys_notice (tenant_id, id) ON DELETE CASCADE;
+
+ALTER TABLE sys_job_log ADD CONSTRAINT fk_job_log_job_tenant
+  FOREIGN KEY (tenant_id, job_id) REFERENCES sys_scheduled_job (tenant_id, id) ON DELETE CASCADE;
+
+-- 0/1 flag CHECK constraints (ck_<table>_<column>) are declared in
+-- migrations/022_schema_hardening.sql and store.bootstrapStatements. They are
+-- not repeated here: sqlc only needs tables, columns and keys.
+

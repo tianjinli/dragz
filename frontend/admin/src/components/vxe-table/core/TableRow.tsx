@@ -1,14 +1,15 @@
 import { memo } from 'react';
 import type { CellClickEvent, RowClickEvent, VxeLeafColumn, VxeRowConfig } from '../types';
 import { joinClassNames } from './renderCell';
-import type { StickyOffsets } from './sticky';
-import { stickyCellStyle } from './sticky';
+import type { StickyOffsets, FixedEdges } from './sticky';
+import { fixedBlockEdgeClasses, stickyCellStyle } from './sticky';
 import { TableCell } from './TableCell';
 
 export interface TableRowProps<Row> {
   row: Row;
   rowIndex: number;
   columns: Array<VxeLeafColumn<Row>>;
+  edges: FixedEdges;
   offsets: StickyOffsets;
   stripe: boolean;
   showOverflow: boolean;
@@ -18,7 +19,7 @@ export interface TableRowProps<Row> {
 }
 
 function TableRowInner<Row>(props: TableRowProps<Row>) {
-  const { row, rowIndex, columns, offsets, stripe, showOverflow, rowConfig, onCellClick, onRowClick } = props;
+  const { row, rowIndex, columns, edges, offsets, stripe, showOverflow, rowConfig, onCellClick, onRowClick } = props;
 
   const extraClass = rowConfig?.className;
   const resolvedExtra = typeof extraClass === 'function' ? extraClass({ row, rowIndex }) : extraClass;
@@ -40,6 +41,7 @@ function TableRowInner<Row>(props: TableRowProps<Row>) {
           row={row}
           rowIndex={rowIndex}
           showOverflow={showOverflow}
+          edgeClass={fixedBlockEdgeClasses(column.fixed, column.field, column.field, edges)}
           stickyStyle={stickyCellStyle(column.fixed, column.field, offsets)}
           onCellClick={onCellClick}
         />

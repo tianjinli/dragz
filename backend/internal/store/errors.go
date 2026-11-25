@@ -58,6 +58,14 @@ var (
 	ErrMenuParentInvalid = errors.New("button parent must be an existing directory or page")
 	// ErrDictHasItems means a dictionary type is seeded or still has items.
 	ErrDictHasItems = errors.New("dictionary type is protected or has items")
+	// ErrDictCodeLocked means a system dictionary's code cannot change: item
+	// entity keys (dict.<code>.<value>) and the seed tenant template both key
+	// off the code, so renaming it would silently orphan every reference.
+	ErrDictCodeLocked = errors.New("system dictionary code is locked")
+	// ErrDictItemInUse means the item value is still referenced by business
+	// rows registered through RegisterDictReference, so disabling it would
+	// leave historical data without a label and deleting it would orphan them.
+	ErrDictItemInUse = errors.New("dictionary item is still referenced")
 	// ErrDepartmentProtected means the row is the root department, which the
 	// tree is anchored on and therefore cannot be moved or deleted.
 	ErrDepartmentProtected = errors.New("root department is protected")

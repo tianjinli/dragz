@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { REMEMBER_ME_KEY } from '@/constants/auth';
-import { LoginPage } from './AuthPages';
+import { ACCOUNT_LOCK_DURATION_MS, REMEMBER_ME_KEY } from '@/constants/auth';
+import { LoginPage, loginLockAccentFromRatio, loginLockProgressScale, resolveLockTotalMs } from './AuthPages';
 
 const mocks = vi.hoisted(() => ({
   loginChallengeApi: vi.fn(),
@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   login: vi.fn(),
   navigate: vi.fn(),
   success: vi.fn(),
-  info: vi.fn(),
   error: vi.fn(),
+  clear: vi.fn(),
 }));
 
 vi.mock('@/api/auth', () => ({
@@ -32,6 +32,14 @@ vi.mock('@/stores/access', () => ({
   useAccessStore: { getState: () => ({ userInfo: { homePath: '/analytics', realName: '管理员' } }) },
 }));
 
+vi.mock('@/components/auth/AuthToast', () => ({
+  AUTH_TOAST_HOLD_MS: 3000,
+  authToast: { error: mocks.error, success: mocks.success, clear: mocks.clear },
+  AuthLoginActionSurface: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthToastHost: () => null,
+  AuthToastView: ({ text }: { text: string }) => <div data-testid="auth-toast-view">{text}</div>,
+}));
+
 vi.mock('@/layout/AuthLayout', () => ({
   AuthLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AuthTitle: () => <div />,
@@ -41,14 +49,6 @@ vi.mock('react-router-dom', () => ({
   useLocation: () => ({ search: '' }),
   useNavigate: () => mocks.navigate,
 }));
-
-vi.mock('antd', async () => {
-  const actual = await vi.importActual<typeof import('antd')>('antd');
-  return {
-    ...actual,
-    App: { ...actual.App, useApp: () => ({ message: { info: mocks.info, success: mocks.success, error: mocks.error } }) },
-  };
-});
 
 function captchaResult(expiresIn = 300) {
   return {
@@ -93,7 +93,8 @@ describe('LoginPage 滑块验证', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
-    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: true });
+    window.sessionStorage.clear();
+    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: true, lockMinutes: 30 });
     mocks.issueCaptchaApi.mockImplementation(() => Promise.resolve(captchaResult()));
     mocks.publicAuthProvidersApi.mockResolvedValue([]);
     mocks.getTenantContextApi.mockResolvedValue({ resolved: false, tenantId: 0, slug: '', name: '' });
@@ -134,15 +135,27 @@ describe('LoginPage 滑块验证', () => {
     expect(mocks.login).not.toHaveBeenCalled();
   });
 
-  it('密码错误时关闭模态框退回表单并保留已填内容', async () => {
+  it('密码错误时关闭模态框退回表单并 toast 提示', async () => {
     mocks.login.mockRejectedValueOnce({
       response: { data: { code: 40101, message: '用户名或密码错误' } },
     });
     await renderLogin();
     drag(screen.getByRole('slider'), 0, 60);
-    expect(await screen.findByPlaceholderText('请输入密码')).toHaveValue('pass1234');
+    await waitFor(() => expect(mocks.error).toHaveBeenCalledWith('用户名或密码错误'));
     await waitFor(() => expect(screen.queryByRole('slider')).not.toBeInTheDocument());
-    expect(mocks.error).toHaveBeenCalledWith('用户名或密码错误');
+    expect(screen.getByPlaceholderText('请输入密码')).toHaveValue('pass1234');
+  });
+
+  it('网络错误不伪装成锁定倒计时，也不写入会话锁定状态', async () => {
+    // No HTTP envelope at all: offline, gateway timeout, or a 5xx page.
+    mocks.login.mockRejectedValueOnce(new Error('Network Error'));
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+    expect(screen.queryByTestId('login-lock-countdown')).not.toBeInTheDocument();
+    expect(document.querySelector('.auth-login-lock-progress')).toBeNull();
+    expect(await screen.findByTestId('login-submit')).not.toBeDisabled();
+    expect(window.sessionStorage.getItem(`LOGIN_LOCK_STATE_${location.hostname}`)).toBeNull();
   });
 
   it('验证码验证失败时图片下方内联显示失败,延时换新图', async () => {
@@ -163,7 +176,6 @@ describe('LoginPage 滑块验证', () => {
     await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2), { timeout: 3000 });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('slider')).toBeInTheDocument();
-    expect(mocks.info).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(REMEMBER_ME_KEY)).toBeNull();
   });
 
@@ -203,11 +215,45 @@ describe('LoginPage 滑块验证', () => {
     expect(mocks.error).toHaveBeenCalledWith('请完成滑块验证');
   });
 
-  it('账号密码为空时点「登录」不签发验证码', async () => {
+  it('用户名与密码输入会过滤中文等非 ASCII 字符', async () => {
+    render(<LoginPage />);
+    const username = screen.getByPlaceholderText('请输入用户名');
+    const password = screen.getByPlaceholderText('请输入密码');
+    fireEvent.change(username, { target: { value: 'admin用户' } });
+    fireEvent.change(password, { target: { value: 'pass密码123' } });
+    await waitFor(() => expect(username).toHaveValue('admin'));
+    expect(password).toHaveValue('pass123');
+  });
+
+  it('验证码模式下点「登录」且用户名为空则聚焦用户名且不弹 toast', async () => {
     render(<LoginPage />);
     fireEvent.click(await screen.findByRole('button', { name: /登\s*录/ }));
-    expect(await screen.findByText('请输入用户名')).toBeInTheDocument();
+    const username = screen.getByPlaceholderText('请输入用户名');
+    await waitFor(() => expect(document.activeElement).toBe(username));
+    expect(username.closest('.ant-form-item')).toHaveClass('is-shake-error');
+    expect(mocks.error).not.toHaveBeenCalled();
     expect(mocks.issueCaptchaApi).not.toHaveBeenCalled();
+  });
+
+  it('验证码模式下点「登录」且密码为空则聚焦密码且不弹 toast', async () => {
+    render(<LoginPage />);
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), { target: { value: 'admin' } });
+    fireEvent.click(await screen.findByRole('button', { name: /登\s*录/ }));
+    const password = screen.getByPlaceholderText('请输入密码');
+    await waitFor(() => expect(document.activeElement).toBe(password));
+    expect(password.closest('.ant-form-item')).toHaveClass('is-shake-error');
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.issueCaptchaApi).not.toHaveBeenCalled();
+  });
+
+  it('验证码模式下点「登录」且用户名与密码均为空则两项均抖动', async () => {
+    render(<LoginPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /登\s*录/ }));
+    const username = screen.getByPlaceholderText('请输入用户名');
+    const password = screen.getByPlaceholderText('请输入密码');
+    await waitFor(() => expect(document.activeElement).toBe(username));
+    expect(username.closest('.ant-form-item')).toHaveClass('is-shake-error');
+    expect(password.closest('.ant-form-item')).toHaveClass('is-shake-error');
   });
 
   it('未启用验证码时保留滑块直接登录', async () => {
@@ -224,6 +270,30 @@ describe('LoginPage 滑块验证', () => {
       captchaCode: undefined,
       username: 'admin',
     }));
+  });
+
+  it('无验证码时滑到尽头且用户名为空则聚焦用户名且不弹出错误 toast', async () => {
+    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: false });
+    render(<LoginPage />);
+    const slider = await screen.findByRole('slider');
+    drag(slider, 0, 260);
+    const username = screen.getByPlaceholderText('请输入用户名');
+    await waitFor(() => expect(document.activeElement).toBe(username));
+    expect(username.closest('.ant-form-item')).toHaveClass('is-shake-error');
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.login).not.toHaveBeenCalled();
+  });
+
+  it('无验证码时滑到尽头且密码为空则聚焦密码且不弹出错误 toast', async () => {
+    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: false });
+    render(<LoginPage />);
+    await screen.findByRole('slider');
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), { target: { value: 'admin' } });
+    drag(screen.getByRole('slider'), 0, 260);
+    const password = screen.getByPlaceholderText('请输入密码');
+    await waitFor(() => expect(document.activeElement).toBe(password));
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.login).not.toHaveBeenCalled();
   });
 
   it('滑块可拖到最右端,右缘与轨道齐平', async () => {
@@ -283,13 +353,64 @@ describe('LoginPage 滑块验证', () => {
     expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(1);
     expect(mocks.login).not.toHaveBeenCalled();
     expect(mocks.error).not.toHaveBeenCalled();
-    expect(mocks.info).not.toHaveBeenCalled();
     fireEvent.click(mask);
     await waitFor(() => expect(mocks.issueCaptchaApi).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: '验证码已失效，点击刷新' })).not.toBeInTheDocument();
   });
 
-  it('锁定状态下退回表单且「登录」按钮禁用', async () => {
+  it('锁定进度条以固定锁定时长为满格，而非首次见到的剩余时间', async () => {
+    const lockMinutes = 5;
+    const totalMs = lockMinutes * 60 * 1000;
+    const remainingMs = 30_000;
+    mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: true, lockMinutes });
+    mocks.login.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 42301,
+          message: '密码错误次数过多',
+          data: {
+            captchaRequired: true,
+            kind: 'lock',
+            retryAfterSeconds: remainingMs / 1000,
+            lockedUntil: new Date(Date.now() + remainingMs).toISOString(),
+          },
+        },
+      },
+    });
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    await waitFor(() => expect(document.querySelector('.auth-login-lock-progress')).not.toBeNull());
+    const bar = document.querySelector('.auth-login-lock-progress') as HTMLElement;
+    expect(loginLockProgressScale(remainingMs, totalMs)).toBeCloseTo(0.1, 5);
+    const scale = parseFloat(bar.style.transform.replace('scaleX(', '').replace(')', ''));
+    expect(scale).toBeGreaterThan(0.08);
+    expect(scale).toBeLessThanOrEqual(0.1);
+    expect(bar.style.background).toContain(loginLockAccentFromRatio(scale));
+  });
+
+  it('resolveLockTotalMs 忽略 retryAfterSeconds，仅用配置的锁定时长', () => {
+    const configuredMs = 5 * 60 * 1000;
+    expect(resolveLockTotalMs({ kind: 'lock', retryAfterSeconds: 30 }, configuredMs)).toBe(configuredMs);
+    expect(resolveLockTotalMs({ kind: 'cooldown', retryAfterSeconds: 3 }, configuredMs)).toBe(3000);
+  });
+
+  it('刷新后会话内恢复锁定进度比例', async () => {
+    const totalMs = ACCOUNT_LOCK_DURATION_MS;
+    const remainingMs = totalMs / 2;
+    const lockUntil = Date.now() + remainingMs;
+    window.localStorage.setItem(REMEMBER_ME_KEY, 'admin');
+    window.sessionStorage.setItem(
+      `LOGIN_LOCK_STATE_${location.hostname}`,
+      JSON.stringify({ lockUntil, lockTotalMs: totalMs, lockedUsername: 'admin' }),
+    );
+    render(<LoginPage />);
+    await waitFor(() => expect(screen.getByPlaceholderText('请输入用户名')).toHaveValue('admin'));
+    await waitFor(() => expect(document.querySelector('.auth-login-lock-progress')).not.toBeNull());
+    const bar = document.querySelector('.auth-login-lock-progress') as HTMLElement;
+    expect(parseFloat(bar.style.transform.replace('scaleX(', '').replace(')', ''))).toBeCloseTo(0.5, 1);
+  });
+
+  it('锁定状态下退回表单且「登录」按钮切换为倒计时面板', async () => {
     mocks.login.mockRejectedValueOnce({
       response: {
         data: {
@@ -303,9 +424,34 @@ describe('LoginPage 滑块验证', () => {
     drag(screen.getByRole('slider'), 0, 60);
     await waitFor(() => expect(screen.getByTestId('login-submit')).toBeDisabled());
     expect(screen.getByPlaceholderText('请输入密码')).toHaveValue('pass1234');
+    // 锁定态由倒计时面板承载，不再叠加会遮挡它的红色 toast
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(screen.getByTestId('login-lock-countdown')).toHaveTextContent(/\d{2}:\d{2}/);
   });
 
-  it('无验证码模式锁定后整条滑块带禁用遮罩', async () => {
+  it('423 锁定错误改用倒计时面板且不再弹 toast', async () => {
+    mocks.login.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 42301,
+          message: '账号已锁定，请稍后再试',
+          data: { captchaRequired: true, kind: 'lock', lockedUntil: new Date(Date.now() + 60_000).toISOString() },
+        },
+      },
+    });
+    await renderLogin();
+    drag(screen.getByRole('slider'), 0, 60);
+    await waitFor(() => expect(screen.getByTestId('login-submit')).toBeDisabled());
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('login-lock-toast')).not.toBeInTheDocument();
+    // 锁定后按钮整体切换为倒计时面板：不再显示「登录」，而是锁图标 + 文案 + 倒计时
+    expect(screen.getByTestId('login-submit')).not.toHaveTextContent(/^登\s*录$/);
+    expect(screen.getByTestId('login-submit')).toHaveTextContent('尝试次数过多');
+    expect(screen.getByTestId('login-lock-countdown')).toHaveTextContent(/\d{2}:\d{2}/);
+    expect(document.querySelector('.auth-login-lock-progress')).not.toBeNull();
+  });
+
+  it('无验证码模式锁定后整条滑块切换为倒计时面板', async () => {
     mocks.loginChallengeApi.mockResolvedValue({ captchaRequired: false });
     mocks.login.mockRejectedValueOnce({
       response: {
@@ -322,6 +468,11 @@ describe('LoginPage 滑块验证', () => {
     drag(handle, 0, 260);
     await waitFor(() => expect(handle.parentElement).toHaveClass('is-disabled'));
     expect(handle).toBeDisabled();
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('login-lock-toast')).not.toBeInTheDocument();
+    expect(screen.getByTestId('login-lock-countdown')).toHaveTextContent(/尝试次数过多/);
+    expect(screen.getByTestId('login-lock-countdown')).toHaveTextContent(/\d{2}:\d{2}/);
+    expect(document.querySelector('.auth-login-lock-progress')).not.toBeNull();
   });
 
   it('账号被锁定后换成其他账号，登录按钮恢复可用', async () => {

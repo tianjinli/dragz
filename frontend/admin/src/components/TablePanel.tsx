@@ -1,6 +1,5 @@
 import {
   forwardRef,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -16,6 +15,18 @@ export type TablePanelProps<RecordType> = TableProps<RecordType>;
 
 const MEASURE_HEADER = "list-table-measure-header";
 const MEASURE_PAGINATION = "list-table-measure-pagination";
+/** Ant Design skips the pager when total is 0. Middle size is 32px plus 16px margin on each side. */
+const EMPTY_PAGINATION_BLOCK = 64;
+
+function paginationBlockHeight(
+  root: HTMLElement,
+  pagination: TableProps<unknown>["pagination"],
+): number {
+  const measured = getOuterHeight(MEASURE_PAGINATION, root);
+  if (measured > 0) return measured;
+  if (!pagination) return 0;
+  return EMPTY_PAGINATION_BLOCK;
+}
 
 function listTableWidth<RecordType>(columns: TableColumnsType<RecordType> | undefined): number | undefined {
   if (!columns?.length) return undefined;
@@ -79,6 +90,30 @@ function getOuterHeight(
 function joinClass(...parts: Array<string | undefined>) {
   const value = parts.filter(Boolean).join(" ");
   return value || undefined;
+}
+
+/**
+ * Ant Design skips the pager entirely when `total` is 0 (InternalTable gates
+ * it on a truthy `mergedPagination.total`). Empty lists still need the page
+ * controls, so show one placeholder page to Ant Design while keeping the real
+ * total for `showTotal` and change callbacks.
+ */
+function withVisibleEmptyPagination<RecordType extends object>(
+  pagination: TableProps<RecordType>["pagination"],
+): TableProps<RecordType>["pagination"] {
+  if (!pagination || pagination.total !== 0) return pagination;
+  const { showTotal } = pagination;
+  return {
+    ...pagination,
+    total: 1,
+    current: 1,
+    ...(showTotal
+      ? {
+          showTotal: (_total: number, range: [number, number]) =>
+            showTotal(0, range),
+        }
+      : null),
+  };
 }
 
 function withMeasureClassNames<RecordType extends object>(
@@ -179,8 +214,9 @@ function TablePanelInner<RecordType extends object>(
       ? { ...boundedScroll, y: scrollY }
       : boundedScroll;
   const bodyScrollActive = hasExplicitY || scrollY > 0;
+  const paginationProps = withVisibleEmptyPagination(restProps.pagination);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (hasExplicitY) {
       setScrollY(0);
       setSectionHeight(0);
@@ -207,7 +243,7 @@ function TablePanelInner<RecordType extends object>(
         totalHeight = getOuterHeight(element);
       }
       const headerHeight = getOuterHeight(MEASURE_HEADER, element);
-      const paginationHeight = getOuterHeight(MEASURE_PAGINATION, element);
+      const paginationHeight = paginationBlockHeight(element, restProps.pagination);
       const available = Math.max(
         0,
         Math.floor(totalHeight - headerHeight - paginationHeight),
@@ -219,8 +255,15 @@ function TablePanelInner<RecordType extends object>(
       // what misaligns header/body borders (and a CSS overflow:auto override
       // breaks fixed columns — see ant-design#56479).
       const contentHeight = measureBodyContentHeight(element);
+      // A split body can report 0 before layout. Keep the previous scroll
+      // height instead of collapsing the scroller for one frame.
+      if (contentHeight <= 0) return;
       const nextY = contentHeight > available + 1 ? available : 0;
-      setScrollY((previous) => (previous === nextY ? previous : nextY));
+      // Measure before paint so the horizontal bar does not jump in after mount.
+      // Ignore a 1px oscillation between the scrollbar and the content box.
+      setScrollY((previous) =>
+        Math.abs(previous - nextY) <= 1 ? previous : nextY,
+      );
     };
 
     measure();
@@ -282,6 +325,7 @@ function TablePanelInner<RecordType extends object>(
   return (
     <Table<RecordType>
       {...restProps}
+      pagination={paginationProps}
       ref={(instance) => {
         rootRef.current = instance;
         assignRef(ref, instance);

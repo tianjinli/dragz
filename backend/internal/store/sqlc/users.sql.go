@@ -237,11 +237,18 @@ func (q *Queries) DeleteUserRoles(ctx context.Context, userID uint64) error {
 }
 
 const findUserIDByEmail = `-- name: FindUserIDByEmail :one
-SELECT id FROM sys_user WHERE email = $1 AND status = 1 AND deleted_at IS NULL LIMIT 1
+SELECT id FROM sys_user
+WHERE lower(email) = lower($1) AND status = 1 AND deleted_at IS NULL
+ORDER BY id
+LIMIT 1
 `
 
-func (q *Queries) FindUserIDByEmail(ctx context.Context, email string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, findUserIDByEmail, email)
+// The address is unique among live users (uk_user_email), so this returns at
+// most one row. Case-insensitive because the unique index is on lower(email)
+// and operators type addresses in any case. ORDER BY id keeps the answer stable
+// on a database that predates the index and still holds duplicates.
+func (q *Queries) FindUserIDByEmail(ctx context.Context, lower string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, findUserIDByEmail, lower)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

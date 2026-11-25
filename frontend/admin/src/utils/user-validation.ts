@@ -3,12 +3,33 @@ import i18n from '@/i18n';
 const mobilePattern = /^1[3-9]\d{9}$/;
 const emailPattern = /^[^\s@<>()[\],:;\\"]+@[^\s@<>()[\],:;\\"]+\.[^\s@<>()[\],:;\\"]+$/;
 const usernamePattern = /^[A-Za-z][A-Za-z0-9_]{3,63}$/;
+/** Printable ASCII except space — letters, digits, common punctuation (login/signup credentials). */
+const asciiCredentialPattern = /^[\x21-\x7E]*$/;
+
+export function stripAsciiCredential(value: string): string {
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.codePointAt(0)!;
+      return code >= 0x21 && code <= 0x7e;
+    })
+    .join('');
+}
+
+export function asciiCredentialFromInput(event: { target: { value: string } }): string {
+  return stripAsciiCredential(event.target.value);
+}
+
+export function asciiCredentialError(value?: string): string | undefined {
+  if (!value) return undefined;
+  return asciiCredentialPattern.test(value) ? undefined : i18n.t('validation.asciiOnly');
+}
 
 export function usernameError(value?: string): string | undefined {
   return !value || usernamePattern.test(value) ? undefined : i18n.t('validation.username');
 }
 
 export function passwordError(value: string, minLength: number, _username?: string): string | undefined {
+  if (value && !asciiCredentialPattern.test(value)) return i18n.t('validation.asciiOnly');
   const characterLength = Array.from(value).length;
   if (characterLength < minLength || characterLength > 64) return i18n.t('validation.passwordLength', { min: minLength });
   if (hasSequentialOrRepeatedRun(value, 6)) return i18n.t('validation.passwordSequence');

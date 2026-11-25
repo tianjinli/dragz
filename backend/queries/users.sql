@@ -135,7 +135,14 @@ SELECT department_id, is_super_admin FROM sys_user
 WHERE id = $1 AND status = 1 AND deleted_at IS NULL;
 
 -- name: FindUserIDByEmail :one
-SELECT id FROM sys_user WHERE email = $1 AND status = 1 AND deleted_at IS NULL LIMIT 1;
+-- The address is unique among live users (uk_user_email), so this returns at
+-- most one row. Case-insensitive because the unique index is on lower(email)
+-- and operators type addresses in any case. ORDER BY id keeps the answer stable
+-- on a database that predates the index and still holds duplicates.
+SELECT id FROM sys_user
+WHERE lower(email) = lower($1) AND status = 1 AND deleted_at IS NULL
+ORDER BY id
+LIMIT 1;
 
 -- name: FindUserIDByMobile :one
 SELECT id FROM sys_user WHERE mobile = $1 AND status = 1 AND deleted_at IS NULL LIMIT 1;

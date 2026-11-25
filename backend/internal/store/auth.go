@@ -18,6 +18,7 @@ type AuthRepository struct {
 	db         *DB
 	platformDB *DB
 	queries    *sqlcstore.Queries
+	dictCache  dictCache
 }
 
 // SetPlatformDB installs the cross-tenant identity for policy loading.

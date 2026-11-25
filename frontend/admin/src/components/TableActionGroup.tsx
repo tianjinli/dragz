@@ -12,6 +12,13 @@ export interface TableAction {
   /** Visible control is icon-only; label is used for tooltip / aria / confirm. */
   icon: ReactNode;
   label: string;
+  /**
+   * Name of the object this action acts on (the row's display name). A
+   * destructive confirmation has to say *what* is about to be deleted: the
+   * dialog outlives the row it was opened from, and "确定删除吗？" is answered
+   * from memory, not from the screen.
+   */
+  confirmName?: string;
   onClick: () => void | Promise<void>;
 }
 
@@ -115,8 +122,10 @@ export function TableActionGroup({ actions }: { actions: TableAction[] }) {
     return action.danger ? (
       <Popconfirm
         key={action.label}
-        title={t("common.confirmDelete", { name: action.label })}
-        description={t("common.confirmAction")}
+        title={t("common.confirmDeleteTitle", {
+          name: action.confirmName || action.label,
+        })}
+        description={t("common.confirmDeleteDetail")}
         okText={t("common.confirm")}
         cancelText={t("common.cancel")}
         onConfirm={() => run()}

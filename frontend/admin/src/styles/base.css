@@ -167,11 +167,21 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
   vertical-align: middle;
   overflow: hidden;
 }
+.department-resource-table .ant-table-tbody > tr > td.ant-table-cell-with-append > .ant-table-row-expand-icon {
+  /* antd floats the expand button at the top of the row, while the name cell
+     centers its icon/label vertically. Drop the float to the row's midline so
+     the button sits on the same line as the menu icon and text. */
+  position: relative;
+  top: 50%;
+  translate: 0 -50%;
+  margin-top: 0;
+}
 .page-shell:has(.table-card) .table-card {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  margin: 0;
   overflow: hidden;
 }
 .page-shell:has(.table-card) .table-card > .ant-card-body {
@@ -188,8 +198,12 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
   border: 0;
 }
 .page-shell:has(.table-card) .table-card > .ant-card-body:has(> .list-table-render-wrapper) {
-  padding: 0;
+  padding: 10px !important;
   background: transparent;
+}
+/* Beside the department tree the shared gap is the whole left inset, so the list does not add another 10. */
+.page-shell:has(.table-card) .user-list-main > .table-card > .ant-card-body:has(> .list-table-render-wrapper) {
+  padding: 10px 10px 10px 0 !important;
 }
 .resource-grid-card > .ant-card-body {
   padding: 0 8px 8px !important;
@@ -204,7 +218,7 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
   flex: 1 1 auto;
   width: 100%;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   min-height: 200px;
   overflow: hidden;
@@ -215,7 +229,7 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
 }
 .list-table-render-wrapper > .list-table-toolbar-search {
   flex: 0 0 auto;
-  padding: 12px 16px;
+  padding: 5px;
   border: 0px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -319,8 +333,8 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
   z-index: 1100;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 16px 16px;
+  gap: 10px;
+  padding: 10px;
   border-radius: 0;
   /* Soft page chrome (not --surface) so the gap between search and panel stays visible. */
   background: var(--surface-soft);
@@ -340,8 +354,8 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  /* Always inset from panel: left / right / bottom. */
-  padding: 0 6px 6px;
+  /* Inset the table from the list panel on every side. */
+  padding: 5px;
   box-sizing: border-box;
   /* Constrain height so the table can use height:100% + scroll.y (not grow the wrapper). */
   overflow: hidden;

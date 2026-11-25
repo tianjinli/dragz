@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 
 	"dragz-admin/backend/internal/app"
@@ -40,6 +41,13 @@ func listDictionaryTypesHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.dict_list_failed")
 			return
 		}
+		items = localizePreset(r, ctx.Auth, items,
+			func(item store.DictionaryType) []string { return []string{"dicttype." + item.Code} },
+			func(item *store.DictionaryType, values map[string]string) {
+				if s, ok := values["dicttype."+item.Code]; ok {
+					item.Name = s
+				}
+			})
 		ok(w, r, items)
 	}
 }
@@ -93,6 +101,20 @@ func deleteDictionaryTypeHandler(ctx *app.Context) http.HandlerFunc {
 	}
 }
 
+// localizeDictItems rewrites item labels (or a type's name) in the request
+// language. Keys follow v_preset_entity: dicttype.<code> for the type name,
+// dict.<code>.<value> for an item's label. Missing translations fall back to
+// the stored Chinese label by simply not being applied.
+func localizeDictItems(r *http.Request, loader translationLoader, typeCode string, items []store.DictionaryItem) []store.DictionaryItem {
+	return localizePreset(r, loader, items,
+		func(item store.DictionaryItem) []string { return []string{"dict." + typeCode + "." + item.Value} },
+		func(item *store.DictionaryItem, values map[string]string) {
+			if s, ok := values["dict."+typeCode+"."+item.Value]; ok {
+				item.Label = s
+			}
+		})
+}
+
 func listDictionaryItemsHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, valid := pathID(r)
@@ -105,17 +127,23 @@ func listDictionaryItemsHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.dict_items_load_failed")
 			return
 		}
+		dictType, err := ctx.Auth.DictionaryTypeByID(r.Context(), id)
+		if err == nil && dictType.Code != "" {
+			items = localizeDictItems(r, ctx.Auth, dictType.Code, items)
+		}
 		ok(w, r, items)
 	}
 }
 
 func dictionaryItemsByCodeHandler(ctx *app.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		items, err := ctx.Auth.DictionaryItemsByCode(r.Context(), pathvarValue(r, "code"))
+		code := pathvarValue(r, "code")
+		items, err := ctx.Auth.DictionaryItemsByCode(r.Context(), code)
 		if err != nil {
 			fail(w, r, http.StatusNotFound, 40401, "errors.dict.not_found")
 			return
 		}
+		items = localizeDictItems(r, ctx.Auth, code, items)
 		ok(w, r, items)
 	}
 }
@@ -179,12 +207,24 @@ func validateDictionaryType(w http.ResponseWriter, r *http.Request, req saveDict
 		fail(w, r, http.StatusBadRequest, 40001, "errors.dict_fields_invalid")
 		return false
 	}
+	// The code is the middle segment of item translation keys
+	// (dict.<code>.<value>): a dot would make "dict.a.b" ambiguous between a
+	// type "a" item and a type "a.b" name, so codes are snake_case only.
+	if !dictCodePattern.MatchString(req.Code) {
+		fail(w, r, http.StatusBadRequest, 40001, "errors.dict_code_invalid")
+		return false
+	}
 	if !validDictionaryDisplayType(req.DisplayType) {
 		fail(w, r, http.StatusBadRequest, 40001, "errors.dict_display_type_invalid")
 		return false
 	}
 	return req.Status == 0 || req.Status == 1
 }
+
+// dictCodePattern constrains dictionary type codes to lowercase snake_case:
+// the code is interpolated into translation keys and a prefix-matching rekey,
+// so anything beyond letters, digits and underscores is off-limits.
+var dictCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 func validDictionaryDisplayType(value string) bool {
 	switch strings.TrimSpace(value) {

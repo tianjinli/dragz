@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+const clearDictionaryDefault = `-- name: ClearDictionaryDefault :execrows
+UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
+WHERE dict_type_id = $1 AND is_default = 1 AND deleted_at IS NULL
+`
+
+// Step one of the two-step default switch (see uk_dict_item_default): drop
+// every default flag in the type before the new one is written, so the
+// immediate partial unique index is never tripped mid-statement. Runs in the
+// caller's transaction; row-level security scopes it to the caller's tenant.
+func (q *Queries) ClearDictionaryDefault(ctx context.Context, dictTypeID uint64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearDictionaryDefault, dictTypeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createDictionaryItem = `-- name: CreateDictionaryItem :one
 INSERT INTO sys_dict_item
   (dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
@@ -72,6 +89,75 @@ func (q *Queries) CreateDictionaryType(ctx context.Context, arg CreateDictionary
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getDictionaryItemByID = `-- name: GetDictionaryItemByID :one
+SELECT id, dict_type_id, label, value, color, css_class, sort, status,
+  is_default, remark
+FROM sys_dict_item
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetDictionaryItemByIDRow struct {
+	ID         int64  `json:"id"`
+	DictTypeID uint64 `json:"dict_type_id"`
+	Label      string `json:"label"`
+	Value      string `json:"value"`
+	Color      string `json:"color"`
+	CssClass   string `json:"css_class"`
+	Sort       int32  `json:"sort"`
+	Status     int16  `json:"status"`
+	IsDefault  int16  `json:"is_default"`
+	Remark     string `json:"remark"`
+}
+
+func (q *Queries) GetDictionaryItemByID(ctx context.Context, id int64) (GetDictionaryItemByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getDictionaryItemByID, id)
+	var i GetDictionaryItemByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.DictTypeID,
+		&i.Label,
+		&i.Value,
+		&i.Color,
+		&i.CssClass,
+		&i.Sort,
+		&i.Status,
+		&i.IsDefault,
+		&i.Remark,
+	)
+	return i, err
+}
+
+const getDictionaryTypeByID = `-- name: GetDictionaryTypeByID :one
+SELECT id, code, name, display_type, status, is_system, remark
+FROM sys_dict_type
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetDictionaryTypeByIDRow struct {
+	ID          int64  `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	DisplayType string `json:"display_type"`
+	Status      int16  `json:"status"`
+	IsSystem    int16  `json:"is_system"`
+	Remark      string `json:"remark"`
+}
+
+func (q *Queries) GetDictionaryTypeByID(ctx context.Context, id int64) (GetDictionaryTypeByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getDictionaryTypeByID, id)
+	var i GetDictionaryTypeByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Name,
+		&i.DisplayType,
+		&i.Status,
+		&i.IsSystem,
+		&i.Remark,
+	)
+	return i, err
 }
 
 const getDictionaryTypeDeleteChecks = `-- name: GetDictionaryTypeDeleteChecks :one

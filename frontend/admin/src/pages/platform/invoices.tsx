@@ -74,7 +74,7 @@ function InvoiceCatalog() {
 
   return (
     <Page title={t("platform.invoicesTitle")}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t("platform.invoicesList")}
           toolbar={{

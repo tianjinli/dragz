@@ -82,64 +82,77 @@ export function BillingPage() {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title={t("billing.quotas")} loading={loading}>
-            <TablePanel
-              rowKey="key"
-              pagination={false}
-              dataSource={quotas}
-              locale={{ emptyText: t("billing.empty") }}
-              columns={normalizeListColumns<BillingQuota>([
-                {
-                  title: t("billing.quotaKey"),
-                  dataIndex: "key",
-                  render: (value: string) => quotaLabel(value),
-                },
-                { title: t("billing.used"), dataIndex: "used", width: 100 },
-                { title: t("billing.limit"), dataIndex: "limit", width: 100 },
-                {
-                  title: t("billing.usage"),
-                  key: "usage",
-                  width: 180,
-                  render: (_: unknown, row: BillingQuota) => (
-                    <Progress
-                      percent={quotaPercent(row.used, row.limit)}
-                      size="small"
-                      status={row.limit > 0 && row.used > row.limit ? "exception" : "normal"}
-                    />
-                  ),
-                },
-              ])}
-            />
+          <Card className="table-card fit-list" loading={loading}>
+            <ListPagePanel
+              title={t("billing.quotas")}
+              toolbar={{ onRefresh: () => void load() }}
+            >
+              <TablePanel
+                rowKey="key"
+                pagination={false}
+                dataSource={quotas}
+                locale={{ emptyText: t("billing.empty") }}
+                columns={normalizeListColumns<BillingQuota>([
+                  {
+                    title: t("billing.quotaKey"),
+                    dataIndex: "key",
+                    render: (value: string) => quotaLabel(value),
+                  },
+                  { title: t("billing.used"), dataIndex: "used", width: 100 },
+                  { title: t("billing.limit"), dataIndex: "limit", width: 100 },
+                  {
+                    title: t("billing.usage"),
+                    key: "usage",
+                    width: 180,
+                    render: (_: unknown, row: BillingQuota) => (
+                      <Progress
+                        percent={quotaPercent(row.used, row.limit)}
+                        size="small"
+                        status={row.limit > 0 && row.used > row.limit ? "exception" : "normal"}
+                      />
+                    ),
+                  },
+                ])}
+              />
+            </ListPagePanel>
           </Card>
         </Col>
         <Col span={24}>
-          <Card className="table-card" title={t("billing.usageTitle")} loading={loading}>
-            <TablePanel
-              rowKey={(row) => `${row.quotaKey}:${row.periodKey}`}
-              pagination={false}
-              dataSource={counters}
-              locale={{ emptyText: t("billing.empty") }}
-              columns={normalizeListColumns<BillingUsageCounter>([
-                {
-                  title: t("billing.quotaKey"),
-                  dataIndex: "quotaKey",
-                  render: (value: string) => quotaLabel(value),
-                },
-                { title: t("billing.periodKey"), dataIndex: "periodKey", width: 200 },
-                { title: t("billing.used"), dataIndex: "usedValue", width: 160 },
-                {
-                  title: t("billing.updatedAt"),
-                  dataIndex: "updatedAt",
-                  width: 200,
-                  render: (value: string) => formatDateTime(value),
-                },
-              ])}
-            />
+          <Card className="table-card fit-list" loading={loading}>
+            <ListPagePanel
+              title={t("billing.usageTitle")}
+              toolbar={{ onRefresh: () => void load() }}
+            >
+              <TablePanel
+                rowKey={(row) => `${row.quotaKey}:${row.periodKey}`}
+                pagination={false}
+                dataSource={counters}
+                locale={{ emptyText: t("billing.empty") }}
+                columns={normalizeListColumns<BillingUsageCounter>([
+                  {
+                    title: t("billing.quotaKey"),
+                    dataIndex: "quotaKey",
+                    render: (value: string) => quotaLabel(value),
+                  },
+                  { title: t("billing.periodKey"), dataIndex: "periodKey", width: 200 },
+                  { title: t("billing.used"), dataIndex: "usedValue", width: 160 },
+                  {
+                    title: t("billing.updatedAt"),
+                    dataIndex: "updatedAt",
+                    width: 200,
+                    render: (value: string) => formatDateTime(value),
+                  },
+                ])}
+              />
+            </ListPagePanel>
           </Card>
         </Col>
         <Col span={24}>
-          <Card className="table-card" title={t("billing.invoices")}>
-            <ListPagePanel toolbar={{ onRefresh: () => void load() }}>
+          <Card className="table-card fit-list">
+            <ListPagePanel
+              title={t("billing.invoices")}
+              toolbar={{ onRefresh: () => void load() }}
+            >
               <TablePanel
                 className="list-page-table"
                 bordered

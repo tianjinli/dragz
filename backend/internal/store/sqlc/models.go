@@ -559,7 +559,9 @@ type SysTenantInvite struct {
 	AcceptedBy    sql.NullInt64 `json:"accepted_by"`
 	ExpiresAt     time.Time     `json:"expires_at"`
 	AcceptedAt    sql.NullTime  `json:"accepted_at"`
+	RevokedAt     sql.NullTime  `json:"revoked_at"`
 	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
 type SysTenantMember struct {
@@ -598,6 +600,7 @@ type SysTenantSubscription struct {
 
 type SysTranslation struct {
 	ID        int64     `json:"id"`
+	TenantID  uint64    `json:"tenant_id"`
 	EntityKey string    `json:"entity_key"`
 	Lang      string    `json:"lang"`
 	Value     string    `json:"value"`

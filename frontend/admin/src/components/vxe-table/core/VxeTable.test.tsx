@@ -147,6 +147,66 @@ describe('VxeTable', () => {
     expect((cells[2] as HTMLElement).style.right).toBe('0px');
   });
 
+  it('marks fixed-block edge cells for the outline lines', () => {
+    render(
+      <VxeTable
+        columns={[
+          { field: 'id', title: 'ID', width: 80, fixed: 'left' },
+          { field: 'name', title: '姓名', width: 120, fixed: 'left' },
+          { field: 'age', title: '年龄', width: 80 },
+          { field: 'ops', title: '操作', width: 100, fixed: 'right' },
+        ]}
+        data={rows}
+      />,
+    );
+    const header = document.querySelector('.vxe-table--header') as HTMLElement;
+    const headers = within(header).getAllByRole('columnheader');
+    expect(headers[0].className).toContain('is-fixed-left-first');
+    expect(headers[0].className).not.toContain('is-fixed-left-last');
+    expect(headers[1].className).toContain('is-fixed-left-last');
+    expect(headers[1].className).not.toContain('is-fixed-left-first');
+    expect(headers[2].className).not.toContain('is-fixed');
+    expect(headers[3].className).toContain('is-fixed-right-first');
+    expect(headers[3].className).toContain('is-fixed-right-last');
+
+    const firstRow = document.querySelector('.vxe-body--row') as HTMLElement;
+    const cells = within(firstRow).getAllByRole('cell');
+    expect(cells[0].className).toContain('is-fixed-left-first');
+    expect(cells[1].className).toContain('is-fixed-left-last');
+    expect(cells[2].className).not.toContain('is-fixed');
+    expect(cells[3].className).toContain('is-fixed-right-first');
+    expect(cells[3].className).toContain('is-fixed-right-last');
+  });
+
+  it('maps group-header cells back to leaves when marking fixed-block edges', () => {
+    render(
+      <VxeTable
+        columns={[
+          { field: 'id', title: 'ID', width: 70, fixed: 'left' },
+          {
+            title: '基本信息',
+            children: [
+              { field: 'name', title: '姓名', width: 120, fixed: 'left' },
+              { field: 'age', title: '年龄', width: 80 },
+            ],
+          },
+        ]}
+        data={rows}
+      />,
+    );
+    const header = document.querySelector('.vxe-table--header') as HTMLElement;
+    const headerRows = header.querySelectorAll('tr');
+    // row 0: ID (rowSpan 2) + group 基本信息 (colSpan 2)
+    const top = within(headerRows[0] as HTMLElement).getAllByRole('columnheader');
+    expect(top[0].className).toContain('is-fixed-left-first');
+    expect(top[0].className).not.toContain('is-fixed-left-last');
+    expect(top[1].className).not.toContain('is-fixed');
+    // row 1: 姓名 must resolve to leaf index 1, not 0 — it is the last left-fixed leaf
+    const bottom = within(headerRows[1] as HTMLElement).getAllByRole('columnheader');
+    expect(bottom[0].className).toContain('is-fixed-left-last');
+    expect(bottom[0].className).not.toContain('is-fixed-left-first');
+  });
+
   it('resizes a column by dragging the header handle', () => {
     const onColumnWidthChange = vi.fn();
     render(<VxeTable columns={baseColumns} data={rows} onColumnWidthChange={onColumnWidthChange} />);

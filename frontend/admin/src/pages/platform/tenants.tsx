@@ -336,7 +336,7 @@ function TenantConsole() {
 
   return (
     <Page title={t("platform.tenantsTitle")}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t("platform.tenantsList")}
           toolbar={{
@@ -448,6 +448,7 @@ function TenantConsole() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={createForm}
         open={createOpen}
         title={t("platform.createTenant")}
         onClose={() => setCreateOpen(false)}
@@ -485,6 +486,7 @@ function TenantConsole() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={subscriptionForm}
         open={!!subscriptionTarget}
         title={t("platform.subscriptionFor", { name: subscriptionTarget?.name ?? "" })}
         onClose={() => setSubscriptionTarget(undefined)}
@@ -530,6 +532,7 @@ function TenantConsole() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={impersonateForm}
         open={!!impersonateTarget}
         title={t("platform.impersonateFor", { name: impersonateTarget?.name ?? "" })}
         onClose={() => setImpersonateTarget(undefined)}
@@ -567,6 +570,7 @@ function TenantConsole() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={purgeForm}
         open={!!purgeTarget}
         title={t("platform.schedulePurgeFor", { name: purgeTarget?.name ?? "" })}
         onClose={() => setPurgeTarget(undefined)}
@@ -594,6 +598,7 @@ function TenantConsole() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={slugForm}
         open={!!domainTarget}
         title={t("platform.domainsFor", { name: domainTarget?.name ?? "" })}
         onClose={() => setDomainTarget(undefined)}
@@ -637,6 +642,7 @@ function TenantConsole() {
           </Button>
         </Space.Compact>
         <Table<TenantDomain>
+          className="fit-list"
           columns={[
             { title: t("platform.host"), dataIndex: "host" },
             {

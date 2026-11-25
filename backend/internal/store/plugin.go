@@ -150,6 +150,24 @@ var bootstrapStatements = []string{
 	`ALTER TABLE sys_dict_item DROP CONSTRAINT IF EXISTS uk_dict_item_value`,
 	`DROP INDEX IF EXISTS uk_dict_item_value`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_value ON sys_dict_item (tenant_id, dict_type_id, value) WHERE deleted_at IS NULL`,
+	// A dictionary type keeps at most one default item among LIVE rows. The
+	// dedupe must run before the index: a database written by older builds may
+	// hold several is_default=1 rows in one type, and the unique index would
+	// refuse to build over them. The survivor is the first row in sort order
+	// (id breaks ties), which is what the UI has always rendered as the
+	// default. Idempotent: re-runs find nothing to clear.
+	`UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
+WHERE is_default = 1 AND deleted_at IS NULL
+  AND id <> (
+    SELECT keep.id FROM sys_dict_item keep
+    WHERE keep.tenant_id = sys_dict_item.tenant_id
+      AND keep.dict_type_id = sys_dict_item.dict_type_id
+      AND keep.is_default = 1 AND keep.deleted_at IS NULL
+    ORDER BY keep.sort, keep.id
+    LIMIT 1
+  )`,
+	`ALTER TABLE sys_dict_item DROP CONSTRAINT IF EXISTS uk_dict_item_default`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_default ON sys_dict_item (tenant_id, dict_type_id) WHERE is_default = 1 AND deleted_at IS NULL`,
 	`ALTER TABLE sys_scheduled_job DROP CONSTRAINT IF EXISTS uk_scheduled_job_code`,
 	`DROP INDEX IF EXISTS uk_scheduled_job_code`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_scheduled_job_code ON sys_scheduled_job (tenant_id, code) WHERE deleted_at IS NULL`,
@@ -240,7 +258,14 @@ WHERE NOT EXISTS (
   SELECT 'job.' || code, name, updated_at FROM sys_scheduled_job WHERE deleted_at IS NULL
   UNION ALL
   SELECT 'storage.' || storage_type, name, updated_at FROM sys_storage_config
-    WHERE deleted_at IS NULL`,
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dicttype.' || code, name, updated_at FROM sys_dict_type
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dict.' || dt.code || '.' || di.value, di.label, di.updated_at
+    FROM sys_dict_item di JOIN sys_dict_type dt ON dt.id = di.dict_type_id
+    WHERE di.deleted_at IS NULL AND dt.deleted_at IS NULL`,
 	`CREATE OR REPLACE VIEW v_preset_source_row AS
   SELECT 'menu'::text AS namespace, id, code AS code, name AS source,
          ''::text AS remark
@@ -823,6 +848,13 @@ WHERE p.code = 'organization' AND p.deleted_at IS NULL
 SELECT 1, id FROM sys_menu
 WHERE code = 'system_member' AND deleted_at IS NULL
 ON CONFLICT DO NOTHING`,
+	// Workspace entry point is members, not users: tenant admins land on the
+	// membership list. Idempotent for databases still redirecting to users.
+	`UPDATE sys_menu
+SET redirect = '/organization/members', updated_at = NOW()
+WHERE code = 'organization'
+  AND deleted_at IS NULL
+  AND redirect = '/organization/users'`,
 	// Platform staff directory. Not granted in sys_role_menu: the platform
 	// console is gated by the platform operator flag, not by a role grant.
 	`INSERT INTO sys_menu
@@ -848,6 +880,221 @@ WHERE NOT EXISTS (
   SELECT 1 FROM sys_translation t
   WHERE t.entity_key = v.entity_key AND t.lang = 'en'
 )`,
+
+	// ---- schema hardening (migrations/022_schema_hardening.sql) ----------
+	// 016's tenant-composite FKs lived only in its own file, and the project
+	// has no migration runner, so a database rebuilt from 001 + bootstrap had
+	// no foreign keys at all. Parent keys and FKs are (re)created here on every
+	// start, which is also what keeps future rebuilds honest.
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_department_tenant_id ON sys_department (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_position_tenant_id ON sys_position (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_role_tenant_id ON sys_role (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_type_tenant_id ON sys_dict_type (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_file_tenant_id ON sys_file (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_notice_tenant_id ON sys_notice (tenant_id, id)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_scheduled_job_tenant_id ON sys_scheduled_job (tenant_id, id)`,
+	// A child row that already points outside its tenant cannot satisfy the FK.
+	// The reference is already invisible under RLS, so removing it loses
+	// nothing; leaving it would block the constraint forever.
+	`DELETE FROM sys_user_role ur
+WHERE NOT EXISTS (SELECT 1 FROM sys_role r WHERE r.id = ur.role_id AND r.tenant_id = ur.tenant_id)`,
+	`DELETE FROM sys_user_position up
+WHERE NOT EXISTS (SELECT 1 FROM sys_position p WHERE p.id = up.position_id AND p.tenant_id = up.tenant_id)`,
+	`DELETE FROM sys_role_department rd
+WHERE NOT EXISTS (SELECT 1 FROM sys_department d WHERE d.id = rd.department_id AND d.tenant_id = rd.tenant_id)`,
+	`DELETE FROM sys_dict_item di
+WHERE NOT EXISTS (SELECT 1 FROM sys_dict_type dt WHERE dt.id = di.dict_type_id AND dt.tenant_id = di.tenant_id)`,
+	`DELETE FROM sys_file_reference fr
+WHERE NOT EXISTS (SELECT 1 FROM sys_file f WHERE f.id = fr.file_id AND f.tenant_id = fr.tenant_id)`,
+	`DELETE FROM sys_notice_read nr
+WHERE NOT EXISTS (SELECT 1 FROM sys_notice n WHERE n.id = nr.notice_id AND n.tenant_id = nr.tenant_id)`,
+	`DELETE FROM sys_job_log jl
+WHERE NOT EXISTS (SELECT 1 FROM sys_scheduled_job j WHERE j.id = jl.job_id AND j.tenant_id = jl.tenant_id)`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_user_role ADD CONSTRAINT fk_user_role_role_tenant
+    FOREIGN KEY (tenant_id, role_id) REFERENCES sys_role (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_user_position ADD CONSTRAINT fk_user_position_position_tenant
+    FOREIGN KEY (tenant_id, position_id) REFERENCES sys_position (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_role_department ADD CONSTRAINT fk_role_department_department_tenant
+    FOREIGN KEY (tenant_id, department_id) REFERENCES sys_department (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_dict_item ADD CONSTRAINT fk_dict_item_type_tenant
+    FOREIGN KEY (tenant_id, dict_type_id) REFERENCES sys_dict_type (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_file_reference ADD CONSTRAINT fk_file_reference_file_tenant
+    FOREIGN KEY (tenant_id, file_id) REFERENCES sys_file (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_notice_read ADD CONSTRAINT fk_notice_read_notice_tenant
+    FOREIGN KEY (tenant_id, notice_id) REFERENCES sys_notice (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_job_log ADD CONSTRAINT fk_job_log_job_tenant
+    FOREIGN KEY (tenant_id, job_id) REFERENCES sys_scheduled_job (tenant_id, id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	// Contact addresses are login/invite identities: a duplicate would make
+	// `WHERE email = $1 LIMIT 1` bind an invite to an arbitrary account.
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_user_email ON sys_user (lower(email)) WHERE email <> '' AND deleted_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_user_mobile ON sys_user (mobile) WHERE mobile <> '' AND deleted_at IS NULL`,
+	// 0/1 flags: without CHECK a stray 5 was accepted. ADD CONSTRAINT validates
+	// existing rows, so an out-of-range legacy value fails the start loudly.
+	`DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('sys_department','status'), ('sys_position','status'), ('sys_user','status'),
+    ('sys_user','is_super_admin'), ('sys_user','must_change_password'),
+    ('sys_role','status'), ('sys_role','is_system'),
+    ('sys_menu','status'), ('sys_menu','visible'), ('sys_menu','keep_alive'),
+    ('sys_menu','affix_tab'), ('sys_menu','is_sensitive'), ('sys_menu','managed'),
+    ('sys_dict_type','status'), ('sys_dict_type','is_system'),
+    ('sys_dict_item','status'), ('sys_dict_item','is_default'),
+    ('sys_config','is_secret'), ('sys_config','is_readonly'),
+    ('sys_auth_provider','auto_register'), ('sys_auth_provider','status'),
+    ('sys_storage_config','use_https'), ('sys_storage_config','private_access'),
+    ('sys_storage_config','is_default'), ('sys_storage_config','status'),
+    ('sys_notice','is_pinned'), ('sys_user_notify_pref','enabled'),
+    ('sys_api_token','status'), ('sys_login_log','success'),
+    ('sys_operation_log','success'), ('sys_error_log','resolved'),
+    ('sys_webhook','allow_private_network'), ('sys_webhook','status'),
+    ('sys_scheduled_job','status'), ('sys_tenant','status'),
+    ('sys_tenant_member','is_tenant_admin'), ('sys_tenant_member','status'),
+    ('sys_tenant_invite','is_tenant_admin'), ('sys_plan','status'),
+    ('sys_tenant_domain','is_primary')
+  ) AS v(tbl, col)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'ck_' || r.tbl || '_' || r.col AND conrelid = r.tbl::regclass
+    ) THEN
+      EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (0,1))',
+        r.tbl, 'ck_' || r.tbl || '_' || r.col, r.col);
+    END IF;
+  END LOOP;
+END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_user ADD CONSTRAINT ck_sys_user_gender CHECK (gender IN (0,1,2));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_job_log ADD CONSTRAINT ck_sys_job_log_success
+    CHECK (success IS NULL OR success IN (0,1));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_outbox ADD CONSTRAINT ck_sys_outbox_status CHECK (status IN (0,1,2,3));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_invoice ADD CONSTRAINT ck_sys_invoice_amount CHECK (amount_cents >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	`DO $$
+BEGIN
+  ALTER TABLE sys_tenant_quota ADD CONSTRAINT ck_sys_tenant_quota_limit CHECK (limit_value >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+	// A single-column index on a nullable timestamp is never chosen for
+	// `deleted_at IS NULL` (selectivity ~1) and only costs writes.
+	`DROP INDEX IF EXISTS idx_department_deleted`,
+	`DROP INDEX IF EXISTS idx_position_deleted`,
+	`DROP INDEX IF EXISTS idx_user_deleted`,
+	`DROP INDEX IF EXISTS idx_role_deleted`,
+	`DROP INDEX IF EXISTS idx_menu_deleted`,
+	`DROP INDEX IF EXISTS idx_dict_type_deleted`,
+	`DROP INDEX IF EXISTS idx_dict_item_deleted`,
+	`DROP INDEX IF EXISTS idx_auth_provider_deleted`,
+	`DROP INDEX IF EXISTS idx_storage_deleted`,
+	`DROP INDEX IF EXISTS idx_file_deleted`,
+	`DROP INDEX IF EXISTS idx_notice_deleted`,
+	`DROP INDEX IF EXISTS idx_webhook_deleted`,
+	`DROP INDEX IF EXISTS idx_scheduled_job_deleted`,
+	// RLS appends `tenant_id = app_current_tenant_id()` to every statement, so
+	// the hot paths need tenant_id first.
+	`CREATE INDEX IF NOT EXISTS idx_notification_tenant_user ON sys_notification (tenant_id, user_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_operation_log_tenant_created ON sys_operation_log (tenant_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_error_log_tenant_created ON sys_error_log (tenant_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_notice_tenant_status ON sys_notice (tenant_id, status, publish_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_file_tenant_created ON sys_file (tenant_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_job_log_tenant_job ON sys_job_log (tenant_id, job_id, started_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_file_reference_tenant_business ON sys_file_reference (tenant_id, business_type, business_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_token_tenant_user ON sys_api_token (tenant_id, user_id, status)`,
+	`DROP INDEX IF EXISTS idx_notification_user_created`,
+	`DROP INDEX IF EXISTS idx_file_reference_business`,
+	// updated_at used to be maintained by hand in every statement. The trigger
+	// only stamps when the statement did not set the column itself, so an
+	// explicit SET updated_at (imports, backfills) still wins.
+	`CREATE OR REPLACE FUNCTION app_touch_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.updated_at IS NOT DISTINCT FROM OLD.updated_at THEN
+    NEW.updated_at := NOW();
+  END IF;
+  RETURN NEW;
+END;
+$$`,
+	`DO $$
+DECLARE
+  target text;
+BEGIN
+  FOR target IN
+    SELECT c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'updated_at' AND a.attnum > 0
+    WHERE n.nspname = 'public' AND c.relkind = 'r'
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger t
+      WHERE t.tgname = 'trg_touch_updated_at' AND t.tgrelid = target::regclass
+    ) THEN
+      EXECUTE format('CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION app_touch_updated_at()', target);
+    END IF;
+  END LOOP;
+END $$`,
+	`ALTER TABLE sys_tenant_invite ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ NULL`,
+	`ALTER TABLE sys_tenant_invite ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+
+	// ---- per-tenant translations ----------------------------------------
+	// Entity keys are built from business codes (role.admin, dict.<code>.<value>)
+	// and every tenant has its own copy of those codes, so a single global row
+	// let one tenant's English label change another's. tenant_id 0 is the
+	// platform default; a tenant row wins over it. Existing rows become the
+	// defaults, which is exactly what they were before this change.
+	`ALTER TABLE sys_translation ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_translation DROP CONSTRAINT IF EXISTS uk_translation_entity_lang`,
+	`DROP INDEX IF EXISTS uk_translation_entity_lang`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_translation_entity_lang ON sys_translation (tenant_id, entity_key, lang)`,
+	`DROP INDEX IF EXISTS idx_translation_lang`,
+	`CREATE INDEX IF NOT EXISTS idx_translation_lang ON sys_translation (tenant_id, lang)`,
+	`ALTER TABLE sys_translation ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE sys_translation FORCE ROW LEVEL SECURITY`,
+	`DROP POLICY IF EXISTS tenant_isolation ON sys_translation`,
+	`DROP POLICY IF EXISTS translation_read ON sys_translation`,
+	`DROP POLICY IF EXISTS translation_write ON sys_translation`,
+	// Reads see the platform defaults plus the caller's own overrides. Writes
+	// are tenant-only: a tenant session must not be able to rewrite or delete a
+	// platform default (the store copies it into an override instead).
+	`CREATE POLICY translation_read ON sys_translation FOR SELECT
+  USING (app_rls_bypass() OR tenant_id = 0 OR tenant_id = app_current_tenant_id())`,
+	`CREATE POLICY translation_write ON sys_translation FOR ALL
+  USING (app_rls_bypass() OR tenant_id = app_current_tenant_id())
+  WITH CHECK (app_rls_bypass() OR tenant_id = app_current_tenant_id())`,
 }
 
 // retiredModuleStatements delete rows belonging to product modules that were
@@ -883,6 +1130,66 @@ var retiredModuleStatements = []string{
 // seedStatements are idempotent DML. They run after bootstrap, under the same
 // advisory lock as everything else.
 var seedStatements = []string{
+	// Seeded system dictionaries (migrations/001_system_init.sql seeds the same
+	// rows with explicit ids on a fresh data directory; databases initialised
+	// before the seed existed get them here instead). Explicit ids are avoided
+	// in this path on purpose: a database that predates the seed may already
+	// hold admin-created dictionary rows at those ids. The bootstrap step has
+	// added tenant_id by now, so the rows land in tenant 1, the template tenant
+	// every new tenant copies its system dictionaries from (see provisionTenant).
+	`INSERT INTO sys_dict_type (tenant_id, code, name, display_type, status, is_system, remark)
+SELECT 1, v.code, v.name, v.display_type, 1, 1, v.remark
+FROM (VALUES
+  ('normal_disable', '系统状态', 'segmented', '通用启用/停用状态'),
+  ('yes_no', '是否', 'segmented', '通用是/否选项'),
+  ('user_sex', '性别', 'segmented', '通用性别选项'),
+  ('priority', '优先级', 'segmented', '通用优先级选项')
+) AS v(code, name, display_type, remark)
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_dict_type t
+  WHERE t.tenant_id = 1 AND t.code = v.code AND t.deleted_at IS NULL
+)`,
+	`INSERT INTO sys_dict_item (tenant_id, dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
+SELECT 1, t.id, v.label, v.value, v.color, v.css_class, v.sort, 1, v.is_default, ''
+FROM (VALUES
+  ('normal_disable', '正常', '1', 'green', '', 1, 1),
+  ('normal_disable', '停用', '0', 'red', '', 2, 0),
+  ('yes_no', '是', 'Y', 'green', '', 1, 1),
+  ('yes_no', '否', 'N', '', '', 2, 0),
+  ('user_sex', '男', 'male', 'blue', '', 1, 1),
+  ('user_sex', '女', 'female', 'pink', '', 2, 0),
+  ('user_sex', '未知', 'unknown', '', '', 3, 0),
+  ('priority', '低', 'low', '', '', 1, 0),
+  ('priority', '中', 'middle', 'blue', '', 2, 1),
+  ('priority', '高', 'high', 'red', '', 3, 0)
+) AS v(type_code, label, value, color, css_class, sort, is_default)
+JOIN sys_dict_type t ON t.tenant_id = 1 AND t.code = v.type_code AND t.deleted_at IS NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_dict_item i
+  WHERE i.tenant_id = 1 AND i.dict_type_id = t.id AND i.value = v.value AND i.deleted_at IS NULL
+)`,
+	`INSERT INTO sys_translation (entity_key, lang, value)
+SELECT v.entity_key, 'en', v.value
+FROM (VALUES
+  ('dicttype.normal_disable', 'Status'),
+  ('dicttype.yes_no', 'Yes/No'),
+  ('dicttype.user_sex', 'Gender'),
+  ('dicttype.priority', 'Priority'),
+  ('dict.normal_disable.1', 'Enabled'),
+  ('dict.normal_disable.0', 'Disabled'),
+  ('dict.yes_no.Y', 'Yes'),
+  ('dict.yes_no.N', 'No'),
+  ('dict.user_sex.male', 'Male'),
+  ('dict.user_sex.female', 'Female'),
+  ('dict.user_sex.unknown', 'Unknown'),
+  ('dict.priority.low', 'Low'),
+  ('dict.priority.middle', 'Medium'),
+  ('dict.priority.high', 'High')
+) AS v(entity_key, value)
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_translation t
+  WHERE t.entity_key = v.entity_key AND t.lang = 'en'
+)`,
 	// migrations/001_system_init.sql seeds rows with EXPLICIT ids, which leaves
 	// the owning sequence at its initial value. The first row created through
 	// the UI then asks for id 1 again and dies with
@@ -950,11 +1257,83 @@ func (r *PluginRepository) Bootstrap(ctx context.Context) error {
 				return err
 			}
 		}
+		if err := assertSchemaConstraints(ctx, conn); err != nil {
+			return err
+		}
+		warnIfRLSBypassed(ctx, conn)
 		return nil
 	}); err != nil {
 		return fmt.Errorf("bootstrap plugin schema: %w", err)
 	}
 	return r.migrateLegacyAPIPermissions(ctx)
+}
+
+// warnIfRLSBypassed reports the runtime role when row-level security cannot
+// apply to it. FORCE ROW LEVEL SECURITY binds the table owner, but a SUPERUSER
+// or BYPASSRLS role ignores every policy — which is exactly the role the
+// docker image creates from POSTGRES_USER. Connecting the API with it turns
+// tenant isolation into decoration, so the start says so out loud instead of
+// leaving it to be discovered as a data leak.
+func warnIfRLSBypassed(ctx context.Context, conn *sql.Conn) {
+	var role string
+	var superuser, bypassRLS bool
+	err := conn.QueryRowContext(ctx,
+		`SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
+	).Scan(&role, &superuser, &bypassRLS)
+	if err != nil {
+		return
+	}
+	if superuser || bypassRLS {
+		fmt.Printf("WARNING: database role %q is SUPERUSER/BYPASSRLS — row-level security is NOT enforced; "+
+			"connect the API as a dedicated NOSUPERUSER NOBYPASSRLS role\n", role)
+	}
+}
+
+// requiredConstraints are the tenant-composite foreign keys that make a
+// cross-tenant reference impossible to store. They used to live only in
+// migrations/016, and the project has no migration runner, so a rebuilt
+// database silently lost them (verified: a single FK remained). Bootstrap
+// creates them every start; this check is what turns a regression in that list
+// into a failed start instead of a quiet integrity hole.
+var requiredConstraints = []string{
+	"fk_user_role_role_tenant",
+	"fk_user_position_position_tenant",
+	"fk_role_department_department_tenant",
+	"fk_dict_item_type_tenant",
+	"fk_file_reference_file_tenant",
+	"fk_notice_read_notice_tenant",
+	"fk_job_log_job_tenant",
+}
+
+func assertSchemaConstraints(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx, `
+SELECT conname FROM pg_constraint
+WHERE connamespace = 'public'::regnamespace AND contype = 'f'`)
+	if err != nil {
+		return fmt.Errorf("assert schema constraints: %w", err)
+	}
+	defer rows.Close()
+	found := make(map[string]struct{}, len(requiredConstraints))
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		found[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	var missing []string
+	for _, name := range requiredConstraints {
+		if _, ok := found[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("bootstrap plugin schema: missing foreign keys %v", missing)
+	}
+	return nil
 }
 
 // legacyAPIMigrationStatements convert the old dedicated permission tables into

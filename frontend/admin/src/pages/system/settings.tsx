@@ -3,18 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
-  Drawer,
   Form,
   Input,
   InputNumber,
   Segmented,
   Select,
-  Space,
   Switch,
   Tag,
   message,
 } from "antd";
-import { Maximize2, Minimize2, Pencil, PlugZap, Plus, Trash2 } from "lucide-react";
+import { Pencil, PlugZap, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import {
@@ -33,7 +31,9 @@ import {
 } from "@/api/system";
 import { NumberStepper } from "@/components/NumberStepper";
 import { Page } from "@/components/Page";
+import { FormDrawer } from "@/components/FormDrawer";
 import { ResourceCrudPage } from "@/components/ResourceCrudPage";
+import { SCROLL_TO_FIRST_ERROR } from "@/constants/forms";
 import { normalizeListColumns } from "@/utils/table-columns";
 import {
   actionColumnWidth,
@@ -96,8 +96,8 @@ export function DictionaryPage() {
   const [items, setItems] = useState<ResourceRecord[]>([]);
   const [typeOpen, setTypeOpen] = useState(false);
   const [itemOpen, setItemOpen] = useState(false);
-  const [typeMaximized, setTypeMaximized] = useState(false);
-  const [itemMaximized, setItemMaximized] = useState(false);
+  const [typeSaving, setTypeSaving] = useState(false);
+  const [itemSaving, setItemSaving] = useState(false);
   const [editingType, setEditingType] = useState<ResourceRecord | null>(null);
   const [editingItem, setEditingItem] = useState<ResourceRecord | null>(null);
   const [typeForm] = Form.useForm();
@@ -132,29 +132,43 @@ export function DictionaryPage() {
 
   const openTypeEditor = (row: ResourceRecord | null) => {
     setEditingType(row);
-    setTypeMaximized(false);
     setTypeOpen(true);
   };
   const openItemEditor = (row: ResourceRecord | null) => {
     setEditingItem(row);
-    setItemMaximized(false);
     setItemOpen(true);
   };
   const saveType = async () => {
-    const values = await typeForm.validateFields();
+    let values: Record<string, unknown>;
+    try {
+      values = await typeForm.validateFields();
+    } catch {
+      // antd already marked the offending field and scrolled it into view.
+      return;
+    }
     const payload = {
       ...values,
       displayType: values.displayType ?? "segmented",
       status: values.status ? 1 : 0,
     };
-    if (editingType) await updateDictionaryTypeApi(editingType.id, payload);
-    else await createDictionaryTypeApi(payload);
-    setTypeOpen(false);
-    void message.success(t("common.saveSuccess"));
-    await loadTypes();
+    setTypeSaving(true);
+    try {
+      if (editingType) await updateDictionaryTypeApi(editingType.id, payload);
+      else await createDictionaryTypeApi(payload);
+      setTypeOpen(false);
+      void message.success(t("common.saveSuccess"));
+      await loadTypes();
+    } finally {
+      setTypeSaving(false);
+    }
   };
   const saveItem = async () => {
-    const values = await itemForm.validateFields();
+    let values: Record<string, unknown>;
+    try {
+      values = await itemForm.validateFields();
+    } catch {
+      return;
+    }
     const payload = {
       ...values,
       sort: Number(values.sort ?? 0),
@@ -162,12 +176,17 @@ export function DictionaryPage() {
       isDefault: !!values.isDefault,
     };
     if (!selected) return;
-    if (editingItem) await updateDictionaryItemApi(editingItem.id, payload);
-    else await createDictionaryItemApi(selected.id, payload);
-    setItemOpen(false);
-    void message.success(t("common.saveSuccess"));
-    await loadItems();
-    await loadTypes();
+    setItemSaving(true);
+    try {
+      if (editingItem) await updateDictionaryItemApi(editingItem.id, payload);
+      else await createDictionaryItemApi(selected.id, payload);
+      setItemOpen(false);
+      void message.success(t("common.saveSuccess"));
+      await loadItems();
+      await loadTypes();
+    } finally {
+      setItemSaving(false);
+    }
   };
   const changeTypeStatus = async (row: ResourceRecord, checked: boolean) => {
     setTypeStatusChangingId(row.id);
@@ -221,7 +240,7 @@ export function DictionaryPage() {
   return (
     <Page title={t("system.settings.dict.title")}>
       <div className="split-page dictionary-split-page">
-        <Card className="split-master table-card dictionary-table-card">
+        <Card className="split-master table-card dictionary-table-card fit-list">
           <ListPagePanel
             title={t("system.settings.dict.typeList")}
             toolbar={{
@@ -308,7 +327,7 @@ export function DictionaryPage() {
             />
           </ListPagePanel>
         </Card>
-        <Card className="split-detail table-card dictionary-table-card">
+        <Card className="split-detail table-card dictionary-table-card fit-list">
           <ListPagePanel
             title={t("system.settings.dict.itemList")}
             toolbar={{
@@ -387,51 +406,18 @@ export function DictionaryPage() {
           </ListPagePanel>
         </Card>
       </div>
-      <Drawer
-        className="form-drawer"
-        closable={false}
+      <FormDrawer
+        confirmLoading={typeSaving}
+        form={typeForm}
+        onClose={() => setTypeOpen(false)}
+        onOk={saveType}
+        open={typeOpen}
         title={
           editingType
             ? t("system.settings.dict.editType")
             : t("system.settings.dict.createType")
         }
-        open={typeOpen}
-        size={typeMaximized ? "100vw" : 520}
-        rootClassName={typeMaximized ? "form-drawer-maximized" : undefined}
-        onClose={() => {
-          setTypeMaximized(false);
-          setTypeOpen(false);
-        }}
-        extra={
-          <Button
-            aria-label={
-              typeMaximized
-                ? t("system.settings.dict.restore")
-                : t("common.fullscreen")
-            }
-            icon={
-              typeMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />
-            }
-            type="text"
-            onClick={() => setTypeMaximized((value) => !value)}
-          />
-        }
-        footer={
-          <div className="form-drawer-footer">
-            <Space>
-              <Button onClick={() => setTypeOpen(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                aria-label={t("common.save")}
-                type="primary"
-                onClick={() => void saveType()}
-              >
-                {t("common.save")}
-              </Button>
-            </Space>
-          </div>
-        }
+        width={520}
       >
         <Form
           key={
@@ -445,6 +431,7 @@ export function DictionaryPage() {
           layout="horizontal"
           {...dictionaryFormLayout}
           preserve={false}
+          scrollToFirstError={SCROLL_TO_FIRST_ERROR}
           initialValues={
             editingType
               ? {
@@ -490,52 +477,19 @@ export function DictionaryPage() {
             <Input.TextArea />
           </Form.Item>
         </Form>
-      </Drawer>
-      <Drawer
-        className="form-drawer"
-        closable={false}
+      </FormDrawer>
+      <FormDrawer
+        confirmLoading={itemSaving}
+        form={itemForm}
+        onClose={() => setItemOpen(false)}
+        onOk={saveItem}
+        open={itemOpen}
         title={
           editingItem
             ? t("system.settings.dict.editItem")
             : t("system.settings.dict.createItem")
         }
-        open={itemOpen}
-        size={itemMaximized ? "100vw" : 520}
-        rootClassName={itemMaximized ? "form-drawer-maximized" : undefined}
-        onClose={() => {
-          setItemMaximized(false);
-          setItemOpen(false);
-        }}
-        extra={
-          <Button
-            aria-label={
-              itemMaximized
-                ? t("system.settings.dict.restore")
-                : t("common.fullscreen")
-            }
-            icon={
-              itemMaximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />
-            }
-            type="text"
-            onClick={() => setItemMaximized((value) => !value)}
-          />
-        }
-        footer={
-          <div className="form-drawer-footer">
-            <Space>
-              <Button onClick={() => setItemOpen(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                aria-label={t("common.save")}
-                type="primary"
-                onClick={() => void saveItem()}
-              >
-                {t("common.save")}
-              </Button>
-            </Space>
-          </div>
-        }
+        width={520}
       >
         <Form
           key={
@@ -549,6 +503,7 @@ export function DictionaryPage() {
           layout="horizontal"
           {...dictionaryFormLayout}
           preserve={false}
+          scrollToFirstError={SCROLL_TO_FIRST_ERROR}
           initialValues={
             editingItem
               ? {
@@ -579,6 +534,7 @@ export function DictionaryPage() {
             name="isDefault"
             label={t("system.settings.dict.isDefault")}
             valuePropName="checked"
+            extra={t("system.settings.dict.isDefaultHint")}
           >
             <Switch />
           </Form.Item>
@@ -593,7 +549,7 @@ export function DictionaryPage() {
             <Input.TextArea />
           </Form.Item>
         </Form>
-      </Drawer>
+      </FormDrawer>
     </Page>
   );
 }
@@ -689,7 +645,7 @@ export function ConfigPage() {
   };
   return (
     <Page title={t("system.settings.config.title")}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t("system.settings.config.list")}
           toolbar={{

@@ -24,6 +24,7 @@ _attic-*/
 *.log
 
 # --- local dev runtime (host-run services) ---
+.runlogs/
 backend/.runlogs/
 backend/etc/*.local.yaml
 

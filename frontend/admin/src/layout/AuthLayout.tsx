@@ -7,9 +7,9 @@ import { AuthToolbar } from '@/components/auth/AuthToolbar';
 import { TypewriterText } from '@/components/auth/TypewriterText';
 import { usePreferencesStore } from '@/stores/preferences';
 
-function AuthFormPanel({ children, side }: { children: ReactNode; side?: 'left' | 'right' }) {
+function AuthFormPanel({ children, side }: { children: ReactNode; side: 'left' | 'right' }) {
   return (
-    <div className={`auth-form-panel${side ? '' : ' is-center'}`} data-side={side ?? 'bottom'}>
+    <div className="auth-form-panel" data-side={side}>
       <div className="auth-form-content">{children}</div>
     </div>
   );
@@ -45,7 +45,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
             <AuthSlogan />
             <h1><TypewriterText text={t('auth.sloganTitle')} /></h1>
           </div>
-          <AuthFormPanel>{children}</AuthFormPanel>
+          {children}
           <AuthIntro variant="center" />
         </div>
       ) : null}

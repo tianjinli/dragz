@@ -221,7 +221,7 @@ export function MemberPage() {
 
   return (
     <Page>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <Tabs
           activeKey={tab}
           items={[
@@ -400,6 +400,7 @@ export function MemberPage() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={memberForm}
         open={!!memberTarget}
         title={t('system.members.editTitle', { name: memberTarget?.displayName || memberTarget?.username || '' })}
         onClose={() => setMemberTarget(undefined)}
@@ -422,6 +423,7 @@ export function MemberPage() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={inviteForm}
         open={inviteOpen}
         title={t('system.members.invite')}
         onClose={() => setInviteOpen(false)}

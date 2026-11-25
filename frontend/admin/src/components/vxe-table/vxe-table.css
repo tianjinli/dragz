@@ -97,6 +97,35 @@
 .vxe-table tbody tr:hover td.is-fixed { background: color-mix(in srgb, var(--primary) 6%, transparent); }
 .vxe-table .vxe-body--row.row--current td.is-fixed { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
 
+/*
+ * Fixed-block outline — while the table scrolls horizontally, the leftmost
+ * and rightmost edge of each fixed block (header and body cells) gets a line:
+ * left run: outer left edge + boundary to the scrolling area,
+ * right run: boundary to the scrolling area + outer right edge.
+ * Inset box-shadow so column widths / sticky offsets stay untouched.
+ *
+ * The two edges are kept as independent layers (--vxe-edge-left/right) and
+ * composed into one box-shadow. A single-layer `box-shadow` per class would
+ * overwrite the other side, so a fixed block made of one column (first == last,
+ * e.g. a right-fixed 操作 column) would lose the outer line.
+ */
+.vxe-table th,
+.vxe-table td {
+  --vxe-edge-left: 0 0 transparent;
+  --vxe-edge-right: 0 0 transparent;
+  --vxe-fixed-edge: color-mix(in srgb, var(--text) 22%, transparent);
+  box-shadow: var(--vxe-edge-left), var(--vxe-edge-right);
+}
+
+.vxe-table.has-h-scroll th.is-fixed-left-first,
+.vxe-table.has-h-scroll td.is-fixed-left-first { --vxe-edge-left: inset 1px 0 0 var(--vxe-fixed-edge); }
+.vxe-table.has-h-scroll th.is-fixed-left-last,
+.vxe-table.has-h-scroll td.is-fixed-left-last { --vxe-edge-right: inset -1px 0 0 var(--vxe-fixed-edge); }
+.vxe-table.has-h-scroll th.is-fixed-right-first,
+.vxe-table.has-h-scroll td.is-fixed-right-first { --vxe-edge-left: inset 1px 0 0 var(--vxe-fixed-edge); }
+.vxe-table.has-h-scroll th.is-fixed-right-last,
+.vxe-table.has-h-scroll td.is-fixed-right-last { --vxe-edge-right: inset -1px 0 0 var(--vxe-fixed-edge); }
+
 /* border mode */
 .vxe-table--border { border: 1px solid var(--border); }
 .vxe-table--border th:not(:last-child),
@@ -139,7 +168,7 @@
 }
 .vxe-header--resizable[data-resizing='true']::after,
 .vxe-header--resizable:hover::after { background: var(--primary); }
-th.is-resizing { box-shadow: inset -1px 0 0 var(--primary); }
+th.is-resizing { --vxe-edge-right: inset -1px 0 0 var(--primary); }
 
 /* loading overlay */
 .vxe-table--loading {

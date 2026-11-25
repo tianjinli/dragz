@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Form, Input, InputNumber, message, Modal, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import type { TableProps } from "antd";
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/api/request";
+import { ListPagePanel } from "@/components/ListPagePanel";
 import { Page } from "@/components/Page";
+import { TablePanel } from "@/components/TablePanel";
 
 type ChannelType = "smtp" | "aliyun_sms" | "tencent_sms";
 
@@ -331,11 +333,29 @@ export function NotifyPage() {
             key: "channels",
             label: t("pages.notify.channels"),
             children: (
-              <Card
-                className="table-card"
-                extra={<Button type="primary" icon={<Plus />} onClick={() => openChannel()}>{t("common.add")}</Button>}
-              >
-                <Table<Channel> rowKey="id" dataSource={channels} columns={channelColumns} pagination={false} />
+              <Card className="table-card fit-list">
+                <ListPagePanel
+                  title={t("pages.notify.channels")}
+                  toolbar={{
+                    actions: (
+                      <Button type="primary" icon={<Plus />} onClick={() => openChannel()}>
+                        {t("common.add")}
+                      </Button>
+                    ),
+                    onRefresh: () => void loadChannels(),
+                  }}
+                >
+                  <TablePanel<Channel>
+                    className="list-page-table"
+                    bordered
+                    sticky
+                    scroll={{ x: "max-content" }}
+                    rowKey="id"
+                    dataSource={channels}
+                    columns={channelColumns}
+                    pagination={false}
+                  />
+                </ListPagePanel>
               </Card>
             ),
           },
@@ -343,11 +363,29 @@ export function NotifyPage() {
             key: "templates",
             label: t("pages.notify.templates"),
             children: (
-              <Card
-                className="table-card"
-                extra={<Button type="primary" icon={<Plus />} onClick={() => openTemplate()}>{t("common.add")}</Button>}
-              >
-                <Table<Template> rowKey="id" dataSource={templates} columns={templateColumns} pagination={false} />
+              <Card className="table-card fit-list">
+                <ListPagePanel
+                  title={t("pages.notify.templates")}
+                  toolbar={{
+                    actions: (
+                      <Button type="primary" icon={<Plus />} onClick={() => openTemplate()}>
+                        {t("common.add")}
+                      </Button>
+                    ),
+                    onRefresh: () => void loadTemplates(),
+                  }}
+                >
+                  <TablePanel<Template>
+                    className="list-page-table"
+                    bordered
+                    sticky
+                    scroll={{ x: "max-content" }}
+                    rowKey="id"
+                    dataSource={templates}
+                    columns={templateColumns}
+                    pagination={false}
+                  />
+                </ListPagePanel>
               </Card>
             ),
           },
@@ -355,8 +393,22 @@ export function NotifyPage() {
             key: "logs",
             label: t("pages.notify.logs"),
             children: (
-              <Card className="table-card">
-                <Table<LogRow> rowKey="id" dataSource={logs} columns={logColumns} pagination={false} />
+              <Card className="table-card fit-list">
+                <ListPagePanel
+                  title={t("pages.notify.logs")}
+                  toolbar={{ onRefresh: () => void loadLogs() }}
+                >
+                  <TablePanel<LogRow>
+                    className="list-page-table"
+                    bordered
+                    sticky
+                    scroll={{ x: "max-content" }}
+                    rowKey="id"
+                    dataSource={logs}
+                    columns={logColumns}
+                    pagination={false}
+                  />
+                </ListPagePanel>
               </Card>
             ),
           },
@@ -368,7 +420,7 @@ export function NotifyPage() {
         title={editingChannel ? t("common.edit") : t("common.add")}
         onCancel={() => setChannelOpen(false)}
         onOk={() => void saveChannel()}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={channelForm} layout="vertical">
           <Form.Item name="channelType" label={t("pages.notify.type")} rules={[{ required: true }]}>
@@ -398,7 +450,7 @@ export function NotifyPage() {
         title={editingTemplate ? t("common.edit") : t("common.add")}
         onCancel={() => setTemplateOpen(false)}
         onOk={() => void saveTemplate()}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={templateForm} layout="vertical">
           <Form.Item name="channelType" label={t("pages.notify.type")} rules={[{ required: true }]}>

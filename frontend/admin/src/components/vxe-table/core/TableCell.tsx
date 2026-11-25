@@ -9,12 +9,14 @@ export interface TableCellProps<Row> {
   rowIndex: number;
   /** inline sticky style for fixed columns; undefined for scrolling cells */
   stickyStyle?: CSSProperties;
+  /** fixed-block outline classes (is-fixed-left-first etc.); undefined for scrolling cells */
+  edgeClass?: string;
   showOverflow: boolean;
   onCellClick?: (event: CellClickEvent<Row>) => void;
 }
 
 function TableCellInner<Row>(props: TableCellProps<Row>) {
-  const { column, row, rowIndex, stickyStyle, showOverflow, onCellClick } = props;
+  const { column, row, rowIndex, stickyStyle, edgeClass, showOverflow, onCellClick } = props;
   const content = renderBodyContent(column, row, rowIndex);
   const title = showOverflow && typeof content === 'string' ? content : undefined;
   // tooltip needs plain text even when a formatter produced it
@@ -26,6 +28,7 @@ function TableCellInner<Row>(props: TableCellProps<Row>) {
         'vxe-body--column',
         column.align ? ALIGN_CLASS[column.align] : undefined,
         column.fixed ? 'is-fixed' : undefined,
+        edgeClass,
         column.className,
       )}
       style={stickyStyle}

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { emailError, mobileError, passwordError, usernameError } from './user-validation';
+import {
+  asciiCredentialError,
+  emailError,
+  mobileError,
+  passwordError,
+  stripAsciiCredential,
+  usernameError,
+} from './user-validation';
 
 describe('user validation', () => {
   it('enforces the username format', () => {
@@ -13,6 +20,13 @@ describe('user validation', () => {
     expect(usernameError('admin 1')).toBeDefined();
   });
 
+  it('strips non-ASCII characters from credential input', () => {
+    expect(stripAsciiCredential('admin用户')).toBe('admin');
+    expect(stripAsciiCredential('P@ssw0rd!')).toBe('P@ssw0rd!');
+    expect(asciiCredentialError('admin')).toBeUndefined();
+    expect(asciiCredentialError('用户')).toBeDefined();
+  });
+
   it('enforces the password length and character classes', () => {
     expect(passwordError('Aa1!abcd', 8)).toBeUndefined();
     expect(passwordError('abcdefg1', 8)).toBeDefined();
@@ -21,6 +35,7 @@ describe('user validation', () => {
     expect(passwordError('Aa1!111111', 8)).toBeDefined();
     expect(passwordError('Example1!x', 8, 'example')).toBeUndefined();
     expect(passwordError(`Aa1!${'x'.repeat(61)}`, 8)).toBeDefined();
+    expect(passwordError('密码Aa1!abcd', 8)).toBeDefined();
   });
 
   it('accepts optional contact fields and rejects invalid values', () => {

@@ -8,6 +8,8 @@ import { stickyCellStyle } from './sticky';
 
 export interface TableHeaderProps<Row> {
   headerRows: Array<Array<HeaderCellMeta<Row>>>;
+  /** fixed-block outline classes per header cell key (see fixedBlockEdgeClasses) */
+  edgeClasses: Record<string, string | undefined>;
   offsets: StickyOffsets;
   sortState: { field: string; order: SortOrder };
   resizable: boolean;
@@ -36,7 +38,7 @@ function SortMark<Row>(props: { column: VxeLeafColumn<Row>; sortState: { field: 
 }
 
 function TableHeaderInner<Row>(props: TableHeaderProps<Row>) {
-  const { headerRows, offsets, sortState, resizable, resizingField, showOverflow, onHeaderCellClick, onSortClick, onResizeStart } = props;
+  const { headerRows, edgeClasses, offsets, sortState, resizable, resizingField, showOverflow, onHeaderCellClick, onSortClick, onResizeStart } = props;
 
   const handleClick = (meta: HeaderCellMeta<Row>) => {
     onHeaderCellClick?.({ column: meta.column });
@@ -58,6 +60,7 @@ function TableHeaderInner<Row>(props: TableHeaderProps<Row>) {
                   meta.isGroup && 'is-group',
                   align ? ALIGN_CLASS[align] : undefined,
                   meta.fixed ? 'is-fixed' : undefined,
+                  edgeClasses[meta.key],
                   column.headerClassName,
                   leaf?.sortable && 'is-sortable',
                   leaf && resizingField === leaf.field && 'is-resizing',

@@ -20,6 +20,14 @@ vi.mock('./TablePanel', () => ({
 vi.mock('./FormDrawer', () => ({ FormDrawer: ({ children, onOk, open }: { children: React.ReactNode; onOk: () => void | Promise<void>; open: boolean }) => <div aria-hidden={!open} role={open ? 'dialog' : undefined}>{children}<button type="button" onClick={() => void onOk()}>保存</button></div> }));
 vi.mock('./Page', () => ({ Page: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
+// The delete Popconfirm measures its own trigger; jsdom has no ResizeObserver.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+
 import { ResourceCrudPage } from './ResourceCrudPage';
 
 describe('ResourceCrudPage edit drawer', () => {
@@ -179,6 +187,18 @@ describe('ResourceCrudPage status switch', () => {
 
     expect(await screen.findByText('停用')).toBeInTheDocument();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+
+  it('names the record in the delete confirmation', async () => {
+    apiMocks.listResourceApi.mockReset();
+    apiMocks.listResourceApi.mockResolvedValue([{ id: 9, name: '研发部', status: 1 }]);
+
+    render(<ResourceCrudPage columns={[{ dataIndex: 'name', title: '名称' }]} createCode="create" deleteCode="delete" endpoint="/system/departments" fields={[{ key: 'name', label: '名称', required: true }]} title="部门" updateCode="update"/>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除' }));
+
+    // 「确定删除吗？」没说是哪一条：确认框留在了屏幕上，被删的行却已经滚走了。
+    expect(await screen.findByText('确定删除「研发部」吗？')).toBeInTheDocument();
   });
 });
 

@@ -21,7 +21,8 @@ export interface CaptchaIssueResult {
   pieceTop: number;
   expiresIn: number;
 }
-export interface LoginChallengeResult { captchaRequired: boolean }
+/** Public login policy from GET /auth/login-challenge (includes security.login.lockMinutes). */
+export interface LoginChallengeResult { captchaRequired: boolean; lockMinutes?: number }
 
 export const loginApi = (data: LoginInput) => apiPost<TokenResult>('/auth/login', data);
 export const switchTenantApi = (tenantId: number) => apiPost<TokenResult>('/auth/switch-tenant', { tenantId });

@@ -281,7 +281,7 @@ func revivePluginMenu(ctx context.Context, tx *Tx, id uint64, node menuperm.Menu
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO sys_translation (entity_key, lang, value)
 			 VALUES ($1, 'en', $2)
-			 ON CONFLICT (entity_key, lang) DO NOTHING`,
+			 ON CONFLICT (tenant_id, entity_key, lang) DO NOTHING`,
 			"menu."+node.Code, node.NameEn,
 		); err != nil {
 			return fmt.Errorf("seed translation %q: %w", node.Code, err)
@@ -329,7 +329,7 @@ func insertPluginMenu(ctx context.Context, tx *Tx, node menuperm.MenuNode) (uint
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO sys_translation (entity_key, lang, value)
 			 VALUES ($1, 'en', $2)
-			 ON CONFLICT (entity_key, lang) DO NOTHING`,
+			 ON CONFLICT (tenant_id, entity_key, lang) DO NOTHING`,
 			"menu."+node.Code, node.NameEn,
 		); err != nil {
 			return 0, fmt.Errorf("seed translation %q: %w", node.Code, err)

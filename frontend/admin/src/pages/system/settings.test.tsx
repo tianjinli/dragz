@@ -81,7 +81,8 @@ describe('DictionaryPage edit drawer echo', () => {
     });
 
     fireEvent.change(screen.getByLabelText('标签'), { target: { value: '男士' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    // antd 在两个汉字的按钮文案里插一个空格（"保 存"），所以用正则匹配。
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
     await waitFor(() => expect(apiMocks.updateDictionaryItemApi).toHaveBeenCalledWith(10, expect.objectContaining({ label: '男士', status: 1 })));
   });
 
@@ -106,7 +107,7 @@ describe('DictionaryPage edit drawer echo', () => {
     fireEvent.click(editButtons[editButtons.length - 2]);
     await waitFor(() => expect(screen.getByLabelText('标签')).toHaveValue('男'));
 
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
     await waitFor(() => expect(apiMocks.updateDictionaryItemApi).toHaveBeenCalledWith(10, expect.objectContaining({ label: '男' })));
 
     const refreshedEditButtons = screen.getAllByRole('button', { name: '编辑' });

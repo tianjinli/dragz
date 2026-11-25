@@ -13,15 +13,21 @@ import (
 )
 
 const countTranslationRows = `-- name: CountTranslationRows :one
+WITH visible AS (
+  SELECT DISTINCT ON (entity_key, lang) entity_key, lang, value
+  FROM sys_translation
+  WHERE tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  ORDER BY entity_key, lang, tenant_id DESC
+)
 SELECT count(*)
-FROM sys_translation t
-JOIN v_preset_entity e ON e.entity_key = t.entity_key
-WHERE ($1::text = '' OR t.lang = $1)
+FROM visible v
+JOIN v_preset_entity e ON e.entity_key = v.entity_key
+WHERE ($1::text = '' OR v.lang = $1)
   AND (
     $2::text = ''
-    OR t.entity_key ILIKE $2::text
+    OR v.entity_key ILIKE $2::text
     OR e.source ILIKE $2::text
-    OR t.value ILIKE $2::text
+    OR v.value ILIKE $2::text
   )
 `
 
@@ -38,9 +44,9 @@ func (q *Queries) CountTranslationRows(ctx context.Context, arg CountTranslation
 }
 
 const createTranslation = `-- name: CreateTranslation :exec
-INSERT INTO sys_translation (entity_key, lang, value)
-VALUES ($1, $2, $3)
-ON CONFLICT (entity_key, lang) DO UPDATE
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+ON CONFLICT (tenant_id, entity_key, lang) DO UPDATE
 SET value = EXCLUDED.value, updated_at = NOW()
 `
 
@@ -51,14 +57,17 @@ type CreateTranslationParams struct {
 }
 
 // Administrator-created translation; a conflict refreshes the value so the
-// create form is safe to retry.
+// create form is safe to retry. The row belongs to the caller's tenant
+// (platform 0 when no tenant session is set, e.g. during bootstrap).
 func (q *Queries) CreateTranslation(ctx context.Context, arg CreateTranslationParams) error {
 	_, err := q.db.ExecContext(ctx, createTranslation, arg.EntityKey, arg.Lang, arg.Value)
 	return err
 }
 
 const deleteTranslation = `-- name: DeleteTranslation :execrows
-DELETE FROM sys_translation WHERE entity_key = $1 AND lang = $2
+DELETE FROM sys_translation
+WHERE entity_key = $1 AND lang = $2
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0)
 `
 
 type DeleteTranslationParams struct {
@@ -69,7 +78,8 @@ type DeleteTranslationParams struct {
 // Drops one entity's translation in one language. The count is returned so a
 // delete addressed by entity_key can answer 404 instead of "ok" for a row that
 // does not exist; the save path ignores it, because clearing an already-empty
-// language is a normal save, not an error.
+// language is a normal save, not an error. Scoped to the caller's own rows, so
+// a tenant cannot erase the platform default it inherits.
 func (q *Queries) DeleteTranslation(ctx context.Context, arg DeleteTranslationParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteTranslation, arg.EntityKey, arg.Lang)
 	if err != nil {
@@ -79,11 +89,14 @@ func (q *Queries) DeleteTranslation(ctx context.Context, arg DeleteTranslationPa
 }
 
 const deleteTranslationByID = `-- name: DeleteTranslationByID :execrows
-DELETE FROM sys_translation WHERE id = $1
+DELETE FROM sys_translation
+WHERE id = $1
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0)
 `
 
 // Clearing a text deletes its record, so the row count is what tells an edit
-// apart from a no-op: zero means the record was already gone.
+// apart from a no-op: zero means the record was already gone — or that it is a
+// platform default the caller may not remove.
 func (q *Queries) DeleteTranslationByID(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteTranslationByID, id)
 	if err != nil {
@@ -120,11 +133,12 @@ func (q *Queries) GetPresetSourceRow(ctx context.Context, arg GetPresetSourceRow
 }
 
 const getTranslationByID = `-- name: GetTranslationByID :one
-SELECT id, entity_key, lang, value FROM sys_translation WHERE id = $1
+SELECT id, tenant_id, entity_key, lang, value FROM sys_translation WHERE id = $1
 `
 
 type GetTranslationByIDRow struct {
 	ID        int64  `json:"id"`
+	TenantID  uint64 `json:"tenant_id"`
 	EntityKey string `json:"entity_key"`
 	Lang      string `json:"lang"`
 	Value     string `json:"value"`
@@ -135,6 +149,7 @@ func (q *Queries) GetTranslationByID(ctx context.Context, id int64) (GetTranslat
 	var i GetTranslationByIDRow
 	err := row.Scan(
 		&i.ID,
+		&i.TenantID,
 		&i.EntityKey,
 		&i.Lang,
 		&i.Value,
@@ -222,18 +237,25 @@ func (q *Queries) ListSourceEntities(ctx context.Context, arg ListSourceEntities
 }
 
 const listTranslationRows = `-- name: ListTranslationRows :many
-SELECT t.id, t.entity_key::text AS entity_key, e.source::text AS source,
-       t.value, t.lang, t.updated_at
-FROM sys_translation t
-JOIN v_preset_entity e ON e.entity_key = t.entity_key
-WHERE ($1::text = '' OR t.lang = $1)
+WITH visible AS (
+  SELECT DISTINCT ON (entity_key, lang)
+         id, tenant_id, entity_key, lang, value, updated_at
+  FROM sys_translation
+  WHERE tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  ORDER BY entity_key, lang, tenant_id DESC
+)
+SELECT v.id, v.tenant_id, v.entity_key::text AS entity_key,
+       e.source::text AS source, v.value, v.lang, v.updated_at
+FROM visible v
+JOIN v_preset_entity e ON e.entity_key = v.entity_key
+WHERE ($1::text = '' OR v.lang = $1)
   AND (
     $2::text = ''
-    OR t.entity_key ILIKE $2::text
+    OR v.entity_key ILIKE $2::text
     OR e.source ILIKE $2::text
-    OR t.value ILIKE $2::text
+    OR v.value ILIKE $2::text
   )
-ORDER BY t.entity_key, t.lang
+ORDER BY v.entity_key, v.lang
 LIMIT $4 OFFSET $3
 `
 
@@ -246,6 +268,7 @@ type ListTranslationRowsParams struct {
 
 type ListTranslationRowsRow struct {
 	ID        int64     `json:"id"`
+	TenantID  uint64    `json:"tenant_id"`
 	EntityKey string    `json:"entity_key"`
 	Source    string    `json:"source"`
 	Value     string    `json:"value"`
@@ -258,6 +281,10 @@ type ListTranslationRowsRow struct {
 // without a translation show up in ListUntranslatedEntities instead.
 // Every row is validated against v_preset_entity, the single catalog of
 // translatable preset entities (see schema/tables.sql).
+// visible collapses the two scopes: the caller's row wins over the platform
+// default for the same (entity_key, lang). tenant_id is returned so the page
+// can mark inherited rows and refuse to delete a platform default from a
+// tenant session.
 func (q *Queries) ListTranslationRows(ctx context.Context, arg ListTranslationRowsParams) ([]ListTranslationRowsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTranslationRows,
 		arg.Lang,
@@ -274,6 +301,7 @@ func (q *Queries) ListTranslationRows(ctx context.Context, arg ListTranslationRo
 		var i ListTranslationRowsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.TenantID,
 			&i.EntityKey,
 			&i.Source,
 			&i.Value,
@@ -294,8 +322,11 @@ func (q *Queries) ListTranslationRows(ctx context.Context, arg ListTranslationRo
 }
 
 const listTranslationsByKey = `-- name: ListTranslationsByKey :many
-SELECT entity_key, value FROM sys_translation
+SELECT DISTINCT ON (entity_key) entity_key, value
+FROM sys_translation
 WHERE lang = $1 AND entity_key = ANY($2::text[])
+  AND tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+ORDER BY entity_key, tenant_id DESC
 `
 
 type ListTranslationsByKeyParams struct {
@@ -308,6 +339,12 @@ type ListTranslationsByKeyRow struct {
 	Value     string `json:"value"`
 }
 
+// A tenant row overrides the platform default (tenant_id 0) for the same
+// (entity_key, lang). DISTINCT ON keeps the highest tenant_id, which is the
+// caller's own row whenever one exists.
+// The scope predicate repeats what the RLS policy enforces. It is deliberate:
+// a connection made as a SUPERUSER or BYPASSRLS role silently disables the
+// policy, and then "highest tenant_id" would hand one tenant another's label.
 func (q *Queries) ListTranslationsByKey(ctx context.Context, arg ListTranslationsByKeyParams) ([]ListTranslationsByKeyRow, error) {
 	rows, err := q.db.QueryContext(ctx, listTranslationsByKey, arg.Lang, pq.Array(arg.Column2))
 	if err != nil {
@@ -334,8 +371,11 @@ func (q *Queries) ListTranslationsByKey(ctx context.Context, arg ListTranslation
 const listUntranslatedEntities = `-- name: ListUntranslatedEntities :many
 SELECT e.entity_key::text AS entity_key, e.source::text AS source
 FROM v_preset_entity e
-LEFT JOIN sys_translation t ON t.entity_key = e.entity_key AND t.lang = $1
-WHERE t.id IS NULL
+WHERE NOT EXISTS (
+    SELECT 1 FROM sys_translation t
+    WHERE t.entity_key = e.entity_key AND t.lang = $1
+      AND t.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  )
   AND ($2::text = '' OR e.entity_key ILIKE $2::text OR e.source ILIKE $2::text)
 ORDER BY e.entity_key
 LIMIT 200
@@ -352,7 +392,8 @@ type ListUntranslatedEntitiesRow struct {
 }
 
 // Preset entities that have no translation in the given language; these are
-// the choices offered by the "new translation" form.
+// the choices offered by the "new translation" form. A platform default counts
+// as translated — RLS has already narrowed the scan to the visible scopes.
 func (q *Queries) ListUntranslatedEntities(ctx context.Context, arg ListUntranslatedEntitiesParams) ([]ListUntranslatedEntitiesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUntranslatedEntities, arg.Lang, arg.Column2)
 	if err != nil {
@@ -376,14 +417,68 @@ func (q *Queries) ListUntranslatedEntities(ctx context.Context, arg ListUntransl
 	return items, nil
 }
 
-const rekeyTranslations = `-- name: RekeyTranslations :many
-UPDATE sys_translation SET entity_key = $1, updated_at = NOW()
-WHERE sys_translation.entity_key = $2
+const platformTranslationExists = `-- name: PlatformTranslationExists :one
+SELECT id FROM sys_translation
+WHERE entity_key = $1 AND lang = $2 AND tenant_id = 0
+`
+
+type PlatformTranslationExistsParams struct {
+	EntityKey string `json:"entity_key"`
+	Lang      string `json:"lang"`
+}
+
+// Used after a delete matched no row: it tells "already gone" apart from
+// "inherited platform default", which the caller may not remove. The read
+// policy makes tenant 0 rows visible everywhere, so this answers for a tenant
+// session too.
+func (q *Queries) PlatformTranslationExists(ctx context.Context, arg PlatformTranslationExistsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, platformTranslationExists, arg.EntityKey, arg.Lang)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const rekeyDictTranslationsByPrefix = `-- name: RekeyDictTranslationsByPrefix :execrows
+UPDATE sys_translation AS tr SET entity_key = $1 || substring(tr.entity_key from length($2)::int + 1), updated_at = NOW()
+WHERE left(tr.entity_key, length($2)::int) = $2
+  AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
     SELECT 1 FROM sys_translation occupied
-    WHERE occupied.entity_key = $1 AND occupied.lang = sys_translation.lang
+    WHERE occupied.tenant_id = tr.tenant_id
+      AND occupied.entity_key = $1 || substring(tr.entity_key from length($2)::int + 1)
+      AND occupied.lang = tr.lang
   )
-RETURNING sys_translation.entity_key
+`
+
+type RekeyDictTranslationsByPrefixParams struct {
+	NewPrefix string      `json:"new_prefix"`
+	OldPrefix interface{} `json:"old_prefix"`
+}
+
+// A dictionary type's code is the prefix of every item key
+// (dict.<code>.<value>), so renaming a type moves all of them at once. Keys
+// whose destination is already taken are left behind, matching
+// RekeyTranslations. The prefix compare is left() rather than LIKE so a code
+// containing _ or % (legal since codes are snake_case) cannot over-match.
+func (q *Queries) RekeyDictTranslationsByPrefix(ctx context.Context, arg RekeyDictTranslationsByPrefixParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, rekeyDictTranslationsByPrefix, arg.NewPrefix, arg.OldPrefix)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const rekeyTranslations = `-- name: RekeyTranslations :many
+UPDATE sys_translation AS tr SET entity_key = $1, updated_at = NOW()
+WHERE tr.entity_key = $2
+  AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_translation occupied
+    WHERE occupied.tenant_id = tr.tenant_id
+      AND occupied.entity_key = $1
+      AND occupied.lang = tr.lang
+  )
+RETURNING tr.entity_key
 `
 
 type RekeyTranslationsParams struct {
@@ -394,7 +489,9 @@ type RekeyTranslationsParams struct {
 // A translation record belongs to the entity, not to its code, so editing a
 // code carries the records over instead of orphaning them (an orphaned key is
 // invisible: every list joins v_preset_entity). Rows whose destination is
-// already taken are left alone rather than violating uk_translation_entity_lang.
+// already taken are left alone rather than violating the tenant-scoped unique
+// key. The scope is part of the conflict test: the platform default and a
+// tenant override are separate rows that happen to share a key.
 func (q *Queries) RekeyTranslations(ctx context.Context, arg RekeyTranslationsParams) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, rekeyTranslations, arg.NewKey, arg.OldKey)
 	if err != nil {
@@ -430,6 +527,53 @@ type SetDepartmentSourceTextParams struct {
 
 func (q *Queries) SetDepartmentSourceText(ctx context.Context, arg SetDepartmentSourceTextParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setDepartmentSourceText, arg.Value, arg.Code)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setDictItemSourceText = `-- name: SetDictItemSourceText :execrows
+UPDATE sys_dict_item SET label = $1, updated_at = NOW()
+WHERE dict_type_id = (
+    SELECT id FROM sys_dict_type
+    WHERE code = $2 AND deleted_at IS NULL
+  )
+  AND value = $3 AND deleted_at IS NULL
+`
+
+type SetDictItemSourceTextParams struct {
+	Value     string `json:"value"`
+	TypeCode  string `json:"type_code"`
+	ItemValue string `json:"item_value"`
+}
+
+// The dict.<type code>.<value> key addresses one item of the named type.
+// The value half of the key is the item's business value, not a code, so the
+// lookup goes through the owning type instead of a rekey.
+func (q *Queries) SetDictItemSourceText(ctx context.Context, arg SetDictItemSourceTextParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setDictItemSourceText, arg.Value, arg.TypeCode, arg.ItemValue)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setDictTypeSourceText = `-- name: SetDictTypeSourceText :execrows
+UPDATE sys_dict_type SET name = $1, updated_at = NOW()
+WHERE code = $2 AND deleted_at IS NULL
+`
+
+type SetDictTypeSourceTextParams struct {
+	Value string `json:"value"`
+	Code  string `json:"code"`
+}
+
+// The dicttype.<code> key addresses the dictionary type of the caller's
+// tenant (row-level security scopes the read); renaming writes the label back
+// into the owning column so Chinese stays the source of truth.
+func (q *Queries) SetDictTypeSourceText(ctx context.Context, arg SetDictTypeSourceTextParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setDictTypeSourceText, arg.Value, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -577,7 +721,9 @@ func (q *Queries) SetStorageSourceText(ctx context.Context, arg SetStorageSource
 }
 
 const translationExists = `-- name: TranslationExists :one
-SELECT id FROM sys_translation WHERE entity_key = $1 AND lang = $2
+SELECT id FROM sys_translation
+WHERE entity_key = $1 AND lang = $2
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0)
 `
 
 type TranslationExistsParams struct {
@@ -585,8 +731,9 @@ type TranslationExistsParams struct {
 	Lang      string `json:"lang"`
 }
 
-// Reports the id already occupying (entity_key, lang), so an edit can explain
-// the collision instead of hitting the unique constraint.
+// Reports the id already occupying (entity_key, lang) in the caller's scope,
+// so an edit can explain the collision instead of hitting the unique
+// constraint.
 func (q *Queries) TranslationExists(ctx context.Context, arg TranslationExistsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, translationExists, arg.EntityKey, arg.Lang)
 	var id int64
@@ -598,6 +745,7 @@ const updateTranslation = `-- name: UpdateTranslation :execrows
 UPDATE sys_translation
 SET lang = $2, value = $3, updated_at = NOW()
 WHERE id = $1
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0)
 `
 
 type UpdateTranslationParams struct {
@@ -610,6 +758,9 @@ type UpdateTranslationParams struct {
 // role grants, menu management, ...) picks the new value up immediately. The
 // language can change too, so a record filed under the wrong language is a
 // simple edit; the caller checks (entity_key, lang) is still free first.
+// A platform default (tenant 0) is never rewritten from a tenant session: the
+// store copies it into a tenant override instead, and this predicate is the
+// second line of defence.
 func (q *Queries) UpdateTranslation(ctx context.Context, arg UpdateTranslationParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTranslation, arg.ID, arg.Lang, arg.Value)
 	if err != nil {
@@ -619,9 +770,9 @@ func (q *Queries) UpdateTranslation(ctx context.Context, arg UpdateTranslationPa
 }
 
 const upsertTranslationIfAbsent = `-- name: UpsertTranslationIfAbsent :exec
-INSERT INTO sys_translation (entity_key, lang, value)
-VALUES ($1, $2, $3)
-ON CONFLICT (entity_key, lang) DO NOTHING
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+ON CONFLICT (tenant_id, entity_key, lang) DO NOTHING
 `
 
 type UpsertTranslationIfAbsentParams struct {
@@ -632,6 +783,7 @@ type UpsertTranslationIfAbsentParams struct {
 
 // Seed-time insert only: an administrator-edited translation (or one written
 // by a previous run) must never be clobbered by the compiled-in default.
+// Bootstrap runs without a session tenant, so the platform row (0) is written.
 func (q *Queries) UpsertTranslationIfAbsent(ctx context.Context, arg UpsertTranslationIfAbsentParams) error {
 	_, err := q.db.ExecContext(ctx, upsertTranslationIfAbsent, arg.EntityKey, arg.Lang, arg.Value)
 	return err

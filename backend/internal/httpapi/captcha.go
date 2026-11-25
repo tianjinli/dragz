@@ -78,7 +78,15 @@ func loginChallengeHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.login_service_unavailable")
 			return
 		}
-		ok(w, r, map[string]any{"captchaRequired": shouldRequireCaptcha(settings.CaptchaEnabled)})
+		lockMinutes := settings.LockMinutes
+		if lockMinutes <= 0 {
+			lockMinutes = 30
+		}
+		// lockMinutes mirrors security.login.lockMinutes (账号锁定分钟数) for login UI progress.
+		ok(w, r, map[string]any{
+			"captchaRequired": shouldRequireCaptcha(settings.CaptchaEnabled),
+			"lockMinutes":     lockMinutes,
+		})
 	}
 }
 

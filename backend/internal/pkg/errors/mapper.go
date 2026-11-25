@@ -63,6 +63,12 @@ func MapDictionary(err error) HTTPError {
 	if errors.Is(err, store.ErrDuplicateEntry) {
 		return HTTPError{Status: http.StatusConflict, Code: CodeDuplicate, Message: "errors.dict.duplicate"}
 	}
+	if errors.Is(err, store.ErrDictCodeLocked) {
+		return HTTPError{Status: http.StatusConflict, Code: CodeProtected, Message: "errors.dict.code_locked"}
+	}
+	if errors.Is(err, store.ErrDictItemInUse) {
+		return HTTPError{Status: http.StatusConflict, Code: CodeProtected, Message: "errors.dict.item_in_use"}
+	}
 	if errors.Is(err, store.ErrDictHasItems) || errors.Is(err, store.ErrProtected) {
 		return HTTPError{Status: http.StatusConflict, Code: CodeProtected, Message: "errors.dict.protected"}
 	}

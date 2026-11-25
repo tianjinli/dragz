@@ -4,6 +4,8 @@ import { useMemo } from 'react';
 const PAUSE_MS = 2500;
 /** On/off interval for the caret while the title is fully shown. */
 const CARET_BLINK_MS = 500;
+/** Sit flush after the last glyph — real caret spacing, not a padded gap. */
+const CARET_END = '100%';
 
 /**
  * Reveals text one character at a time, pauses once complete, then replays.
@@ -21,19 +23,19 @@ export function TypewriterText({ text }: { text: string }) {
   const css = useMemo(() => {
     const caretFrames: string[] = [
       `0% { left: 0; opacity: 1; animation-timing-function: steps(${count}, end); }`,
-      `${typedPct.toFixed(2)}% { left: calc(100% - 2px); opacity: 1; animation-timing-function: linear; }`,
+      `${typedPct.toFixed(2)}% { left: ${CARET_END}; opacity: 1; animation-timing-function: linear; }`,
     ];
     let t = typingMs;
     let on = true;
     while (t < totalMs - CARET_BLINK_MS) {
       t += CARET_BLINK_MS;
       caretFrames.push(
-        `${Math.min((t / totalMs) * 100, 99).toFixed(2)}% { left: calc(100% - 2px); opacity: ${on ? 0 : 1}; }`,
+        `${Math.min((t / totalMs) * 100, 99).toFixed(2)}% { left: ${CARET_END}; opacity: ${on ? 0 : 1}; }`,
       );
       on = !on;
     }
     caretFrames.push(
-      '99% { left: calc(100% - 2px); opacity: 1; animation-timing-function: steps(1, end); }',
+      `99% { left: ${CARET_END}; opacity: 1; animation-timing-function: steps(1, end); }`,
       '100% { left: 0; opacity: 0; }',
     );
 

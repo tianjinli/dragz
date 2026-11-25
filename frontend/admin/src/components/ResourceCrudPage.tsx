@@ -32,6 +32,7 @@ import {
 import dayjs, { type Dayjs } from "dayjs";
 import { Pencil, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { getDateTimeFormat } from "@/stores/system-config";
+import { SCROLL_TO_FIRST_ERROR } from "@/constants/forms";
 import {
   createResourceApi,
   deleteResourceApi,
@@ -219,6 +220,8 @@ interface Props {
   hideCreate?: boolean;
   /** Hide the delete action even when the account may delete. */
   hideDelete?: boolean;
+  /** Extra class on the list card (page-specific table layout). */
+  listClassName?: string;
   /** When true, edit loads GET `${endpoint}/:id` and fills the form from detail. */
   loadDetailOnEdit?: boolean;
   /** Map API record values into form fields (e.g. bytes → MB). */
@@ -243,6 +246,12 @@ interface Props {
   parentKey?: string;
   protectedField?: string;
   rowActions?: RowAction[];
+  /**
+   * Display name of a row, used by the delete confirmation so the dialog names
+   * the object instead of just saying “删除”. Defaults to the first of
+   * name / title / username / code the record actually has.
+   */
+  rowLabel?: (record: ResourceRecord) => string;
   searchMode?: "auto" | "local" | "none" | "submit";
   searchPlaceholder?: string;
   sidePanel?: (context: {
@@ -466,6 +475,7 @@ export function ResourceCrudPage({
   fields,
   hideCreate = false,
   hideDelete = false,
+  listClassName,
   loadDetailOnEdit = false,
   mapRecordValues,
   mapSubmitValues,
@@ -474,6 +484,7 @@ export function ResourceCrudPage({
   parentKey = "parentId",
   protectedField = "isSystem",
   rowActions = [],
+  rowLabel,
   searchMode = "auto",
   searchPlaceholder,
   sidePanel,
@@ -779,8 +790,20 @@ export function ResourceCrudPage({
       setSaving(false);
     }
   };
-  const isFieldLocked = (field: FieldConfig) =>
-    typeof field.disabledOnEdit === "function"
+  // A destructive confirmation has to name its object. Pages that know their
+  // rows supply rowLabel; the rest fall back to the first identifying column.
+  const labelOf = useCallback(
+    (record: ResourceRecord) => {
+      if (rowLabel) return rowLabel(record);
+      for (const key of ["name", "title", "username", "code"]) {
+        const value = record[key];
+        if (value != null && String(value).trim() !== "") return String(value);
+      }
+      return `#${record.id}`;
+    },
+    [rowLabel],
+  );
+  const isFieldLocked = (field: FieldConfig) =>    typeof field.disabledOnEdit === "function"
       ? field.disabledOnEdit(editing)
       : !!editing && !!field.disabledOnEdit;
   const remove = useCallback(
@@ -953,6 +976,7 @@ export function ResourceCrudPage({
                 ? [
                     {
                       danger: true,
+                      confirmName: labelOf(record),
                       icon: <Trash2 size={16} />,
                       label: t("common.delete"),
                       disabled: !!record[protectedField] || !!deleteDisabled?.(record),
@@ -971,6 +995,7 @@ export function ResourceCrudPage({
       deleteCode,
       deleteDisabled,
       hideDelete,
+      labelOf,
       load,
       protectedField,
       remove,
@@ -1117,7 +1142,7 @@ export function ResourceCrudPage({
   // Tree data uses nested `children`; Ant Design Table handles expand/collapse natively (no custom expandIcon).
   const tableCard = (
     <Card
-      className={`table-card resource-grid-card${tree ? " department-resource-table" : ""}`}
+      className={`table-card resource-grid-card fit-list${tree ? " department-resource-table" : ""}${listClassName ? ` ${listClassName}` : ""}`}
     >
     <ListPagePanel
       title={t("common.listTitle", { title })}
@@ -1156,6 +1181,7 @@ export function ResourceCrudPage({
       )}
       <FormDrawer
         confirmLoading={saving}
+        form={form}
         onClose={() => setOpen(false)}
         onOk={save}
         open={open}
@@ -1172,6 +1198,7 @@ export function ResourceCrudPage({
           form={form}
           labelCol={{ span: 6 }}
           preserve={false}
+          scrollToFirstError={SCROLL_TO_FIRST_ERROR}
           initialValues={
             editing ? editValues : { ...defaults, ...createOverrides }
           }

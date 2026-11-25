@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { useTranslation } from 'react-i18next';
 import { PreferencesDrawer, type PreferenceTab } from '@/components/preferences/PreferencesDrawer';
 import { antdLocale } from '@/constants/locales';
+import { SCROLL_TO_FIRST_ERROR } from '@/constants/forms';
 import { AdminLayout } from '@/layout/AdminLayout';
 import { LoginPage, OAuthCallbackPage } from '@/pages/auth/AuthPages';
 import { InvitePage } from '@/pages/auth/InvitePage';
@@ -38,7 +39,7 @@ function ThemeRoot() {
   return (
     <ConfigProvider
       componentSize={prefs.app.compact ? 'small' : 'middle'}
-      form={{ labelWrap: true }}
+      form={{ labelWrap: true, scrollToFirstError: SCROLL_TO_FIRST_ERROR }}
       locale={antdLocale(locale)}
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,

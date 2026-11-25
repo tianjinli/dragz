@@ -638,7 +638,14 @@ CREATE VIEW v_preset_entity AS
   SELECT 'job.' || code, name, updated_at FROM sys_scheduled_job WHERE deleted_at IS NULL
   UNION ALL
   SELECT 'storage.' || storage_type, name, updated_at FROM sys_storage_config
-    WHERE deleted_at IS NULL;
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dicttype.' || code, name, updated_at FROM sys_dict_type
+    WHERE deleted_at IS NULL
+  UNION ALL
+  SELECT 'dict.' || dt.code || '.' || di.value, di.label, di.updated_at
+    FROM sys_dict_item di JOIN sys_dict_type dt ON dt.id = di.dict_type_id
+    WHERE di.deleted_at IS NULL AND dt.deleted_at IS NULL;
 
 -- The same catalog addressed by row id instead of entity key, for the write
 -- side: a save made in another language has to keep the source columns intact
@@ -729,7 +736,7 @@ INSERT INTO sys_menu
   (id, parent_id, type, name, code, route_name, route_path, component, icon, sort, status, visible, keep_alive, affix_tab, redirect)
 VALUES
   (1, 0, 'page', '工作台', 'dashboard', 'Analytics', '/analytics', '/dashboard/analytics/index', 'lucide:layout-dashboard', 0, 1, 1, 1, 1, ''),
-  (10, 0, 'directory', '组织权限', 'organization', 'Organization', '/organization', '', 'lucide:shield-check', 10, 1, 1, 0, 0, '/organization/users'),
+  (10, 0, 'directory', '组织权限', 'organization', 'Organization', '/organization', '', 'lucide:shield-check', 10, 1, 1, 0, 0, '/organization/members'),
   (11, 10, 'page', '用户管理', 'system_user', 'SystemUser', '/organization/users', '/system/user/index', 'lucide:users', 11, 1, 1, 1, 0, ''),
   (12, 10, 'page', '部门管理', 'system_department', 'SystemDepartment', '/organization/departments', '/system/department/index', 'lucide:network', 12, 1, 1, 1, 0, ''),
   (13, 10, 'page', '岗位管理', 'system_position', 'SystemPosition', '/organization/positions', '/system/position/index', 'lucide:briefcase-business', 13, 1, 1, 1, 0, ''),
@@ -803,4 +810,42 @@ INSERT INTO sys_translation (entity_key, lang, value) VALUES
   ('job.maintenance.storage_test_files', 'en', 'Clean up storage test files'),
   ('job.maintenance.orphan_files', 'en', 'Clean up orphan files'),
   ('storage.local', 'en', 'Local Storage'),
-  ('menu.system_translation', 'en', 'Translations');
+  ('menu.system_translation', 'en', 'Translations'),
+  ('dicttype.normal_disable', 'en', 'Status'),
+  ('dicttype.yes_no', 'en', 'Yes/No'),
+  ('dicttype.user_sex', 'en', 'Gender'),
+  ('dicttype.priority', 'en', 'Priority'),
+  ('dict.normal_disable.1', 'en', 'Enabled'),
+  ('dict.normal_disable.0', 'en', 'Disabled'),
+  ('dict.yes_no.Y', 'en', 'Yes'),
+  ('dict.yes_no.N', 'en', 'No'),
+  ('dict.user_sex.male', 'en', 'Male'),
+  ('dict.user_sex.female', 'en', 'Female'),
+  ('dict.user_sex.unknown', 'en', 'Unknown'),
+  ('dict.priority.low', 'en', 'Low'),
+  ('dict.priority.middle', 'en', 'Medium'),
+  ('dict.priority.high', 'en', 'High');
+
+-- Seeded system dictionaries: display-only enumeration sets that generated
+-- pages reference (dropdowns, status tags). The value sets of logic enums --
+-- anything a Go switch branches on, like notice_type or notice priority --
+-- deliberately stay in code; the dictionary only carries presentation.
+-- is_system rows are read-only templates: provisionTenant copies them into
+-- every new tenant, and their codes are locked once seeded.
+INSERT INTO sys_dict_type (id, code, name, display_type, status, is_system, remark) VALUES
+  (1, 'normal_disable', '系统状态', 'segmented', 1, 1, '通用启用/停用状态'),
+  (2, 'yes_no', '是否', 'segmented', 1, 1, '通用是/否选项'),
+  (3, 'user_sex', '性别', 'segmented', 1, 1, '通用性别选项'),
+  (4, 'priority', '优先级', 'segmented', 1, 1, '通用优先级选项');
+
+INSERT INTO sys_dict_item (id, dict_type_id, label, value, color, css_class, sort, status, is_default, remark) VALUES
+  (1, 1, '正常', '1', 'green', '', 1, 1, 1, ''),
+  (2, 1, '停用', '0', 'red', '', 2, 1, 0, ''),
+  (3, 2, '是', 'Y', 'green', '', 1, 1, 1, ''),
+  (4, 2, '否', 'N', '', '', 2, 1, 0, ''),
+  (5, 3, '男', 'male', 'blue', '', 1, 1, 1, ''),
+  (6, 3, '女', 'female', 'pink', '', 2, 1, 0, ''),
+  (7, 3, '未知', 'unknown', '', '', 3, 1, 0, ''),
+  (8, 4, '低', 'low', '', '', 1, 1, 0, ''),
+  (9, 4, '中', 'middle', 'blue', '', 2, 1, 1, ''),
+  (10, 4, '高', 'high', 'red', '', 3, 1, 0, '');

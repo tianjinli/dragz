@@ -38,14 +38,18 @@ describe('AuthIntro', () => {
         app: { ...defaultPreferences.app, authPageLayout: 'panel-center' },
       },
     });
-    const { container } = render(<AuthLayout>form</AuthLayout>);
+    const { container } = render(
+      <AuthLayout>
+        <div className="auth-form-card">form</div>
+      </AuthLayout>,
+    );
     const brand = container.querySelector('.auth-center-brand');
     expect(brand?.querySelector('h1')).toHaveTextContent('插件式后台底座，为二次开发而生');
     expect(container.querySelector('.auth-center-intro h1')).toBeNull();
     expect([...container.querySelector('.auth-center-wrap').children].map((child) => child.className.split(' ')[0])).toEqual([
       'login-background',
       'auth-center-brand',
-      'auth-form-panel',
+      'auth-form-card',
       'auth-center-intro',
     ]);
   });

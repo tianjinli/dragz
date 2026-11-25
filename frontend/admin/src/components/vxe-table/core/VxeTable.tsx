@@ -7,7 +7,7 @@ import { useSort } from '../state/useSort';
 import { useStableCallback } from '../state/useStableCallback';
 import type { VxeLeafColumn, VxeTableProps } from '../types';
 import { joinClassNames } from './renderCell';
-import { computeStickyOffsets } from './sticky';
+import { computeFixedEdges, computeStickyOffsets, fixedBlockEdgeClasses } from './sticky';
 import { TableBody } from './TableBody';
 import { TableHeader } from './TableHeader';
 
@@ -74,6 +74,28 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
     [leafColumns, widths],
   );
 
+  // Outline cells of each fixed block (its leftmost and rightmost edge); the
+  // lines themselves are only painted while the table scrolls horizontally
+  // (`.has-h-scroll` on the root).
+  const edges = useMemo(() => computeFixedEdges(leafColumns), [leafColumns]);
+  const headerEdgeClasses = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const cells of headerRows) {
+      for (const cell of cells) {
+        // header rows are mapped to leaves via leafStart: a row under a
+        // rowSpan cell skips that cell, so counting cells in the row would
+        // shift every later cell by the number of spanning cells above it.
+        map[cell.key] = fixedBlockEdgeClasses(
+          cell.fixed,
+          leafColumns[cell.leafStart]?.field,
+          leafColumns[cell.leafStart + cell.colSpan - 1]?.field,
+          edges,
+        );
+      }
+    }
+    return map;
+  }, [headerRows, leafColumns, edges]);
+
   const handleCellClick = useStableCallback(onCellClick);
   const handleRowClick = useStableCallback(onRowClick);
   const handleHeaderCellClick = useStableCallback(onHeaderCellClick);
@@ -85,6 +107,7 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
   const headerWrapperRef = useRef<HTMLDivElement>(null);
   const bodyWrapperRef = useRef<HTMLDivElement>(null);
   const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const [hasHScroll, setHasHScroll] = useState(false);
 
   const handleBodyScroll = (event: UIEvent<HTMLDivElement>) => {
     const body = event.currentTarget;
@@ -100,6 +123,8 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
       const hasVerticalScrollbar = body.scrollHeight > body.clientHeight + 1;
       const width = hasVerticalScrollbar ? body.offsetWidth - body.clientWidth : 0;
       setScrollbarWidth((prev) => (prev === width ? prev : width));
+      const hScroll = body.scrollWidth > body.clientWidth + 1;
+      setHasHScroll((prev) => (prev === hScroll ? prev : hScroll));
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
@@ -114,7 +139,14 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
 
   return (
     <div
-      className={joinClassNames('vxe-table', border && 'vxe-table--border', stripe && 'vxe-table--stripe', loading && 'is-loading', className)}
+      className={joinClassNames(
+        'vxe-table',
+        border && 'vxe-table--border',
+        stripe && 'vxe-table--stripe',
+        hasHScroll && 'has-h-scroll',
+        loading && 'is-loading',
+        className,
+      )}
       style={wrapperStyle}
     >
       <div className="vxe-table--header-wrapper" ref={headerWrapperRef} style={{ paddingRight: scrollbarWidth || undefined }}>
@@ -122,6 +154,7 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
           <TableColGroup columns={leafColumns} widths={widths} />
           <TableHeader
             headerRows={headerRows}
+            edgeClasses={headerEdgeClasses}
             offsets={offsets}
             resizable={resizable}
             resizingField={resizingField}
@@ -139,6 +172,7 @@ export function VxeTable<Row>(props: VxeTableProps<Row>) {
           <TableBody
             columns={leafColumns}
             emptyText={emptyText ?? t('vxe.emptyText')}
+            edges={edges}
             offsets={offsets}
             rowConfig={rowConfig}
             rows={sortedData}

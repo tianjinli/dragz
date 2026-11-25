@@ -106,7 +106,7 @@ export function PluginPage() {
 
   return (
     <Page title={t("system.plugins.title")}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel title={t("system.plugins.listTitle")} toolbar={{ onRefresh: () => void load() }}>
           <TablePanel
             className="list-page-table"

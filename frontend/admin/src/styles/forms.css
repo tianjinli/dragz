@@ -229,3 +229,146 @@
   .page-heading { display: block; }
   .query-card .ant-input { width: 170px; }
 }
+
+/* Shared fit-style lists (translation management was the reference design):
+   one 40px row, scrollbars only when content overflows, and an empty state
+   that fills the scrollport down to the pagination bar. Every admin list
+   carries `fit-list`, either from a shared list component or its list Card.
+
+   The row rule matches any `fit-list` container, not just a `table-card`:
+   a table inside a modal (tenant domains) takes the same 40px row without
+   growing the card chrome around it. The card-scoped pair is kept first so a
+   list card keeps the higher specificity it had against `table-card` rules
+   in the other sheets. */
+.fit-list.table-card .ant-table-thead > tr > th,
+.fit-list.table-card .ant-table-tbody > tr.ant-table-row > td,
+.fit-list .ant-table-thead > tr > th,
+.fit-list .ant-table-tbody > tr.ant-table-row > td {
+  box-sizing: border-box;
+  height: 40px;
+  max-height: 40px;
+  padding-block: 0;
+  line-height: 40px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.fit-list .table-panel-wrap-cell {
+  display: block;
+  max-height: 40px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: 40px;
+  overflow-wrap: normal;
+}
+.fit-list .ant-table,
+.fit-list .ant-table-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.fit-list .ant-table-header {
+  flex: 0 0 auto;
+}
+.fit-list .ant-table-header,
+.fit-list .ant-table-body,
+.fit-list .ant-table-content {
+  box-sizing: border-box;
+  border-inline: 1px solid var(--border);
+}
+.fit-list .ant-table-body,
+.fit-list .ant-table-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow: auto !important;
+  border-bottom: 1px solid var(--border);
+}
+/* One line at the right edge of the scrollport. The last column and the
+   scrollbar gutter must not draw a second one. */
+.fit-list .ant-table-thead > tr > th.list-table-actions-header,
+.fit-list .ant-table-tbody > tr > td.list-table-actions-cell,
+.fit-list .ant-table-cell-scrollbar {
+  border-inline-end: 0 !important;
+}
+.fit-list .ant-table-sticky-scroll {
+  display: none;
+}
+.fit-list.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-content > table,
+.fit-list.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-header > table,
+.fit-list.table-card .list-page-table.ant-table-wrapper .ant-table-bordered > .ant-table-container > .ant-table-body > table {
+  border-inline-start: 0;
+}
+.fit-list .ant-table-body:has(.ant-table-placeholder),
+.fit-list .ant-table-content:has(.ant-table-placeholder) {
+  display: flex;
+  flex-direction: column;
+  /* Empty placeholder spans the full (possibly horizontally scrollable) table
+     width. Resolve its width against the visible scrollport instead so 暂无数据
+     stays centred even when the columns overflow, as in the department list. */
+  container-type: inline-size;
+}
+.fit-list .ant-table-body:has(.ant-table-placeholder) > table,
+.fit-list .ant-table-content:has(.ant-table-placeholder) > table {
+  flex: 1 1 auto;
+  height: 100%;
+}
+.fit-list .ant-table-placeholder,
+.fit-list .ant-table-placeholder > td {
+  height: 100%;
+}
+.fit-list .ant-table-placeholder > td {
+  padding: 0 !important;
+  border-bottom: 0 !important;
+  vertical-align: middle;
+}
+.fit-list .ant-table-placeholder .ant-table-expanded-row-fixed {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  /* Ant Design pins a fractional pixel width here, which is 1px wider than
+     the scrollport and paints a horizontal bar when the columns already fit.
+     100cqw is the scrollport width (the container above), not the full table. */
+  width: 100cqw !important;
+  max-width: 100cqw;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.fit-list .ant-empty {
+  margin: 0;
+}
+/* Pagination bar: 28px controls with a 10px gap above and below. Ant's table
+   pagination defaults to 32px controls and `margin: 16px 0`, so every element
+   in the bar is re-sized explicitly. */
+.fit-list .ant-table-pagination.ant-pagination {
+  box-sizing: content-box;
+  height: 28px;
+  margin: 10px 16px;
+}
+.fit-list .ant-table-pagination .ant-pagination-total-text {
+  height: 28px;
+  line-height: 28px;
+}
+.fit-list .ant-table-pagination .ant-pagination-item,
+.fit-list .ant-table-pagination .ant-pagination-prev .ant-pagination-item-link,
+.fit-list .ant-table-pagination .ant-pagination-next .ant-pagination-item-link,
+.fit-list .ant-table-pagination .ant-pagination-jump-prev .ant-pagination-item-link,
+.fit-list .ant-table-pagination .ant-pagination-jump-next .ant-pagination-item-link {
+  height: 28px;
+  min-width: 28px;
+  line-height: 26px;
+}
+.fit-list .ant-table-pagination .ant-pagination-item a {
+  line-height: 26px;
+}
+/* The page-size select shrinks to match the 28px row. */
+.fit-list .ant-table-pagination .ant-pagination-options .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  height: 28px;
+  padding-block: 0;
+}
+.fit-list .ant-table-pagination .ant-pagination-options .ant-select-single:not(.ant-select-customize-input) .ant-select-selector .ant-select-selection-item {
+  line-height: 26px;
+}

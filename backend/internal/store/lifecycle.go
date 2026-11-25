@@ -192,9 +192,9 @@ RETURNING id`, tenantID).Scan(&out.departmentID)
 	if err != nil {
 		return out, err
 	}
-	// Administrator role. Every menu grant is inserted here rather than
-	// derived at request time: permissions are role_menu button rows, so an
-	// empty grant set would leave the tenant owner unable to do anything.
+	// Administrator role. Allowlisted menu grants are inserted here rather
+	// than derived at request time: permissions are role_menu button rows, so
+	// an empty grant set would leave the tenant owner unable to do anything.
 	err = tx.QueryRowContext(ctx, `
 INSERT INTO sys_role (tenant_id, code, name, data_scope, sort, status, is_system, remark)
 VALUES ($1, 'tenant_admin', '租户管理员', 'all', 0, 1, 1, '租户内置管理员角色')
@@ -202,17 +202,48 @@ RETURNING id`, tenantID).Scan(&out.adminRoleID)
 	if err != nil {
 		return out, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
-SELECT $1, $2, id FROM sys_menu
-WHERE deleted_at IS NULL AND status = 1
-ON CONFLICT (role_id, menu_id) DO NOTHING`, tenantID, out.adminRoleID); err != nil {
+	// Allowlist only: tenant_admin must not inherit platform, menu CRUD, or
+	// user-management pages. Buttons under allowed pages are included via the
+	// recursive grant helper.
+	if err := grantTenantAdminRoleMenus(ctx, tx, tenantID, out.adminRoleID); err != nil {
+		return out, err
+	}
+	// System dictionaries are read-only templates in tenant 1; every tenant
+	// gets its own copy so it can relabel or extend them without touching the
+	// shared template. Items follow their type through the code join, and the
+	// per-tenant unique keys keep a re-provision idempotent.
+	if err := seedTenantDictionaries(ctx, tx, tenantID); err != nil {
 		return out, err
 	}
 	if err := provisionSubscription(ctx, tx, tenantID, planCode); err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+// seedTenantDictionaries copies tenant 1's is_system dictionary types and
+// their items into a freshly provisioned tenant. ON CONFLICT DO NOTHING makes
+// a re-run a no-op instead of a duplicate-key failure.
+func seedTenantDictionaries(ctx context.Context, tx *Tx, tenantID uint64) error {
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO sys_dict_type (tenant_id, code, name, display_type, status, is_system, remark)
+SELECT $1, t.code, t.name, t.display_type, t.status, 1, t.remark
+FROM sys_dict_type t
+WHERE t.tenant_id = 1 AND t.is_system = 1 AND t.deleted_at IS NULL
+ON CONFLICT DO NOTHING`, tenantID); err != nil {
+		return fmt.Errorf("copy system dictionary types: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO sys_dict_item (tenant_id, dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
+SELECT $1, target.id, s.label, s.value, s.color, s.css_class, s.sort, s.status, s.is_default, s.remark
+FROM sys_dict_item s
+JOIN sys_dict_type src ON src.id = s.dict_type_id AND src.tenant_id = 1 AND src.is_system = 1 AND src.deleted_at IS NULL
+JOIN sys_dict_type target ON target.tenant_id = $1 AND target.code = src.code AND target.deleted_at IS NULL
+WHERE s.deleted_at IS NULL
+ON CONFLICT DO NOTHING`, tenantID); err != nil {
+		return fmt.Errorf("copy system dictionary items: %w", err)
+	}
+	return nil
 }
 
 // provisionSubscription pins a trial subscription to a plan snapshot and

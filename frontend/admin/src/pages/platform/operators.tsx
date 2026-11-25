@@ -114,7 +114,7 @@ export function PlatformOperatorsPage() {
 
   return (
     <Page>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t('platform.operators.title')}
           toolbar={{
@@ -195,6 +195,7 @@ export function PlatformOperatorsPage() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={form}
         okText={t('platform.operators.grant')}
         open={open}
         title={t('platform.operators.grant')}

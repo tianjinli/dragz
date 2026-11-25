@@ -135,7 +135,8 @@ func saveEntityTexts(w http.ResponseWriter, r *http.Request, ctx *app.Context, r
 	value := strings.TrimSpace(req.Value)
 	if value == "" {
 		// An empty target text clears the record; removing nothing is fine here,
-		// because the entity simply has no translation in this language.
+		// because the entity simply has no translation in this language — either
+		// because it never had one, or because it inherits the platform default.
 		if _, err := ctx.Auth.DeleteTranslationForEntity(r.Context(), req.EntityKey, lang); err != nil {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.translation_save_failed")
 			return
@@ -424,6 +425,18 @@ func deleteTranslationHandler(ctx *app.Context) http.HandlerFunc {
 		}
 		removed, err := ctx.Auth.DeleteTranslationForEntity(
 			r.Context(), key, pkgi18n.TargetLanguage())
+		if err == nil && !removed {
+			// A tenant that only inherits the platform default cannot delete it:
+			// that row is shared. Distinguish it from "already gone".
+			inherited, checkErr := ctx.Auth.TranslationInherited(
+				r.Context(), key, pkgi18n.TargetLanguage())
+			if checkErr != nil {
+				err = checkErr
+			} else if inherited {
+				fail(w, r, http.StatusConflict, 40900, "errors.translation_inherited")
+				return
+			}
+		}
 		switch {
 		case err != nil:
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.translation_save_failed")

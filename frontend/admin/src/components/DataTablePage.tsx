@@ -85,7 +85,7 @@ export function DataTablePage({
   );
   return (
     <Page title={title}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t("common.listTitle", { title })}
           toolbar={{

@@ -44,13 +44,41 @@ ALTER ROLE dragz_platform NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
 
 -- Hand the schema to the migration role. Bootstrap tables are owned by the
 -- initdb superuser; without this, migrations would have to run as a superuser.
+--
+-- REASSIGN OWNED is deliberately not used: when the cluster was bootstrapped
+-- with a non-postgres superuser, that role also owns pg_catalog objects, and
+-- REASSIGN refuses to move them ("required by the database system"). Moving
+-- only the public schema is what the migration role actually needs.
 DO $$
 DECLARE
-  bootstrap_role TEXT := current_user;
+  r record;
 BEGIN
-  IF bootstrap_role <> 'dragz_migrate' THEN
-    EXECUTE format('REASSIGN OWNED BY %I TO dragz_migrate', bootstrap_role);
-  END IF;
+  FOR r IN
+    SELECT c.relname, c.relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm')
+      AND c.relowner <> (SELECT oid FROM pg_roles WHERE rolname = 'dragz_migrate')
+  LOOP
+    CASE r.relkind
+      WHEN 'r', 'p' THEN EXECUTE format('ALTER TABLE public.%I OWNER TO dragz_migrate', r.relname);
+      WHEN 'v' THEN EXECUTE format('ALTER VIEW public.%I OWNER TO dragz_migrate', r.relname);
+      WHEN 'm' THEN EXECUTE format('ALTER MATERIALIZED VIEW public.%I OWNER TO dragz_migrate', r.relname);
+    END CASE;
+  END LOOP;
+  -- Sequences are skipped on purpose: a sequence owned by a table column
+  -- cannot be reassigned on its own, and ALTER TABLE above already moves it.
+
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = 'dragz_migrate')
+  LOOP
+    EXECUTE format('ALTER FUNCTION %s OWNER TO dragz_migrate', r.sig);
+  END LOOP;
 END
 $$;
 

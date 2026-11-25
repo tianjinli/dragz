@@ -6,7 +6,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getSignupStatus, registerTenant, type SignupInput, type SignupResult } from '@/api/lifecycle';
 import { AuthLayout, AuthTitle } from '@/layout/AuthLayout';
 import type { ApiEnvelope } from '@/types';
-import { emailError, formValidator, mobileError, passwordError, usernameError } from '@/utils/user-validation';
+import {
+  asciiCredentialFromInput,
+  emailError,
+  formValidator,
+  mobileError,
+  passwordError,
+  usernameError,
+} from '@/utils/user-validation';
 
 type SignupValues = SignupInput & { confirmPassword: string };
 
@@ -137,6 +144,7 @@ export function RegisterPage() {
               <Input maxLength={64} placeholder={t('signup.tenantCodePlaceholder')} size="large" />
             </Form.Item>
             <Form.Item
+              getValueFromEvent={asciiCredentialFromInput}
               label={t('auth.username')}
               name="username"
               rules={[{ required: true, message: t('auth.usernameRequired') }, { validator: formValidator(usernameError) }]}
@@ -148,6 +156,7 @@ export function RegisterPage() {
             </Form.Item>
             <Form.Item
               extra={t('signup.passwordHint', { min: minLength })}
+              getValueFromEvent={asciiCredentialFromInput}
               label={t('auth.password')}
               name="password"
               rules={[
@@ -159,6 +168,7 @@ export function RegisterPage() {
             </Form.Item>
             <Form.Item
               dependencies={['password']}
+              getValueFromEvent={asciiCredentialFromInput}
               label={t('signup.confirmPassword')}
               name="confirmPassword"
               rules={[

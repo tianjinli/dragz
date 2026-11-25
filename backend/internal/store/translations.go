@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
@@ -28,12 +29,17 @@ func translationPattern(keyword string) string {
 //   post.<position code>      sys_position (its remark column too)
 //   job.<job code>            sys_scheduled_job
 //   storage.<storage type>    sys_storage_config
+//   dicttype.<dict code>      sys_dict_type (its name)
+//   dict.<dict code>.<value>  sys_dict_item (its label; the value half of the
+//                             key is the item's business value, so item keys
+//                             may contain further dots)
 
 // knownTranslationNamespaces is the fixed set the translation page may filter
 // by. An empty filter means "all"; anything outside this set is refused so a
 // typo cannot silently return an empty page.
 var knownTranslationNamespaces = map[string]struct{}{
 	"menu": {}, "perm": {}, "role": {}, "dept": {}, "post": {}, "job": {}, "storage": {},
+	"dicttype": {}, "dict": {},
 }
 
 // NormalizeTranslationNamespace trims a list filter. Empty is valid (no
@@ -58,14 +64,16 @@ var ErrSourceEntityNotFound = errors.New("translation source entity not found")
 // splitTranslationKey breaks "role.admin.remark" into the namespace, the code
 // the owning table is addressed by, and whether the target is the remark
 // column instead of the name. Namespaces all end in a dot, so the first one
-// that matches is the only one that can.
+// that matches is the only one that can. The .remark suffix is stripped only
+// for the namespaces that actually have a remark column — a dict item whose
+// business value happens to end in ".remark" must keep its key intact.
 func splitTranslationKey(entityKey string) (namespace, code string, remark bool, ok bool) {
 	index := strings.Index(entityKey, ".")
 	if index <= 0 || index == len(entityKey)-1 {
 		return "", "", false, false
 	}
 	namespace, code = entityKey[:index], entityKey[index+1:]
-	if strings.HasSuffix(code, ".remark") {
+	if (namespace == "role" || namespace == "post") && strings.HasSuffix(code, ".remark") {
 		code = strings.TrimSuffix(code, ".remark")
 		remark = true
 	}
@@ -98,6 +106,19 @@ func (r *AuthRepository) writeSourceText(ctx context.Context, namespace, code, v
 		return r.queries.SetJobSourceText(ctx, sqlcstore.SetJobSourceTextParams{Value: value, Code: code})
 	case "storage":
 		return r.queries.SetStorageSourceText(ctx, sqlcstore.SetStorageSourceTextParams{Value: value, Code: code})
+	case "dicttype":
+		return r.queries.SetDictTypeSourceText(ctx, sqlcstore.SetDictTypeSourceTextParams{Value: value, Code: code})
+	case "dict":
+		// The key is dict.<type code>.<value>; the type code was validated to
+		// be dot-free at save time, so the first dot separates it from the
+		// value, which may itself contain dots.
+		dot := strings.Index(code, ".")
+		if dot <= 0 || dot == len(code)-1 {
+			return 0, ErrUnknownEntityKey
+		}
+		return r.queries.SetDictItemSourceText(ctx, sqlcstore.SetDictItemSourceTextParams{
+			Value: value, TypeCode: code[:dot], ItemValue: code[dot+1:],
+		})
 	}
 	return 0, ErrUnknownEntityKey
 }
@@ -344,10 +365,30 @@ var ErrTranslationNotFound = errors.New("translation not found")
 // the same entity already has a translation in.
 var ErrTranslationConflict = errors.New("translation already exists for this language")
 
+// ErrTranslationInherited is returned when a tenant tries to delete a platform
+// default. The row is visible to every tenant, so removing it from one tenant
+// would silently change the others; the tenant can only override it.
+var ErrTranslationInherited = errors.New("translation is inherited from the platform default")
+
+// currentTenantID reports the tenant the request runs in. Platform-level calls
+// (bootstrap, the operator console) have none, which is what makes them talk to
+// the tenant_id 0 rows.
+func currentTenantID(ctx context.Context) uint64 {
+	if id, ok := ctxkey.TenantIDFrom(ctx); ok {
+		return id
+	}
+	return 0
+}
+
 // UpdateTranslation rewrites one translation record, including its language,
 // so a record filed under the wrong language is a normal edit. An empty value
 // removes the record instead, so the entity falls back to its Chinese source.
+//
+// A platform default (tenant 0) is never rewritten from a tenant session: the
+// value is copied into the caller's own row, leaving the shared default intact
+// for every other tenant.
 func (r *AuthRepository) UpdateTranslation(ctx context.Context, id int64, lang, value string) error {
+	tenant := currentTenantID(ctx)
 	if value == "" {
 		removed, err := r.queries.DeleteTranslationByID(ctx, id)
 		if err != nil {
@@ -364,6 +405,30 @@ func (r *AuthRepository) UpdateTranslation(ctx context.Context, id int64, lang, 
 	}
 	if err != nil {
 		return err
+	}
+	if current.TenantID != tenant {
+		if current.TenantID != 0 || tenant == 0 {
+			return ErrTranslationNotFound
+		}
+		// Copy-on-write: the tenant is editing an inherited default.
+		occupant, err := r.queries.TranslationExists(ctx, sqlcstore.TranslationExistsParams{
+			EntityKey: current.EntityKey,
+			Lang:      lang,
+		})
+		if err == nil && occupant != id {
+			return ErrTranslationConflict
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err := r.queries.CreateTranslation(ctx, sqlcstore.CreateTranslationParams{
+			EntityKey: current.EntityKey,
+			Lang:      lang,
+			Value:     value,
+		}); err != nil {
+			return wrapDuplicate(err)
+		}
+		return nil
 	}
 	if current.Lang != lang {
 		// Moving to another language must not silently overwrite the
@@ -397,19 +462,42 @@ func (r *AuthRepository) UpdateTranslation(ctx context.Context, id int64, lang, 
 	return nil
 }
 
-// DeleteTranslationForEntity drops an entity's translation in lang, if it has
-// one, and reports whether a record was actually removed. Clearing a text is
+// DeleteTranslationForEntity drops an entity's translation in lang, if the
+// caller owns one, and reports whether a record was removed. Clearing a text is
 // how the entity falls back to its source language, so the save path ignores
 // the flag — deleting nothing there is a normal save, not a failure. The delete
 // endpoint reads it instead: with rows identified by entity key, a no-op would
-// otherwise answer "ok" for a translation that is not there.
+// otherwise answer "ok" for a translation that is not there, and
+// TranslationInherited tells that case apart from an inherited default.
 func (r *AuthRepository) DeleteTranslationForEntity(ctx context.Context, entityKey, lang string) (bool, error) {
-	removed, err := r.queries.DeleteTranslation(ctx, sqlcstore.DeleteTranslationParams{
+	count, err := r.queries.DeleteTranslation(ctx, sqlcstore.DeleteTranslationParams{
 		EntityKey: entityKey,
 		Lang:      lang,
 	})
 	if err != nil {
 		return false, err
 	}
-	return removed > 0, nil
+	return count > 0, nil
+}
+
+// TranslationInherited reports whether the only translation an entity has in
+// lang is the platform default (tenant 0). A tenant may not delete it — that
+// would change the label for every tenant — but it is not an error either: the
+// entity simply keeps inheriting.
+func (r *AuthRepository) TranslationInherited(ctx context.Context, entityKey, lang string) (bool, error) {
+	if currentTenantID(ctx) == 0 {
+		return false, nil
+	}
+	_, err := r.queries.PlatformTranslationExists(ctx, sqlcstore.PlatformTranslationExistsParams{
+		EntityKey: entityKey,
+		Lang:      lang,
+	})
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	default:
+		return false, err
+	}
 }

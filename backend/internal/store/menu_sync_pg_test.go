@@ -69,7 +69,15 @@ func TestSyncPermissionMenusRevivesRetiredButtonsAgainstPostgres(t *testing.T) {
 		   deleted_at TIMESTAMPTZ NULL
 		 )`,
 		`CREATE UNIQUE INDEX uk_menu_code ON sys_menu (code) WHERE deleted_at IS NULL`,
+		// tenant_admin sync joins sys_role; keep a minimal table so boot grant/revoke is a no-op here.
+		`CREATE TABLE sys_role (
+		   id BIGSERIAL PRIMARY KEY,
+		   tenant_id BIGINT NOT NULL DEFAULT 1,
+		   code VARCHAR(64) NOT NULL,
+		   deleted_at TIMESTAMPTZ NULL
+		 )`,
 		`CREATE TABLE sys_role_menu (
+		   tenant_id BIGINT NOT NULL DEFAULT 1,
 		   role_id BIGINT NOT NULL,
 		   menu_id BIGINT NOT NULL,
 		   PRIMARY KEY (role_id, menu_id)

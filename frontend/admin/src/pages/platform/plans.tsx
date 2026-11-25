@@ -139,7 +139,7 @@ function PlanCatalog() {
 
   return (
     <Page title={t("platform.plansTitle")}>
-      <Card className="table-card">
+      <Card className="table-card fit-list">
         <ListPagePanel
           title={t("platform.plansList")}
           toolbar={{
@@ -217,6 +217,7 @@ function PlanCatalog() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={createForm}
         open={createOpen}
         title={t("platform.createPlan")}
         onClose={() => setCreateOpen(false)}
@@ -235,6 +236,7 @@ function PlanCatalog() {
 
       <FormDrawer
         confirmLoading={saving}
+        form={editForm}
         open={!!editing}
         title={t("platform.editPlan")}
         onClose={() => setEditing(undefined)}

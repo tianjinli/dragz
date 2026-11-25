@@ -46,8 +46,27 @@ UPDATE sys_dict_item SET label = $1, value = $2, color = $3,
   css_class = $4, sort = $5, status = $6, is_default = $7, remark = $8
 WHERE id = $9 AND deleted_at IS NULL;
 
+-- name: ClearDictionaryDefault :execrows
+-- Step one of the two-step default switch (see uk_dict_item_default): drop
+-- every default flag in the type before the new one is written, so the
+-- immediate partial unique index is never tripped mid-statement. Runs in the
+-- caller's transaction; row-level security scopes it to the caller's tenant.
+UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
+WHERE dict_type_id = $1 AND is_default = 1 AND deleted_at IS NULL;
+
 -- name: SoftDeleteDictionaryItem :execrows
 UPDATE sys_dict_item SET deleted_at = NOW(), status = 0
+WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: GetDictionaryTypeByID :one
+SELECT id, code, name, display_type, status, is_system, remark
+FROM sys_dict_type
+WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: GetDictionaryItemByID :one
+SELECT id, dict_type_id, label, value, color, css_class, sort, status,
+  is_default, remark
+FROM sys_dict_item
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListDictionaryTypesFiltered :many

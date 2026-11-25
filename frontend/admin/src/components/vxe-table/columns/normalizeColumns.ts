@@ -10,6 +10,12 @@ export interface HeaderCellMeta<Row> {
   leaf?: VxeLeafColumn<Row>;
   colSpan: number;
   rowSpan: number;
+  /**
+   * Index of this cell's first leaf in `leafColumns`. Row-local cell order is
+   * not enough to locate a cell: a row below a `rowSpan` cell does not repeat
+   * that cell, so header rows must be mapped back to leaves by this offset.
+   */
+  leafStart: number;
   /** group header cells are centered by default and never sortable/resizable */
   isGroup: boolean;
   /**
@@ -93,6 +99,7 @@ export function normalizeColumns<Row>(columns: Array<VxeColumnProps<Row>>): Norm
         leaf,
         colSpan: 1,
         rowSpan: headerLevel - level,
+        leafStart: leafColumns.length,
         isGroup: false,
         fixed: column.fixed,
         stickyField: column.field,
@@ -105,6 +112,7 @@ export function normalizeColumns<Row>(columns: Array<VxeColumnProps<Row>>): Norm
       column,
       colSpan: info.leafCount,
       rowSpan: 1,
+      leafStart: leafColumns.length,
       isGroup: true,
       fixed: info.fixed,
       stickyField: info.firstLeafField,

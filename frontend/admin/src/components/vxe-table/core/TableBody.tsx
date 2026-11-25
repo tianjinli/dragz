@@ -1,12 +1,13 @@
 import { memo } from 'react';
 import type { ReactNode } from 'react';
 import type { CellClickEvent, RowClickEvent, VxeLeafColumn, VxeRowConfig } from '../types';
-import type { StickyOffsets } from './sticky';
+import type { FixedEdges, StickyOffsets } from './sticky';
 import { TableRow } from './TableRow';
 
 export interface TableBodyProps<Row> {
   rows: Row[];
   columns: Array<VxeLeafColumn<Row>>;
+  edges: FixedEdges;
   offsets: StickyOffsets;
   stripe: boolean;
   showOverflow: boolean;
@@ -17,7 +18,7 @@ export interface TableBodyProps<Row> {
 }
 
 function TableBodyInner<Row>(props: TableBodyProps<Row>) {
-  const { rows, columns, offsets, stripe, showOverflow, emptyText, rowConfig, onCellClick, onRowClick } = props;
+  const { rows, columns, edges, offsets, stripe, showOverflow, emptyText, rowConfig, onCellClick, onRowClick } = props;
 
   return (
     <tbody className="vxe-table--body">
@@ -32,6 +33,7 @@ function TableBodyInner<Row>(props: TableBodyProps<Row>) {
           <TableRow
             key={rowIndex}
             columns={columns}
+            edges={edges}
             offsets={offsets}
             row={row}
             rowConfig={rowConfig}

@@ -96,6 +96,27 @@ describe('TablePanel (antd sticky Table)', () => {
     expect(onChange).toHaveBeenCalledWith(2, 20);
   });
 
+  it('keeps the pager visible on an empty list while reporting the real total', () => {
+    const showTotal = vi.fn((total: number) => `共 ${total} 条`);
+    const { container } = render(
+      <TablePanel
+        rowKey="id"
+        dataSource={[]}
+        columns={columns}
+        pagination={{ current: 1, pageSize: 20, total: 0, showTotal, showSizeChanger: true }}
+      />,
+    );
+    expect(container.querySelector('.ant-empty')).not.toBeNull();
+    expect(container.querySelector('.ant-pagination')).not.toBeNull();
+    expect(container.querySelectorAll('.ant-pagination-item')).toHaveLength(1);
+    expect(container.querySelector('.ant-pagination-item-active')).toHaveTextContent('1');
+    expect(container.querySelector('.ant-pagination-prev')).toHaveClass('ant-pagination-disabled');
+    expect(container.querySelector('.ant-pagination-next')).toHaveClass('ant-pagination-disabled');
+    expect(container.querySelector('.ant-pagination-total-text')).toHaveTextContent('共 0 条');
+    expect(showTotal).toHaveBeenCalledWith(0, expect.anything());
+    expect(container.querySelector('.ant-pagination-options')).not.toBeNull();
+  });
+
   it('ellipsis showTitle tip matches the truncated cell text on tree rows', () => {
     const longName = '超长部门名称用于验证省略号与 tips 对应关系';
     const { container } = render(

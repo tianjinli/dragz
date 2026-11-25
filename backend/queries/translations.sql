@@ -1,13 +1,23 @@
 -- name: ListTranslationsByKey :many
-SELECT entity_key, value FROM sys_translation
-WHERE lang = $1 AND entity_key = ANY($2::text[]);
+-- A tenant row overrides the platform default (tenant_id 0) for the same
+-- (entity_key, lang). DISTINCT ON keeps the highest tenant_id, which is the
+-- caller's own row whenever one exists.
+-- The scope predicate repeats what the RLS policy enforces. It is deliberate:
+-- a connection made as a SUPERUSER or BYPASSRLS role silently disables the
+-- policy, and then "highest tenant_id" would hand one tenant another's label.
+SELECT DISTINCT ON (entity_key) entity_key, value
+FROM sys_translation
+WHERE lang = $1 AND entity_key = ANY($2::text[])
+  AND tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+ORDER BY entity_key, tenant_id DESC;
 
 -- name: UpsertTranslationIfAbsent :exec
 -- Seed-time insert only: an administrator-edited translation (or one written
 -- by a previous run) must never be clobbered by the compiled-in default.
-INSERT INTO sys_translation (entity_key, lang, value)
-VALUES ($1, $2, $3)
-ON CONFLICT (entity_key, lang) DO NOTHING;
+-- Bootstrap runs without a session tenant, so the platform row (0) is written.
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+ON CONFLICT (tenant_id, entity_key, lang) DO NOTHING;
 
 -- name: ListTranslationRows :many
 -- Paged translation records with their Chinese source text, for the
@@ -15,39 +25,60 @@ ON CONFLICT (entity_key, lang) DO NOTHING;
 -- without a translation show up in ListUntranslatedEntities instead.
 -- Every row is validated against v_preset_entity, the single catalog of
 -- translatable preset entities (see schema/tables.sql).
-SELECT t.id, t.entity_key::text AS entity_key, e.source::text AS source,
-       t.value, t.lang, t.updated_at
-FROM sys_translation t
-JOIN v_preset_entity e ON e.entity_key = t.entity_key
-WHERE (sqlc.arg(lang)::text = '' OR t.lang = sqlc.arg(lang))
+-- visible collapses the two scopes: the caller's row wins over the platform
+-- default for the same (entity_key, lang). tenant_id is returned so the page
+-- can mark inherited rows and refuse to delete a platform default from a
+-- tenant session.
+WITH visible AS (
+  SELECT DISTINCT ON (entity_key, lang)
+         id, tenant_id, entity_key, lang, value, updated_at
+  FROM sys_translation
+  WHERE tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  ORDER BY entity_key, lang, tenant_id DESC
+)
+SELECT v.id, v.tenant_id, v.entity_key::text AS entity_key,
+       e.source::text AS source, v.value, v.lang, v.updated_at
+FROM visible v
+JOIN v_preset_entity e ON e.entity_key = v.entity_key
+WHERE (sqlc.arg(lang)::text = '' OR v.lang = sqlc.arg(lang))
   AND (
     sqlc.arg(keyword)::text = ''
-    OR t.entity_key ILIKE sqlc.arg(keyword)::text
+    OR v.entity_key ILIKE sqlc.arg(keyword)::text
     OR e.source ILIKE sqlc.arg(keyword)::text
-    OR t.value ILIKE sqlc.arg(keyword)::text
+    OR v.value ILIKE sqlc.arg(keyword)::text
   )
-ORDER BY t.entity_key, t.lang
+ORDER BY v.entity_key, v.lang
 LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
 
 -- name: CountTranslationRows :one
+WITH visible AS (
+  SELECT DISTINCT ON (entity_key, lang) entity_key, lang, value
+  FROM sys_translation
+  WHERE tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  ORDER BY entity_key, lang, tenant_id DESC
+)
 SELECT count(*)
-FROM sys_translation t
-JOIN v_preset_entity e ON e.entity_key = t.entity_key
-WHERE (sqlc.arg(lang)::text = '' OR t.lang = sqlc.arg(lang))
+FROM visible v
+JOIN v_preset_entity e ON e.entity_key = v.entity_key
+WHERE (sqlc.arg(lang)::text = '' OR v.lang = sqlc.arg(lang))
   AND (
     sqlc.arg(keyword)::text = ''
-    OR t.entity_key ILIKE sqlc.arg(keyword)::text
+    OR v.entity_key ILIKE sqlc.arg(keyword)::text
     OR e.source ILIKE sqlc.arg(keyword)::text
-    OR t.value ILIKE sqlc.arg(keyword)::text
+    OR v.value ILIKE sqlc.arg(keyword)::text
   );
 
 -- name: ListUntranslatedEntities :many
 -- Preset entities that have no translation in the given language; these are
--- the choices offered by the "new translation" form.
+-- the choices offered by the "new translation" form. A platform default counts
+-- as translated — RLS has already narrowed the scan to the visible scopes.
 SELECT e.entity_key::text AS entity_key, e.source::text AS source
 FROM v_preset_entity e
-LEFT JOIN sys_translation t ON t.entity_key = e.entity_key AND t.lang = $1
-WHERE t.id IS NULL
+WHERE NOT EXISTS (
+    SELECT 1 FROM sys_translation t
+    WHERE t.entity_key = e.entity_key AND t.lang = $1
+      AND t.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  )
   AND ($2::text = '' OR e.entity_key ILIKE $2::text OR e.source ILIKE $2::text)
 ORDER BY e.entity_key
 LIMIT 200;
@@ -123,18 +154,57 @@ WHERE id = (
   WHERE sc.storage_type = sqlc.arg(code) AND sc.deleted_at IS NULL
 );
 
+-- name: SetDictTypeSourceText :execrows
+-- The dicttype.<code> key addresses the dictionary type of the caller's
+-- tenant (row-level security scopes the read); renaming writes the label back
+-- into the owning column so Chinese stays the source of truth.
+UPDATE sys_dict_type SET name = sqlc.arg(value), updated_at = NOW()
+WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
+
+-- name: SetDictItemSourceText :execrows
+-- The dict.<type code>.<value> key addresses one item of the named type.
+-- The value half of the key is the item's business value, not a code, so the
+-- lookup goes through the owning type instead of a rekey.
+UPDATE sys_dict_item SET label = sqlc.arg(value), updated_at = NOW()
+WHERE dict_type_id = (
+    SELECT id FROM sys_dict_type
+    WHERE code = sqlc.arg(type_code) AND deleted_at IS NULL
+  )
+  AND value = sqlc.arg(item_value) AND deleted_at IS NULL;
+
+-- name: RekeyDictTranslationsByPrefix :execrows
+-- A dictionary type's code is the prefix of every item key
+-- (dict.<code>.<value>), so renaming a type moves all of them at once. Keys
+-- whose destination is already taken are left behind, matching
+-- RekeyTranslations. The prefix compare is left() rather than LIKE so a code
+-- containing _ or % (legal since codes are snake_case) cannot over-match.
+UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_prefix) || substring(tr.entity_key from length(sqlc.arg(old_prefix))::int + 1), updated_at = NOW()
+WHERE left(tr.entity_key, length(sqlc.arg(old_prefix))::int) = sqlc.arg(old_prefix)
+  AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_translation occupied
+    WHERE occupied.tenant_id = tr.tenant_id
+      AND occupied.entity_key = sqlc.arg(new_prefix) || substring(tr.entity_key from length(sqlc.arg(old_prefix))::int + 1)
+      AND occupied.lang = tr.lang
+  );
+
 -- name: RekeyTranslations :many
 -- A translation record belongs to the entity, not to its code, so editing a
 -- code carries the records over instead of orphaning them (an orphaned key is
 -- invisible: every list joins v_preset_entity). Rows whose destination is
--- already taken are left alone rather than violating uk_translation_entity_lang.
-UPDATE sys_translation SET entity_key = sqlc.arg(new_key), updated_at = NOW()
-WHERE sys_translation.entity_key = sqlc.arg(old_key)
+-- already taken are left alone rather than violating the tenant-scoped unique
+-- key. The scope is part of the conflict test: the platform default and a
+-- tenant override are separate rows that happen to share a key.
+UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_key), updated_at = NOW()
+WHERE tr.entity_key = sqlc.arg(old_key)
+  AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
     SELECT 1 FROM sys_translation occupied
-    WHERE occupied.entity_key = sqlc.arg(new_key) AND occupied.lang = sys_translation.lang
+    WHERE occupied.tenant_id = tr.tenant_id
+      AND occupied.entity_key = sqlc.arg(new_key)
+      AND occupied.lang = tr.lang
   )
-RETURNING sys_translation.entity_key;
+RETURNING tr.entity_key;
 
 -- name: GetPresetSourceRow :one
 -- The row a preset save is about to rewrite: its current code and source text,
@@ -146,10 +216,11 @@ WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id);
 
 -- name: CreateTranslation :exec
 -- Administrator-created translation; a conflict refreshes the value so the
--- create form is safe to retry.
-INSERT INTO sys_translation (entity_key, lang, value)
-VALUES ($1, $2, $3)
-ON CONFLICT (entity_key, lang) DO UPDATE
+-- create form is safe to retry. The row belongs to the caller's tenant
+-- (platform 0 when no tenant session is set, e.g. during bootstrap).
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+ON CONFLICT (tenant_id, entity_key, lang) DO UPDATE
 SET value = EXCLUDED.value, updated_at = NOW();
 
 -- name: UpdateTranslation :execrows
@@ -157,26 +228,47 @@ SET value = EXCLUDED.value, updated_at = NOW();
 -- role grants, menu management, ...) picks the new value up immediately. The
 -- language can change too, so a record filed under the wrong language is a
 -- simple edit; the caller checks (entity_key, lang) is still free first.
+-- A platform default (tenant 0) is never rewritten from a tenant session: the
+-- store copies it into a tenant override instead, and this predicate is the
+-- second line of defence.
 UPDATE sys_translation
 SET lang = $2, value = $3, updated_at = NOW()
-WHERE id = $1;
+WHERE id = $1
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0);
 
 -- name: GetTranslationByID :one
-SELECT id, entity_key, lang, value FROM sys_translation WHERE id = $1;
+SELECT id, tenant_id, entity_key, lang, value FROM sys_translation WHERE id = $1;
 
 -- name: TranslationExists :one
--- Reports the id already occupying (entity_key, lang), so an edit can explain
--- the collision instead of hitting the unique constraint.
-SELECT id FROM sys_translation WHERE entity_key = $1 AND lang = $2;
+-- Reports the id already occupying (entity_key, lang) in the caller's scope,
+-- so an edit can explain the collision instead of hitting the unique
+-- constraint.
+SELECT id FROM sys_translation
+WHERE entity_key = $1 AND lang = $2
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0);
+
+-- name: PlatformTranslationExists :one
+-- Used after a delete matched no row: it tells "already gone" apart from
+-- "inherited platform default", which the caller may not remove. The read
+-- policy makes tenant 0 rows visible everywhere, so this answers for a tenant
+-- session too.
+SELECT id FROM sys_translation
+WHERE entity_key = $1 AND lang = $2 AND tenant_id = 0;
 
 -- name: DeleteTranslationByID :execrows
 -- Clearing a text deletes its record, so the row count is what tells an edit
--- apart from a no-op: zero means the record was already gone.
-DELETE FROM sys_translation WHERE id = $1;
+-- apart from a no-op: zero means the record was already gone — or that it is a
+-- platform default the caller may not remove.
+DELETE FROM sys_translation
+WHERE id = $1
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0);
 
 -- name: DeleteTranslation :execrows
 -- Drops one entity's translation in one language. The count is returned so a
 -- delete addressed by entity_key can answer 404 instead of "ok" for a row that
 -- does not exist; the save path ignores it, because clearing an already-empty
--- language is a normal save, not an error.
-DELETE FROM sys_translation WHERE entity_key = $1 AND lang = $2;
+-- language is a normal save, not an error. Scoped to the caller's own rows, so
+-- a tenant cannot erase the platform default it inherits.
+DELETE FROM sys_translation
+WHERE entity_key = $1 AND lang = $2
+  AND tenant_id = COALESCE(app_current_tenant_id(), 0);
