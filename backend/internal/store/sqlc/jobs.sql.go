@@ -26,8 +26,9 @@ func (q *Queries) CountJobLogs(ctx context.Context, jobID uint64) (int64, error)
 
 const createJob = `-- name: CreateJob :one
 INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at,
+   created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 RETURNING id
 `
 
@@ -41,6 +42,7 @@ type CreateJobParams struct {
 	MaxRetries     int32                 `json:"max_retries"`
 	Status         int16                 `json:"status"`
 	NextRunAt      sql.NullTime          `json:"next_run_at"`
+	CreatedBy      uint64                `json:"created_by"`
 }
 
 func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (int64, error) {
@@ -54,6 +56,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (int64, er
 		arg.MaxRetries,
 		arg.Status,
 		arg.NextRunAt,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -369,12 +372,17 @@ func (q *Queries) ListJobs(ctx context.Context) ([]ListJobsRow, error) {
 }
 
 const softDeleteJob = `-- name: SoftDeleteJob :execrows
-UPDATE sys_scheduled_job SET deleted_at = NOW(), status = 0, next_run_at = NULL
+UPDATE sys_scheduled_job SET deleted_at = NOW(), status = 0, next_run_at = NULL, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteJob(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteJob, id)
+type SoftDeleteJobParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteJob(ctx context.Context, arg SoftDeleteJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteJob, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -412,8 +420,8 @@ func (q *Queries) TouchJobLastRunAt(ctx context.Context, id int64) error {
 const updateJob = `-- name: UpdateJob :execrows
 UPDATE sys_scheduled_job SET name = $1, code = $2,
   handler = $3, cron_expression = $4, payload = $5, timeout_seconds = $6, max_retries = $7,
-  status = $8, next_run_at = $9
-WHERE id = $10 AND deleted_at IS NULL
+  status = $8, next_run_at = $9, updated_by = $10
+WHERE id = $11 AND deleted_at IS NULL
 `
 
 type UpdateJobParams struct {
@@ -426,6 +434,7 @@ type UpdateJobParams struct {
 	MaxRetries     int32                 `json:"max_retries"`
 	Status         int16                 `json:"status"`
 	NextRunAt      sql.NullTime          `json:"next_run_at"`
+	UpdatedBy      uint64                `json:"updated_by"`
 	ID             int64                 `json:"id"`
 }
 
@@ -440,6 +449,7 @@ func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (int64, er
 		arg.MaxRetries,
 		arg.Status,
 		arg.NextRunAt,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {

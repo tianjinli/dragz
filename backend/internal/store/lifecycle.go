@@ -67,7 +67,27 @@ type Invite struct {
 	AcceptedBy    *uint64    `json:"acceptedBy,omitempty"`
 	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
 	CreatedAt     time.Time  `json:"createdAt"`
+	// Server-side email delivery of the invite link. Empty means the invite
+	// predates delivery tracking or mail was disabled when it was created.
+	DeliveryStatus string     `json:"deliveryStatus,omitempty"`
+	DeliveredAt    *time.Time `json:"deliveredAt,omitempty"`
+	DeliveryError  string     `json:"deliveryError,omitempty"`
 }
+
+// Invite delivery statuses, written by the async invite mail sender.
+const (
+	// InviteMailPending means the send is in flight (or the process died
+	// mid-send; the invite UI shows it as "sending").
+	InviteMailPending = "pending"
+	// InviteMailSent means the SMTP engine accepted the message.
+	InviteMailSent = "sent"
+	// InviteMailFailed means the engine returned an error; DeliveryError has it.
+	InviteMailFailed = "failed"
+	// InviteMailSkipped means mail was disabled or no public base URL is
+	// configured when the invite was created — not a failure, the admin is
+	// expected to copy the link manually.
+	InviteMailSkipped = "skipped"
+)
 
 // InviteInput creates one invitation.
 type InviteInput struct {
@@ -151,13 +171,13 @@ UPDATE sys_user SET department_id = $2 WHERE id = $1`,
 		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, status)
-VALUES ($1, $2, $3, 1, 1)`, out.TenantID, out.UserID, provision.departmentID); err != nil {
+VALUES ($1, $2, $3, TRUE, 1)`, out.TenantID, out.UserID, provision.departmentID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_user_role (tenant_id, user_id, role_id)
-VALUES ($1, $2, $3) ON CONFLICT (user_id, role_id) DO NOTHING`,
-			out.TenantID, out.UserID, provision.adminRoleID); err != nil {
+INSERT INTO sys_user_role (tenant_id, user_id, role_id, created_by)
+VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, role_id) DO NOTHING`,
+			out.TenantID, out.UserID, provision.adminRoleID, actorID(ctx)); err != nil {
 			return err
 		}
 		// The owner occupies one seat from the moment the tenant exists.
@@ -197,7 +217,7 @@ RETURNING id`, tenantID).Scan(&out.departmentID)
 	// an empty grant set would leave the tenant owner unable to do anything.
 	err = tx.QueryRowContext(ctx, `
 INSERT INTO sys_role (tenant_id, code, name, data_scope, sort, status, is_system, remark)
-VALUES ($1, 'tenant_admin', '租户管理员', 'all', 0, 1, 1, '租户内置管理员角色')
+VALUES ($1, 'tenant_admin', '租户管理员', 0, 0, 1, TRUE, '租户内置管理员角色')
 RETURNING id`, tenantID).Scan(&out.adminRoleID)
 	if err != nil {
 		return out, err
@@ -229,7 +249,7 @@ func seedTenantDictionaries(ctx context.Context, tx *Tx, tenantID uint64) error 
 INSERT INTO sys_dict_type (tenant_id, code, name, display_type, status, is_system, remark)
 SELECT $1, t.code, t.name, t.display_type, t.status, 1, t.remark
 FROM sys_dict_type t
-WHERE t.tenant_id = 1 AND t.is_system = 1 AND t.deleted_at IS NULL
+WHERE t.tenant_id = 1 AND t.is_system = TRUE AND t.deleted_at IS NULL
 ON CONFLICT DO NOTHING`, tenantID); err != nil {
 		return fmt.Errorf("copy system dictionary types: %w", err)
 	}
@@ -237,7 +257,7 @@ ON CONFLICT DO NOTHING`, tenantID); err != nil {
 INSERT INTO sys_dict_item (tenant_id, dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
 SELECT $1, target.id, s.label, s.value, s.color, s.css_class, s.sort, s.status, s.is_default, s.remark
 FROM sys_dict_item s
-JOIN sys_dict_type src ON src.id = s.dict_type_id AND src.tenant_id = 1 AND src.is_system = 1 AND src.deleted_at IS NULL
+JOIN sys_dict_type src ON src.id = s.dict_type_id AND src.tenant_id = 1 AND src.is_system = TRUE AND src.deleted_at IS NULL
 JOIN sys_dict_type target ON target.tenant_id = $1 AND target.code = src.code AND target.deleted_at IS NULL
 WHERE s.deleted_at IS NULL
 ON CONFLICT DO NOTHING`, tenantID); err != nil {
@@ -437,9 +457,9 @@ func (r *TenantRepository) CreateInvite(ctx context.Context, in InviteInput) (In
 		// leaving two valid tokens for one seat.
 		if email != "" {
 			if _, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_invite SET status = 'revoked'
+UPDATE sys_tenant_invite SET status = 'revoked', updated_by = $3
 WHERE tenant_id = $1 AND lower(email) = lower($2) AND status = 'pending'`,
-				in.TenantID, email); err != nil {
+				in.TenantID, email, in.InvitedBy); err != nil {
 				return err
 			}
 		}
@@ -447,14 +467,12 @@ WHERE tenant_id = $1 AND lower(email) = lower($2) AND status = 'pending'`,
 		if in.DepartmentID != nil {
 			department = sql.NullInt64{Int64: int64(*in.DepartmentID), Valid: true}
 		}
-		admin := int16(0)
-		if in.TenantAdmin {
-			admin = 1
-		}
+		admin := in.TenantAdmin
 		err := tx.QueryRowContext(ctx, `
 INSERT INTO sys_tenant_invite
-  (tenant_id, email, role_ids, department_id, is_tenant_admin, token_hash, status, invited_by, expires_at)
-VALUES ($1, $2, $3::bigint[], $4, $5, $6, 'pending', $7, $8)
+  (tenant_id, email, role_ids, department_id, is_tenant_admin, token_hash, status, invited_by, expires_at,
+   created_by, updated_by)
+VALUES ($1, $2, $3::bigint[], $4, $5, $6, 'pending', $7, $8, $7, $7)
 RETURNING id, tenant_id, email, role_ids, department_id, is_tenant_admin, status,
           invited_by, expires_at, accepted_by, accepted_at, created_at`,
 			in.TenantID, email, int64Array(in.RoleIDs), department, admin,
@@ -466,7 +484,7 @@ RETURNING id, tenant_id, email, role_ids, department_id, is_tenant_admin, status
 			return wrapDuplicate(err)
 		}
 		invite.DepartmentID = nullInt64Ptr(department)
-		invite.IsTenantAdmin = admin == 1
+		invite.IsTenantAdmin = admin
 		if invite.RoleIDs == nil {
 			invite.RoleIDs = []int64{}
 		}
@@ -478,13 +496,16 @@ RETURNING id, tenant_id, email, role_ids, department_id, is_tenant_admin, status
 	return invite, token, nil
 }
 
-// ListInvites returns a tenant's invitations, newest first.
+// ListInvites returns a tenant's invitations, newest first. It is the only
+// read that surfaces delivery tracking; the token-resolution queries keep
+// their original column list.
 func (r *TenantRepository) ListInvites(ctx context.Context, tenantID uint64) ([]Invite, error) {
 	var items []Invite
 	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
 		rows, err := tx.QueryContext(ctx, `
 SELECT i.id, i.tenant_id, i.email, i.role_ids, i.department_id, i.is_tenant_admin,
-       i.status, i.invited_by, i.expires_at, i.accepted_by, i.accepted_at, i.created_at
+       i.status, i.invited_by, i.expires_at, i.accepted_by, i.accepted_at, i.created_at,
+       i.delivery_status, i.delivered_at, i.delivery_error
 FROM sys_tenant_invite i
 WHERE i.tenant_id = $1
 ORDER BY i.id DESC`, tenantID)
@@ -494,7 +515,7 @@ ORDER BY i.id DESC`, tenantID)
 		defer rows.Close()
 		items = make([]Invite, 0)
 		for rows.Next() {
-			invite, err := scanInvite(rows)
+			invite, err := scanInviteWithDelivery(rows)
 			if err != nil {
 				return err
 			}
@@ -505,13 +526,32 @@ ORDER BY i.id DESC`, tenantID)
 	return items, err
 }
 
+// MarkInviteDelivery records the outcome of the async invite email send. It
+// never touches the invite's own status: a delivery failure must not turn a
+// valid invitation invalid.
+func (r *TenantRepository) MarkInviteDelivery(ctx context.Context, inviteID uint64, status, sendErr string) error {
+	errMsg := strings.TrimSpace(sendErr)
+	if len(errMsg) > 500 {
+		errMsg = errMsg[:500]
+	}
+	return r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
+		_, err := tx.ExecContext(ctx, `
+UPDATE sys_tenant_invite
+SET delivery_status = $2,
+    delivered_at = CASE WHEN $2 = $3 THEN NOW() ELSE delivered_at END,
+    delivery_error = $4
+WHERE id = $1`, inviteID, status, InviteMailSent, errMsg)
+		return err
+	})
+}
+
 // RevokeInvite invalidates a pending invitation.
 func (r *TenantRepository) RevokeInvite(ctx context.Context, tenantID, inviteID uint64) error {
 	var affected int64
 	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
 		result, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_invite SET status = 'revoked'
-WHERE id = $1 AND tenant_id = $2 AND status = 'pending'`, inviteID, tenantID)
+UPDATE sys_tenant_invite SET status = 'revoked', updated_by = $3
+WHERE id = $1 AND tenant_id = $2 AND status = 'pending'`, inviteID, tenantID, actorID(ctx))
 		if err != nil {
 			return err
 		}
@@ -594,21 +634,19 @@ SELECT EXISTS (
 			if err := consumeSeat(ctx, tx, invite.TenantID); err != nil {
 				return err
 			}
-			admin := int16(0)
-			if invite.IsTenantAdmin {
-				admin = 1
-			}
+			admin := invite.IsTenantAdmin
 			if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, status)
-VALUES ($1, $2, $3, $4, 1)`,
-				invite.TenantID, userID, nullableUint64(invite.DepartmentID), admin); err != nil {
+INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, status,
+  created_by, updated_by)
+VALUES ($1, $2, $3, $4, 1, $5, $5)`,
+				invite.TenantID, userID, nullableUint64(invite.DepartmentID), admin, userID); err != nil {
 				return err
 			}
 			for _, roleID := range invite.RoleIDs {
 				if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_user_role (tenant_id, user_id, role_id)
-VALUES ($1, $2, $3) ON CONFLICT (user_id, role_id) DO NOTHING`,
-					invite.TenantID, userID, roleID); err != nil {
+INSERT INTO sys_user_role (tenant_id, user_id, role_id, created_by)
+VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, role_id) DO NOTHING`,
+					invite.TenantID, userID, roleID, userID); err != nil {
 					return err
 				}
 			}
@@ -620,7 +658,7 @@ WHERE id = $1`, userID, nullableUint64(invite.DepartmentID)); err != nil {
 		}
 		if _, err := tx.ExecContext(ctx, `
 UPDATE sys_tenant_invite
-SET status = 'accepted', accepted_by = $2, accepted_at = NOW()
+SET status = 'accepted', accepted_by = $2, accepted_at = NOW(), updated_by = $2
 WHERE id = $1 AND status = 'pending'`, invite.ID, userID); err != nil {
 			return err
 		}
@@ -677,7 +715,7 @@ ORDER BY m.created_at, m.user_id`, tenantID)
 			var (
 				item     Member
 				dept     sql.NullInt64
-				admin    int16
+				admin    bool
 				roleText string
 			)
 			if err := rows.Scan(&item.UserID, &item.Username, &item.DisplayName, &item.Email,
@@ -685,7 +723,7 @@ ORDER BY m.created_at, m.user_id`, tenantID)
 				return err
 			}
 			item.DepartmentID = nullInt64Ptr(dept)
-			item.IsTenantAdmin = admin == 1
+			item.IsTenantAdmin = admin
 			item.RoleCodes = splitCodes(roleText)
 			items = append(items, item)
 		}
@@ -710,7 +748,7 @@ func (r *TenantRepository) UpdateMember(ctx context.Context, tenantID, userID ui
 		if in.Status != nil && *in.Status != 1 {
 			var admin bool
 			if err := tx.QueryRowContext(ctx, `
-SELECT is_tenant_admin = 1 FROM sys_tenant_member
+SELECT is_tenant_admin FROM sys_tenant_member
 WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID).Scan(&admin); err != nil {
 				return err
 			}
@@ -722,26 +760,23 @@ WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID).Scan(&admin); err != n
 		}
 		if in.Status != nil {
 			if _, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_member SET status = $3, updated_at = NOW()
-WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, *in.Status); err != nil {
+UPDATE sys_tenant_member SET status = $3, updated_at = NOW(), updated_by = $4
+WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, *in.Status, actorID(ctx)); err != nil {
 				return err
 			}
 		}
 		if in.IsTenantAdmin != nil {
-			admin := int16(0)
-			if *in.IsTenantAdmin {
-				admin = 1
-			}
+			admin := *in.IsTenantAdmin
 			if _, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_member SET is_tenant_admin = $3, updated_at = NOW()
-WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, admin); err != nil {
+UPDATE sys_tenant_member SET is_tenant_admin = $3, updated_at = NOW(), updated_by = $4
+WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, admin, actorID(ctx)); err != nil {
 				return err
 			}
 		}
 		if in.DepartmentID != nil {
 			if _, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_member SET department_id = $3, updated_at = NOW()
-WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, *in.DepartmentID); err != nil {
+UPDATE sys_tenant_member SET department_id = $3, updated_at = NOW(), updated_by = $4
+WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID, *in.DepartmentID, actorID(ctx)); err != nil {
 				return err
 			}
 		}
@@ -752,10 +787,10 @@ DELETE FROM sys_user_role WHERE tenant_id = $1 AND user_id = $2`, tenantID, user
 			}
 			for _, roleID := range in.RoleIDs {
 				if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_user_role (tenant_id, user_id, role_id)
-SELECT $1, $2, id FROM sys_role
+INSERT INTO sys_user_role (tenant_id, user_id, role_id, created_by)
+SELECT $1, $2, id, $4 FROM sys_role
 WHERE id = $3 AND tenant_id = $1 AND deleted_at IS NULL
-ON CONFLICT (user_id, role_id) DO NOTHING`, tenantID, userID, roleID); err != nil {
+ON CONFLICT (user_id, role_id) DO NOTHING`, tenantID, userID, roleID, actorID(ctx)); err != nil {
 					return err
 				}
 			}
@@ -774,7 +809,7 @@ func (r *TenantRepository) RemoveMember(ctx context.Context, tenantID, userID ui
 		}
 		var admin bool
 		if err := tx.QueryRowContext(ctx, `
-SELECT is_tenant_admin = 1 FROM sys_tenant_member
+SELECT is_tenant_admin FROM sys_tenant_member
 WHERE tenant_id = $1 AND user_id = $2`, tenantID, userID).Scan(&admin); err != nil {
 			return err
 		}
@@ -830,7 +865,7 @@ func ensureOtherAdmin(ctx context.Context, tx *Tx, tenantID, userID uint64) erro
 	var others int
 	if err := tx.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM sys_tenant_member
-WHERE tenant_id = $1 AND user_id <> $2 AND status = 1 AND is_tenant_admin = 1`,
+WHERE tenant_id = $1 AND user_id <> $2 AND status = 1 AND is_tenant_admin = TRUE`,
 		tenantID, userID).Scan(&others); err != nil {
 		return err
 	}
@@ -937,8 +972,8 @@ SELECT EXISTS (SELECT 1 FROM sys_user WHERE id = $1 AND deleted_at IS NULL)`, us
 			return ErrNotFound
 		}
 		_, err := tx.ExecContext(ctx, `
-INSERT INTO sys_platform_operator (user_id, granted_by, note)
-VALUES ($1, $2, $3)
+INSERT INTO sys_platform_operator (user_id, granted_by, note, created_by)
+VALUES ($1, $2, $3, $2)
 ON CONFLICT (user_id) DO NOTHING`, userID, grantedBy, clipRunes(note, 255))
 		return err
 	})
@@ -969,14 +1004,6 @@ func (r *TenantRepository) RevokePlatformOperator(ctx context.Context, userID ui
 // Usage metering
 // ---------------------------------------------------------------------------
 
-// UsageCounter is one metered counter.
-type UsageCounter struct {
-	QuotaKey  string    `json:"quotaKey"`
-	PeriodKey string    `json:"periodKey"`
-	UsedValue uint64    `json:"usedValue"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
 // AddUsage increments a usage counter and returns the new value. It runs in the
 // caller's tenant session, so RLS keeps a tenant from writing another's counter.
 func (r *TenantRepository) AddUsage(ctx context.Context, tenantID uint64, quotaKey, periodKey string, amount uint64) (uint64, error) {
@@ -1006,31 +1033,6 @@ WHERE tenant_id = $1 AND quota_key = $2 AND period_key = $3`,
 			tenantID, quotaKey, periodKey).Scan(&used)
 	})
 	return used, err
-}
-
-// ListUsage returns every counter of a tenant, newest period first.
-func (r *TenantRepository) ListUsage(ctx context.Context, tenantID uint64) ([]UsageCounter, error) {
-	var items []UsageCounter
-	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
-		rows, err := tx.QueryContext(ctx, `
-SELECT quota_key, period_key, used_value, updated_at
-FROM sys_usage_counter WHERE tenant_id = $1
-ORDER BY quota_key, period_key DESC`, tenantID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items = make([]UsageCounter, 0)
-		for rows.Next() {
-			var item UsageCounter
-			if err := rows.Scan(&item.QuotaKey, &item.PeriodKey, &item.UsedValue, &item.UpdatedAt); err != nil {
-				return err
-			}
-			items = append(items, item)
-		}
-		return rows.Err()
-	})
-	return items, err
 }
 
 // QuotaLimit returns the configured limit for a quota key. found is false when
@@ -1111,7 +1113,7 @@ func scanInvite(scanner interface{ Scan(...any) error }) (Invite, error) {
 	var (
 		item Invite
 		dept sql.NullInt64
-		adm  int16
+		adm  bool
 	)
 	err := scanner.Scan(&item.ID, &item.TenantID, &item.Email, &item.RoleIDs, &dept,
 		&adm, &item.Status, &item.InvitedBy, &item.ExpiresAt, &item.AcceptedBy,
@@ -1120,7 +1122,7 @@ func scanInvite(scanner interface{ Scan(...any) error }) (Invite, error) {
 		return Invite{}, err
 	}
 	item.DepartmentID = nullInt64Ptr(dept)
-	item.IsTenantAdmin = adm == 1
+	item.IsTenantAdmin = adm
 	if item.RoleIDs == nil {
 		item.RoleIDs = []int64{}
 	}
@@ -1131,7 +1133,7 @@ func scanInviteWithTenant(scanner interface{ Scan(...any) error }) (Invite, erro
 	var (
 		item     Invite
 		dept     sql.NullInt64
-		adm      int16
+		adm      bool
 		accepted sql.NullInt64
 		at       sql.NullTime
 	)
@@ -1143,156 +1145,38 @@ func scanInviteWithTenant(scanner interface{ Scan(...any) error }) (Invite, erro
 	item.DepartmentID = nullInt64Ptr(dept)
 	item.AcceptedBy = nullInt64Ptr(accepted)
 	item.AcceptedAt = nullTimePtr(at)
-	item.IsTenantAdmin = adm == 1
+	item.IsTenantAdmin = adm
 	if item.RoleIDs == nil {
 		item.RoleIDs = []int64{}
 	}
 	return item, nil
 }
 
-// ---------------------------------------------------------------------------
-// Payment events
-// ---------------------------------------------------------------------------
-
-// PaymentEvent is one stored provider callback.
-type PaymentEvent struct {
-	ID          uint64     `json:"id"`
-	Provider    string     `json:"provider"`
-	EventID     string     `json:"eventId"`
-	EventType   string     `json:"eventType"`
-	TenantID    uint64     `json:"tenantId"`
-	Status      string     `json:"status"`
-	Attempts    int        `json:"attempts"`
-	LastError   string     `json:"lastError,omitempty"`
-	ReceivedAt  time.Time  `json:"receivedAt"`
-	ProcessedAt *time.Time `json:"processedAt,omitempty"`
-}
-
-// Payment event statuses.
-const (
-	PaymentReceived   = "received"
-	PaymentProcessing = "processing"
-	PaymentProcessed  = "processed"
-	PaymentIgnored    = "ignored"
-	PaymentFailed     = "failed"
-)
-
-// RecordPaymentEvent stores a callback. inserted is false when the same
-// (provider, event_id) was already stored, which is the idempotency answer: the
-// caller must not apply the event again.
-func (r *TenantRepository) RecordPaymentEvent(ctx context.Context, provider, eventID, eventType string, tenantID uint64, payload []byte) (PaymentEvent, bool, error) {
+// scanInviteWithDelivery reads the ListInvites row shape: the base columns
+// plus delivery tracking.
+func scanInviteWithDelivery(scanner interface{ Scan(...any) error }) (Invite, error) {
 	var (
-		event    PaymentEvent
-		inserted bool
+		item     Invite
+		dept     sql.NullInt64
+		adm      bool
+		accepted sql.NullInt64
+		at       sql.NullTime
+		at2      sql.NullTime
 	)
-	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		err := tx.QueryRowContext(ctx, `
-INSERT INTO sys_payment_event (provider, event_id, event_type, tenant_id, payload, status)
-VALUES ($1, $2, $3, $4, $5::jsonb, 'received')
-ON CONFLICT (provider, event_id) DO NOTHING
-RETURNING id, provider, event_id, event_type, tenant_id, status, attempts,
-          last_error, received_at, processed_at`,
-			provider, eventID, eventType, tenantID, string(payload)).
-			Scan(&event.ID, &event.Provider, &event.EventID, &event.EventType,
-				&event.TenantID, &event.Status, &event.Attempts, &event.LastError,
-				&event.ReceivedAt, &event.ProcessedAt)
-		if err == nil {
-			inserted = true
-			return nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		return tx.QueryRowContext(ctx, `
-SELECT id, provider, event_id, event_type, tenant_id, status, attempts,
-       last_error, received_at, processed_at
-FROM sys_payment_event WHERE provider = $1 AND event_id = $2`,
-			provider, eventID).
-			Scan(&event.ID, &event.Provider, &event.EventID, &event.EventType,
-				&event.TenantID, &event.Status, &event.Attempts, &event.LastError,
-				&event.ReceivedAt, &event.ProcessedAt)
-	})
+	err := scanner.Scan(&item.ID, &item.TenantID, &item.Email, &item.RoleIDs,
+		&dept, &adm, &item.Status, &item.InvitedBy, &item.ExpiresAt, &accepted, &at, &item.CreatedAt,
+		&item.DeliveryStatus, &at2, &item.DeliveryError)
 	if err != nil {
-		return PaymentEvent{}, false, err
+		return Invite{}, err
 	}
-	return event, inserted, nil
+	item.DepartmentID = nullInt64Ptr(dept)
+	item.AcceptedBy = nullInt64Ptr(accepted)
+	item.AcceptedAt = nullTimePtr(at)
+	item.DeliveredAt = nullTimePtr(at2)
+	item.IsTenantAdmin = adm
+	if item.RoleIDs == nil {
+		item.RoleIDs = []int64{}
+	}
+	return item, nil
 }
 
-// MarkPaymentEvent records the outcome of applying one event.
-func (r *TenantRepository) MarkPaymentEvent(ctx context.Context, id uint64, status, lastError string) error {
-	return r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		_, err := tx.ExecContext(ctx, `
-UPDATE sys_payment_event
-SET status = $2,
-    attempts = attempts + 1,
-    last_error = $3,
-    processed_at = CASE WHEN $2 = 'processed' THEN NOW() ELSE processed_at END
-WHERE id = $1`, id, status, clipRunes(lastError, 1000))
-		return err
-	})
-}
-
-// Invoice statuses a payment provider event can move a row to. They mirror the
-// check constraint in 014_billing_lifecycle.sql.
-const (
-	InvoicePaid     = "paid"
-	InvoiceFailed   = "failed"
-	InvoiceRefunded = "refunded"
-)
-
-// SetInvoiceStatus moves one invoice to status and returns the subscription it
-// belongs to (0 when the invoice is not attached to one).
-//
-// Re-applying the status it already has is a success, not an error: a provider
-// that retries a delivery, or sends invoice.paid after a local operator already
-// marked the invoice paid, must not be told the callback failed.
-func (r *TenantRepository) SetInvoiceStatus(ctx context.Context, tenantID, invoiceID uint64, status string) (uint64, error) {
-	var subscriptionID sql.NullInt64
-	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		err := tx.QueryRowContext(ctx, `
-UPDATE sys_invoice
-SET status = $3, updated_at = NOW()
-WHERE id = $1 AND tenant_id = $2 AND status <> $3
-RETURNING subscription_id`, invoiceID, tenantID, status).Scan(&subscriptionID)
-		if errors.Is(err, sql.ErrNoRows) {
-			// Either it already carries this status (fine) or it does not
-			// exist (not fine, and the caller has to ignore the event).
-			return tx.QueryRowContext(ctx, `
-SELECT subscription_id FROM sys_invoice WHERE id = $1 AND tenant_id = $2`,
-				invoiceID, tenantID).Scan(&subscriptionID)
-		}
-		return err
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
-	}
-	if err != nil {
-		return 0, err
-	}
-	if !subscriptionID.Valid {
-		return 0, nil
-	}
-	return uint64(subscriptionID.Int64), nil
-}
-
-// MarkInvoicePaid flips a draft invoice to paid and returns the subscription it
-// belongs to. An invoice that is already paid is a success: webhooks retry.
-func (r *TenantRepository) MarkInvoicePaid(ctx context.Context, tenantID, invoiceID uint64) (uint64, error) {
-	return r.SetInvoiceStatus(ctx, tenantID, invoiceID, InvoicePaid)
-}
-
-// ResumeSubscriptionAfterPayment moves an overdue subscription back to active.
-// A subscription that is already active or in trial is left alone; a cancelled
-// one stays cancelled because that state is terminal by design.
-func (r *TenantRepository) ResumeSubscriptionAfterPayment(ctx context.Context, tenantID, subscriptionID uint64) error {
-	if subscriptionID == 0 {
-		return nil
-	}
-	return r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		_, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant_subscription
-SET status = 'active', grace_ends_at = NULL, ended_at = NULL, updated_at = NOW()
-WHERE id = $1 AND tenant_id = $2 AND status = 'overdue'`, subscriptionID, tenantID)
-		return err
-	})
-}

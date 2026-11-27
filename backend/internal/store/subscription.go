@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
@@ -87,14 +86,14 @@ func (r *TenantRepository) ReplaceTenantSubscription(ctx context.Context, tenant
 			if err := tx.QueryRowContext(ctx, `
 INSERT INTO sys_tenant_subscription (
   tenant_id, plan_id, status, grace_ends_at, ended_at,
-  plan_version_id, plan_snapshot
+  plan_version_id, plan_snapshot, created_by, updated_by
 ) VALUES (
   $1, $2, $3,
   CASE WHEN $3 = 'overdue' THEN NOW() + INTERVAL '7 days' ELSE NULL END,
   CASE WHEN $3 = 'cancelled' THEN NOW() ELSE NULL END,
-  $4, $5::jsonb
+  $4, $5::jsonb, $6, $6
 )
-RETURNING id`, tenantID, planID, status, versionID, string(snapshot)).Scan(&id); err != nil {
+RETURNING id`, tenantID, planID, status, versionID, string(snapshot), actorID(ctx)).Scan(&id); err != nil {
 				return err
 			}
 			return applySnapshotQuotas(ctx, tx, tenantID, snapshot)
@@ -196,8 +195,8 @@ func retireOtherActive(ctx context.Context, tx *Tx, tenantID, keepID uint64, sta
 	}
 	_, err := tx.ExecContext(ctx, `
 UPDATE sys_tenant_subscription
-SET status = 'cancelled', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
-WHERE tenant_id = $1 AND status = 'active' AND id <> $2`, tenantID, keepID)
+SET status = 'cancelled', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW(), updated_by = $3
+WHERE tenant_id = $1 AND status = 'active' AND id <> $2`, tenantID, keepID, actorID(ctx))
 	return err
 }
 
@@ -233,8 +232,9 @@ SET plan_id = $2,
       WHEN $3 IN ('active', 'trial') THEN NULL
       ELSE ended_at
     END,
-    updated_at = NOW()
-WHERE id = $1`, id, planID, status)
+    updated_at = NOW(),
+    updated_by = $4
+WHERE id = $1`, id, planID, status, actorID(ctx))
 	return err
 }
 
@@ -251,26 +251,22 @@ type SubscriptionReconcileStats struct {
 //  2. active whose ended_at is past → overdue, same grace
 //  3. overdue whose grace_ends_at is past → cancelled, and the tenant is suspended
 //
-// Each move to overdue or cancelled inserts a draft subscription invoice.
 // Rows that just entered overdue are not cancelled in the same pass.
 func (r *TenantRepository) ReconcileSubscriptions(ctx context.Context) (SubscriptionReconcileStats, error) {
 	var stats SubscriptionReconcileStats
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		overdue, err := reconcileMove(ctx, tx, SubscriptionTrial, SubscriptionOverdue,
-			`status = 'trial' AND trial_ends_at IS NOT NULL AND trial_ends_at < NOW()`,
-			"trial ended; grace started", false)
+			`status = 'trial' AND trial_ends_at IS NOT NULL AND trial_ends_at < NOW()`, false)
 		if err != nil {
 			return err
 		}
 		activeOverdue, err := reconcileMove(ctx, tx, SubscriptionActive, SubscriptionOverdue,
-			`status = 'active' AND ended_at IS NOT NULL AND ended_at < NOW()`,
-			"subscription term ended; grace started", false)
+			`status = 'active' AND ended_at IS NOT NULL AND ended_at < NOW()`, false)
 		if err != nil {
 			return err
 		}
 		cancelled, err := reconcileMove(ctx, tx, SubscriptionOverdue, SubscriptionCancelled,
-			`status = 'overdue' AND grace_ends_at IS NOT NULL AND grace_ends_at < NOW()`,
-			"grace ended; subscription cancelled", true)
+			`status = 'overdue' AND grace_ends_at IS NOT NULL AND grace_ends_at < NOW()`, true)
 		if err != nil {
 			return err
 		}
@@ -281,12 +277,12 @@ func (r *TenantRepository) ReconcileSubscriptions(ctx context.Context) (Subscrip
 	return stats, err
 }
 
-func reconcileMove(ctx context.Context, tx *Tx, from, to, where, memo string, suspend bool) (int, error) {
+func reconcileMove(ctx context.Context, tx *Tx, from, to, where string, suspend bool) (int, error) {
 	if !ValidSubscriptionTransition(from, to) {
 		return 0, ErrInvalidSubscriptionTransition
 	}
 	rows, err := tx.QueryContext(ctx, `
-SELECT id, tenant_id, started_at, trial_ends_at, ended_at, grace_ends_at
+SELECT id, tenant_id
 FROM sys_tenant_subscription
 WHERE `+where+`
 ORDER BY id
@@ -296,17 +292,13 @@ FOR UPDATE`)
 	}
 	defer rows.Close()
 	type dueRow struct {
-		id          uint64
-		tenantID    uint64
-		startedAt   time.Time
-		trialEndsAt sql.NullTime
-		endedAt     sql.NullTime
-		graceEndsAt sql.NullTime
+		id       uint64
+		tenantID uint64
 	}
 	var due []dueRow
 	for rows.Next() {
 		var row dueRow
-		if err := rows.Scan(&row.id, &row.tenantID, &row.startedAt, &row.trialEndsAt, &row.endedAt, &row.graceEndsAt); err != nil {
+		if err := rows.Scan(&row.id, &row.tenantID); err != nil {
 			return 0, err
 		}
 		due = append(due, row)
@@ -349,251 +341,7 @@ WHERE id = $1 AND deleted_at IS NULL`, row.tenantID); err != nil {
 				return moved, err
 			}
 		}
-		periodEnd := row.endedAt
-		switch to {
-		case SubscriptionOverdue:
-			if from == SubscriptionTrial {
-				periodEnd = row.trialEndsAt
-			}
-		case SubscriptionCancelled:
-			periodEnd = row.graceEndsAt
-		}
-		if err := insertInvoiceStub(ctx, tx, row.tenantID, row.id, row.startedAt, periodEnd, memo); err != nil {
-			return moved, err
-		}
 		moved++
 	}
 	return moved, nil
-}
-
-func insertInvoiceStub(ctx context.Context, tx *Tx, tenantID, subscriptionID uint64, periodStart time.Time, periodEnd sql.NullTime, memo string) error {
-	_, err := tx.ExecContext(ctx, `
-INSERT INTO sys_invoice (
-  tenant_id, subscription_id, kind, status, amount_cents, currency,
-  period_start, period_end, memo
-) VALUES ($1, $2, 'subscription', 'draft', 0, 'CNY', $3, $4, $5)`,
-		tenantID, subscriptionID, periodStart, periodEnd, clipRunes(memo, 500))
-	return err
-}
-
-// PlatformInvoice is one sys_invoice row for the operator console.
-type PlatformInvoice struct {
-	ID             uint64     `json:"id"`
-	TenantID       uint64     `json:"tenantId"`
-	SubscriptionID *uint64    `json:"subscriptionId,omitempty"`
-	Kind           string     `json:"kind"`
-	Status         string     `json:"status"`
-	AmountCents    int64      `json:"amountCents"`
-	Currency       string     `json:"currency"`
-	PeriodStart    *time.Time `json:"periodStart,omitempty"`
-	PeriodEnd      *time.Time `json:"periodEnd,omitempty"`
-	Memo           string     `json:"memo"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
-}
-
-// ListTenantInvoices returns the newest invoices for one tenant, up to 200.
-// A missing tenant is ErrNotFound.
-func (r *TenantRepository) ListTenantInvoices(ctx context.Context, tenantID uint64) ([]PlatformInvoice, error) {
-	var items []PlatformInvoice
-	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		var exists bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sys_tenant WHERE id = $1 AND deleted_at IS NULL)`, tenantID).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
-			return ErrNotFound
-		}
-		rows, err := tx.QueryContext(ctx, invoiceSelect+`
-WHERE tenant_id = $1
-ORDER BY id DESC
-LIMIT 200`, tenantID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items, err = scanInvoices(rows)
-		return err
-	})
-	return items, err
-}
-
-// ListRecentInvoices returns the newest invoices across tenants, up to 100.
-func (r *TenantRepository) ListRecentInvoices(ctx context.Context) ([]PlatformInvoice, error) {
-	var items []PlatformInvoice
-	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
-		rows, err := tx.QueryContext(ctx, invoiceSelect+`
-ORDER BY id DESC
-LIMIT 100`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items, err = scanInvoices(rows)
-		return err
-	})
-	return items, err
-}
-
-const invoiceSelect = `
-SELECT id, tenant_id, subscription_id, kind, status, amount_cents, currency,
-       period_start, period_end, memo, created_at, updated_at
-FROM sys_invoice`
-
-func scanInvoices(rows *sql.Rows) ([]PlatformInvoice, error) {
-	items := make([]PlatformInvoice, 0)
-	for rows.Next() {
-		var (
-			item           PlatformInvoice
-			subscriptionID sql.NullInt64
-			periodStart    sql.NullTime
-			periodEnd      sql.NullTime
-		)
-		if err := rows.Scan(
-			&item.ID, &item.TenantID, &subscriptionID, &item.Kind, &item.Status,
-			&item.AmountCents, &item.Currency, &periodStart, &periodEnd, &item.Memo,
-			&item.CreatedAt, &item.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		if subscriptionID.Valid && subscriptionID.Int64 > 0 {
-			id := uint64(subscriptionID.Int64)
-			item.SubscriptionID = &id
-		}
-		item.PeriodStart = nullTimePtr(periodStart)
-		item.PeriodEnd = nullTimePtr(periodEnd)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-// SubscriptionDetail is the tenant's current subscription plus the plan name.
-type SubscriptionDetail struct {
-	ID          uint64     `json:"id"`
-	PlanID      uint64     `json:"planId"`
-	PlanCode    string     `json:"planCode"`
-	PlanName    string     `json:"planName"`
-	Status      string     `json:"status"`
-	StartedAt   time.Time  `json:"startedAt"`
-	EndedAt     *time.Time `json:"endedAt"`
-	TrialEndsAt *time.Time `json:"trialEndsAt"`
-	GraceEndsAt *time.Time `json:"graceEndsAt"`
-}
-
-// TenantQuota is one sys_tenant_quota row for the billing page.
-type TenantQuota struct {
-	Key   string `json:"key"`
-	Used  int64  `json:"used"`
-	Limit int64  `json:"limit"`
-}
-
-// BillingSummary is the current tenant's subscription, quotas, and invoices.
-type BillingSummary struct {
-	TenantID     uint64              `json:"tenantId"`
-	Subscription *SubscriptionDetail `json:"subscription"`
-	Quotas       []TenantQuota       `json:"quotas"`
-	Invoices     []PlatformInvoice   `json:"invoices"`
-}
-
-// GetSubscriptionDetail returns the open trial, active, or overdue row when
-// one exists, otherwise the newest subscription. No row yields a nil detail.
-// The read uses the caller's tenant session, so row-level security applies.
-func (r *TenantRepository) GetSubscriptionDetail(ctx context.Context, tenantID uint64) (*SubscriptionDetail, error) {
-	var item *SubscriptionDetail
-	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
-		row := tx.QueryRowContext(ctx, `
-SELECT s.id, s.plan_id, p.code, p.name, s.status,
-       s.started_at, s.ended_at, s.trial_ends_at, s.grace_ends_at
-FROM sys_tenant_subscription s
-INNER JOIN sys_plan p ON p.id = s.plan_id
-WHERE s.tenant_id = $1
-ORDER BY CASE WHEN s.status IN ('trial', 'active', 'overdue') THEN 0 ELSE 1 END,
-         s.id DESC
-LIMIT 1`, tenantID)
-		scanned, err := scanSubscriptionDetail(row)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		item = &scanned
-		return nil
-	})
-	return item, err
-}
-
-// ListQuotasForTenant returns quota rows for one tenant under the caller's
-// tenant session. Row-level security hides other tenants.
-func (r *TenantRepository) ListQuotasForTenant(ctx context.Context, tenantID uint64) ([]TenantQuota, error) {
-	items := []TenantQuota{}
-	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
-		rows, err := tx.QueryContext(ctx, `
-SELECT quota_key, used_value, limit_value
-FROM sys_tenant_quota
-WHERE tenant_id = $1
-ORDER BY quota_key`, tenantID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items = []TenantQuota{}
-		for rows.Next() {
-			var item TenantQuota
-			if err := rows.Scan(&item.Key, &item.Used, &item.Limit); err != nil {
-				return err
-			}
-			items = append(items, item)
-		}
-		return rows.Err()
-	})
-	return items, err
-}
-
-// ListCurrentTenantInvoices returns the newest invoices for one tenant under
-// the caller's tenant session (no platform bypass). limit is clamped to 1..200.
-func (r *TenantRepository) ListCurrentTenantInvoices(ctx context.Context, tenantID uint64, limit int) ([]PlatformInvoice, error) {
-	if limit < 1 || limit > 200 {
-		limit = 50
-	}
-	items := []PlatformInvoice{}
-	err := r.sessionTx(ctx, func(ctx context.Context, tx *Tx) error {
-		rows, err := tx.QueryContext(ctx, invoiceSelect+`
-WHERE tenant_id = $1
-ORDER BY id DESC
-LIMIT $2`, tenantID, limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items, err = scanInvoices(rows)
-		return err
-	})
-	if items == nil {
-		items = []PlatformInvoice{}
-	}
-	return items, err
-}
-
-func scanSubscriptionDetail(scanner interface{ Scan(...any) error }) (SubscriptionDetail, error) {
-	var (
-		item        SubscriptionDetail
-		endedAt     sql.NullTime
-		trialEndsAt sql.NullTime
-		graceEndsAt sql.NullTime
-	)
-	err := scanner.Scan(
-		&item.ID, &item.PlanID, &item.PlanCode, &item.PlanName, &item.Status,
-		&item.StartedAt, &endedAt, &trialEndsAt, &graceEndsAt,
-	)
-	if err != nil {
-		return SubscriptionDetail{}, err
-	}
-	item.EndedAt = nullTimePtr(endedAt)
-	item.TrialEndsAt = nullTimePtr(trialEndsAt)
-	item.GraceEndsAt = nullTimePtr(graceEndsAt)
-	return item, nil
 }

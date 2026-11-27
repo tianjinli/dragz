@@ -44,23 +44,30 @@ func (q *Queries) CountTranslationRows(ctx context.Context, arg CountTranslation
 }
 
 const createTranslation = `-- name: CreateTranslation :exec
-INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
-VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value, created_by, updated_by)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3, $4, $4)
 ON CONFLICT (tenant_id, entity_key, lang) DO UPDATE
-SET value = EXCLUDED.value, updated_at = NOW()
+SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by
 `
 
 type CreateTranslationParams struct {
 	EntityKey string `json:"entity_key"`
 	Lang      string `json:"lang"`
 	Value     string `json:"value"`
+	CreatedBy uint64 `json:"created_by"`
 }
 
 // Administrator-created translation; a conflict refreshes the value so the
 // create form is safe to retry. The row belongs to the caller's tenant
 // (platform 0 when no tenant session is set, e.g. during bootstrap).
+// created_by survives the conflict: the row still belongs to its first author.
 func (q *Queries) CreateTranslation(ctx context.Context, arg CreateTranslationParams) error {
-	_, err := q.db.ExecContext(ctx, createTranslation, arg.EntityKey, arg.Lang, arg.Value)
+	_, err := q.db.ExecContext(ctx, createTranslation,
+		arg.EntityKey,
+		arg.Lang,
+		arg.Value,
+		arg.CreatedBy,
+	)
 	return err
 }
 
@@ -439,7 +446,7 @@ func (q *Queries) PlatformTranslationExists(ctx context.Context, arg PlatformTra
 }
 
 const rekeyDictTranslationsByPrefix = `-- name: RekeyDictTranslationsByPrefix :execrows
-UPDATE sys_translation AS tr SET entity_key = $1 || substring(tr.entity_key from length($2)::int + 1), updated_at = NOW()
+UPDATE sys_translation AS tr SET entity_key = $1 || substring(tr.entity_key from length($2)::int + 1), updated_at = NOW(), updated_by = $3
 WHERE left(tr.entity_key, length($2)::int) = $2
   AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
@@ -453,6 +460,7 @@ WHERE left(tr.entity_key, length($2)::int) = $2
 type RekeyDictTranslationsByPrefixParams struct {
 	NewPrefix string      `json:"new_prefix"`
 	OldPrefix interface{} `json:"old_prefix"`
+	Actor     uint64      `json:"actor"`
 }
 
 // A dictionary type's code is the prefix of every item key
@@ -461,7 +469,7 @@ type RekeyDictTranslationsByPrefixParams struct {
 // RekeyTranslations. The prefix compare is left() rather than LIKE so a code
 // containing _ or % (legal since codes are snake_case) cannot over-match.
 func (q *Queries) RekeyDictTranslationsByPrefix(ctx context.Context, arg RekeyDictTranslationsByPrefixParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, rekeyDictTranslationsByPrefix, arg.NewPrefix, arg.OldPrefix)
+	result, err := q.db.ExecContext(ctx, rekeyDictTranslationsByPrefix, arg.NewPrefix, arg.OldPrefix, arg.Actor)
 	if err != nil {
 		return 0, err
 	}
@@ -469,8 +477,8 @@ func (q *Queries) RekeyDictTranslationsByPrefix(ctx context.Context, arg RekeyDi
 }
 
 const rekeyTranslations = `-- name: RekeyTranslations :many
-UPDATE sys_translation AS tr SET entity_key = $1, updated_at = NOW()
-WHERE tr.entity_key = $2
+UPDATE sys_translation AS tr SET entity_key = $1, updated_at = NOW(), updated_by = $2
+WHERE tr.entity_key = $3
   AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
     SELECT 1 FROM sys_translation occupied
@@ -483,6 +491,7 @@ RETURNING tr.entity_key
 
 type RekeyTranslationsParams struct {
 	NewKey string `json:"new_key"`
+	Actor  uint64 `json:"actor"`
 	OldKey string `json:"old_key"`
 }
 
@@ -493,7 +502,7 @@ type RekeyTranslationsParams struct {
 // key. The scope is part of the conflict test: the platform default and a
 // tenant override are separate rows that happen to share a key.
 func (q *Queries) RekeyTranslations(ctx context.Context, arg RekeyTranslationsParams) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, rekeyTranslations, arg.NewKey, arg.OldKey)
+	rows, err := q.db.QueryContext(ctx, rekeyTranslations, arg.NewKey, arg.Actor, arg.OldKey)
 	if err != nil {
 		return nil, err
 	}
@@ -516,17 +525,18 @@ func (q *Queries) RekeyTranslations(ctx context.Context, arg RekeyTranslationsPa
 }
 
 const setDepartmentSourceText = `-- name: SetDepartmentSourceText :execrows
-UPDATE sys_department SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_department SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetDepartmentSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetDepartmentSourceText(ctx context.Context, arg SetDepartmentSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setDepartmentSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setDepartmentSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -534,16 +544,17 @@ func (q *Queries) SetDepartmentSourceText(ctx context.Context, arg SetDepartment
 }
 
 const setDictItemSourceText = `-- name: SetDictItemSourceText :execrows
-UPDATE sys_dict_item SET label = $1, updated_at = NOW()
+UPDATE sys_dict_item SET label = $1, updated_at = NOW(), updated_by = $2
 WHERE dict_type_id = (
     SELECT id FROM sys_dict_type
-    WHERE code = $2 AND deleted_at IS NULL
+    WHERE code = $3 AND deleted_at IS NULL
   )
-  AND value = $3 AND deleted_at IS NULL
+  AND value = $4 AND deleted_at IS NULL
 `
 
 type SetDictItemSourceTextParams struct {
 	Value     string `json:"value"`
+	Actor     uint64 `json:"actor"`
 	TypeCode  string `json:"type_code"`
 	ItemValue string `json:"item_value"`
 }
@@ -552,7 +563,12 @@ type SetDictItemSourceTextParams struct {
 // The value half of the key is the item's business value, not a code, so the
 // lookup goes through the owning type instead of a rekey.
 func (q *Queries) SetDictItemSourceText(ctx context.Context, arg SetDictItemSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setDictItemSourceText, arg.Value, arg.TypeCode, arg.ItemValue)
+	result, err := q.db.ExecContext(ctx, setDictItemSourceText,
+		arg.Value,
+		arg.Actor,
+		arg.TypeCode,
+		arg.ItemValue,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -560,12 +576,13 @@ func (q *Queries) SetDictItemSourceText(ctx context.Context, arg SetDictItemSour
 }
 
 const setDictTypeSourceText = `-- name: SetDictTypeSourceText :execrows
-UPDATE sys_dict_type SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_dict_type SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetDictTypeSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
@@ -573,7 +590,7 @@ type SetDictTypeSourceTextParams struct {
 // tenant (row-level security scopes the read); renaming writes the label back
 // into the owning column so Chinese stays the source of truth.
 func (q *Queries) SetDictTypeSourceText(ctx context.Context, arg SetDictTypeSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setDictTypeSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setDictTypeSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -581,17 +598,18 @@ func (q *Queries) SetDictTypeSourceText(ctx context.Context, arg SetDictTypeSour
 }
 
 const setJobSourceText = `-- name: SetJobSourceText :execrows
-UPDATE sys_scheduled_job SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_scheduled_job SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetJobSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetJobSourceText(ctx context.Context, arg SetJobSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setJobSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setJobSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -600,12 +618,13 @@ func (q *Queries) SetJobSourceText(ctx context.Context, arg SetJobSourceTextPara
 
 const setMenuSourceText = `-- name: SetMenuSourceText :execrows
 
-UPDATE sys_menu SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_menu SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetMenuSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
@@ -617,7 +636,7 @@ type SetMenuSourceTextParams struct {
 // Covers both menu.<code> and perm.<code>: sys_menu.code is unique across
 // pages and buttons, so one key addresses exactly one row.
 func (q *Queries) SetMenuSourceText(ctx context.Context, arg SetMenuSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setMenuSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setMenuSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -625,17 +644,18 @@ func (q *Queries) SetMenuSourceText(ctx context.Context, arg SetMenuSourceTextPa
 }
 
 const setPositionSourceRemark = `-- name: SetPositionSourceRemark :execrows
-UPDATE sys_position SET remark = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_position SET remark = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetPositionSourceRemarkParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetPositionSourceRemark(ctx context.Context, arg SetPositionSourceRemarkParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setPositionSourceRemark, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setPositionSourceRemark, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -643,17 +663,18 @@ func (q *Queries) SetPositionSourceRemark(ctx context.Context, arg SetPositionSo
 }
 
 const setPositionSourceText = `-- name: SetPositionSourceText :execrows
-UPDATE sys_position SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_position SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetPositionSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetPositionSourceText(ctx context.Context, arg SetPositionSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setPositionSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setPositionSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -661,17 +682,18 @@ func (q *Queries) SetPositionSourceText(ctx context.Context, arg SetPositionSour
 }
 
 const setRoleSourceRemark = `-- name: SetRoleSourceRemark :execrows
-UPDATE sys_role SET remark = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_role SET remark = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetRoleSourceRemarkParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetRoleSourceRemark(ctx context.Context, arg SetRoleSourceRemarkParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setRoleSourceRemark, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setRoleSourceRemark, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -679,17 +701,18 @@ func (q *Queries) SetRoleSourceRemark(ctx context.Context, arg SetRoleSourceRema
 }
 
 const setRoleSourceText = `-- name: SetRoleSourceText :execrows
-UPDATE sys_role SET name = $1, updated_at = NOW()
-WHERE code = $2 AND deleted_at IS NULL
+UPDATE sys_role SET name = $1, updated_at = NOW(), updated_by = $2
+WHERE code = $3 AND deleted_at IS NULL
 `
 
 type SetRoleSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
 func (q *Queries) SetRoleSourceText(ctx context.Context, arg SetRoleSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setRoleSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setRoleSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -697,15 +720,16 @@ func (q *Queries) SetRoleSourceText(ctx context.Context, arg SetRoleSourceTextPa
 }
 
 const setStorageSourceText = `-- name: SetStorageSourceText :execrows
-UPDATE sys_storage_config SET name = $1, updated_at = NOW()
+UPDATE sys_storage_config SET name = $1, updated_at = NOW(), updated_by = $2
 WHERE id = (
   SELECT MIN(sc.id) FROM sys_storage_config sc
-  WHERE sc.storage_type = $2 AND sc.deleted_at IS NULL
+  WHERE sc.storage_type = $3 AND sc.deleted_at IS NULL
 )
 `
 
 type SetStorageSourceTextParams struct {
 	Value string `json:"value"`
+	Actor uint64 `json:"actor"`
 	Code  string `json:"code"`
 }
 
@@ -713,7 +737,7 @@ type SetStorageSourceTextParams struct {
 // addresses the oldest live row of that type; a duplicate type keeps its own
 // name rather than being renamed behind the administrator's back.
 func (q *Queries) SetStorageSourceText(ctx context.Context, arg SetStorageSourceTextParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setStorageSourceText, arg.Value, arg.Code)
+	result, err := q.db.ExecContext(ctx, setStorageSourceText, arg.Value, arg.Actor, arg.Code)
 	if err != nil {
 		return 0, err
 	}
@@ -743,15 +767,16 @@ func (q *Queries) TranslationExists(ctx context.Context, arg TranslationExistsPa
 
 const updateTranslation = `-- name: UpdateTranslation :execrows
 UPDATE sys_translation
-SET lang = $2, value = $3, updated_at = NOW()
+SET lang = $2, value = $3, updated_at = NOW(), updated_by = $4
 WHERE id = $1
   AND tenant_id = COALESCE(app_current_tenant_id(), 0)
 `
 
 type UpdateTranslationParams struct {
-	ID    int64  `json:"id"`
-	Lang  string `json:"lang"`
-	Value string `json:"value"`
+	ID        int64  `json:"id"`
+	Lang      string `json:"lang"`
+	Value     string `json:"value"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 // Edits write straight through to sys_translation: every reader (sidebar,
@@ -762,7 +787,12 @@ type UpdateTranslationParams struct {
 // store copies it into a tenant override instead, and this predicate is the
 // second line of defence.
 func (q *Queries) UpdateTranslation(ctx context.Context, arg UpdateTranslationParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateTranslation, arg.ID, arg.Lang, arg.Value)
+	result, err := q.db.ExecContext(ctx, updateTranslation,
+		arg.ID,
+		arg.Lang,
+		arg.Value,
+		arg.UpdatedBy,
+	)
 	if err != nil {
 		return 0, err
 	}

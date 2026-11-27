@@ -141,7 +141,7 @@
 - **路由表是唯一真源。** `plugin.Route.Permission` / `AnyOf` 声明权限码；
   启动同步（`store.SyncPermissionMenus`，由 `internal/menuperm` 驱动）在所有插件
   迁移跑完后，为每个码 upsert 一个按钮。所以新增一条路由，权限就可以被授予，不需要改 seed。
-- **归属与可编辑。** `parent_id`、`method`、`path`、`is_sensitive`、`plugin_id`、
+- **归属与可编辑。** `parent_id`、`method`、`path`、`plugin_id`、
   `status` 和 `code` 归同步所有。管理员只能改 `name` 和 `sort`；
   `store.lockManagedMenuFields` 会覆盖其余字段，`UpdateMenuStatus` / `DeleteMenu`
   直接拒绝这些行。
@@ -228,7 +228,7 @@
 ### 启动 DDL 与迁移
 
 - 插件表（`sys_plugin`、`sys_plugin_migration`）和 `sys_menu` 的
-  `plugin_id`、`method`、`path`、`is_sensitive` 列，由 `store.PluginRepository.Bootstrap`
+  `plugin_id`、`method`、`path` 列，由 `store.PluginRepository.Bootstrap`
   在每次启动时执行的**运行时 bootstrap DDL** 创建。这是刻意的：Postgres 镜像只在
   空 PGDATA 上跑 `migrations/*.sql`，所以新增一个迁移文件会让每个已存在的库
   都要手工 `psql` 一次。

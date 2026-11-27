@@ -33,8 +33,8 @@ Auth:
 
 Bootstrap:
   AdminUsername: admin
-  # Must equal the password hashed in migrations/001_system_init.sql (Dragz!7xZ).
-  AdminPassword: Dragz!7xZ
+  # Must equal the password hashed in migrations/001_system_init.sql (Dragz123).
+  AdminPassword: Dragz123
 
 Security:
   ConfigMasterKey: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=

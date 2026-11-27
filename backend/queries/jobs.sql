@@ -15,18 +15,19 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: CreateJob :one
 INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at,
+   created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 RETURNING id;
 
 -- name: UpdateJob :execrows
 UPDATE sys_scheduled_job SET name = $1, code = $2,
   handler = $3, cron_expression = $4, payload = $5, timeout_seconds = $6, max_retries = $7,
-  status = $8, next_run_at = $9
-WHERE id = $10 AND deleted_at IS NULL;
+  status = $8, next_run_at = $9, updated_by = $10
+WHERE id = $11 AND deleted_at IS NULL;
 
 -- name: SoftDeleteJob :execrows
-UPDATE sys_scheduled_job SET deleted_at = NOW(), status = 0, next_run_at = NULL
+UPDATE sys_scheduled_job SET deleted_at = NOW(), status = 0, next_run_at = NULL, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListEnabledJobs :many

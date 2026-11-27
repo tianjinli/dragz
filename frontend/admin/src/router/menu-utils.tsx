@@ -158,6 +158,20 @@ export function findMenu(menus: MenuRoute[], path: string) {
   return flattenMenus(menus).find((menu) => menu.path === path);
 }
 
+/**
+ * A menu whose route path is an absolute URL points off-site. Clicking it must
+ * open a new tab instead of being routed inside the console (which would land
+ * on the 404 fallback).
+ */
+export function isExternalPath(path: string): boolean {
+  return /^https?:\/\//i.test(path);
+}
+
+/** Open an off-site menu target in a new tab, without handing it `window.opener`. */
+export function openExternalPath(path: string): void {
+  window.open(path, '_blank', 'noopener,noreferrer');
+}
+
 /** path -> menu title, used to relabel open tabs after a language change. */
 export function menuTitlesByPath(menus: MenuRoute[]): Record<string, string> {
   const titles: Record<string, string> = {};
@@ -167,22 +181,41 @@ export function menuTitlesByPath(menus: MenuRoute[]): Record<string, string> {
   return titles;
 }
 
-/** Deepest first visible leaf under a menu (child → grandchild → …). */
+/** Deepest first leaf under a menu (child → grandchild → …). */
 export function firstLeafPath(menu: MenuRoute): string {
-  const children = (menu.children || []).filter((child) => !child.meta?.hideInMenu);
+  const children = menu.children || [];
   if (!children.length) return menu.path;
   return firstLeafPath(children[0]!);
 }
 
+/**
+ * Menu items for antd's Menu. An off-site target renders its label as a real
+ * anchor so the browser previews the URL in its bottom status bar on hover,
+ * like any other link. The anchor's own navigation is cancelled: the click
+ * still reaches the menu's onClick, which opens exactly one new tab and closes
+ * the mobile drawer.
+ */
 export function menuItems(menus: MenuRoute[], root = true): MenuProps['items'] {
-  return menus
-    .filter((menu) => !menu.meta?.hideInMenu)
-    .map((menu) => ({
+  return menus.map((menu) => {
+    const label = menu.meta?.title || menu.name || menu.path;
+    return {
       key: menu.path,
       icon: menuIcon(menu, root),
-      label: menu.meta?.title || menu.name || menu.path,
+      label: isExternalPath(menu.path) ? (
+        <a
+          href={menu.path}
+          onClick={(event) => event.preventDefault()}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          {label}
+        </a>
+      ) : (
+        label
+      ),
       children: menu.children?.length ? menuItems(menu.children, false) : undefined,
-    }));
+    };
+  });
 }
 
 export function menuAncestors(menus: MenuRoute[], path: string, trail: MenuRoute[] = []): MenuRoute[] {

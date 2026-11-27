@@ -1,6 +1,8 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type Key,
@@ -12,9 +14,11 @@ import {
   Checkbox,
   Form,
   Input,
+  Modal,
   Select,
   Space,
   Tag,
+  Tooltip,
   Tree as AntTree,
   TreeSelect,
   message,
@@ -23,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   FoldVertical,
+  KeyRound,
   Search,
   ShieldCheck,
   UnfoldVertical,
@@ -33,6 +38,7 @@ import {
   listMenusApi,
   listPositionsApi,
   listRolesApi,
+  resetUserPasswordApi,
   saveRoleGrantsApi,
   type ResourceRecord,
 } from "@/api/system";
@@ -45,6 +51,7 @@ import {
   type SelectOption,
 } from "@/components/ResourceCrudPage";
 import { iconNode } from "@/router/menu-utils";
+import { formatDateTime } from "@/utils/format-time";
 import i18n from "@/i18n";
 import { useAccessStore } from "@/stores/access";
 import {
@@ -70,6 +77,140 @@ function statusField(): FieldConfig {
 
 function isEnabledStatus(status?: number) {
   return Number(status ?? 1) === 1;
+}
+
+/** Created-at columns use the configured `system.dateTimeFormat`. */
+function createdAtColumn(): ColumnConfig {
+  return {
+    title: i18n.t("common.createdAt"),
+    dataIndex: "createdAt",
+    width: 180,
+    render: (value) =>
+      value == null || value === ""
+        ? null
+        : formatDateTime(value as string | number | Date),
+  };
+}
+
+// Deterministic palette so a given role/position keeps the same colour across
+// rows and reloads. antd preset colours read well on both light surfaces.
+const NAME_TAG_COLORS = [
+  "blue",
+  "green",
+  "gold",
+  "purple",
+  "cyan",
+  "magenta",
+  "volcano",
+  "geekblue",
+  "lime",
+  "orange",
+];
+
+function nameTagColor(name: string): string {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1)
+    hash = (hash * 31 + name.charCodeAt(index)) >>> 0;
+  return NAME_TAG_COLORS[hash % NAME_TAG_COLORS.length];
+}
+
+function NameTag({ name }: { name: string }) {
+  return <Tag color={nameTagColor(name)}>{name}</Tag>;
+}
+
+function NameTags({ value }: { value: unknown }) {
+  const text = String(value ?? "").trim();
+  const names = useMemo(
+    () =>
+      text
+        .split(/,\s*/)
+        .map((name) => name.trim())
+        .filter(Boolean),
+    [text],
+  );
+  const [visibleCount, setVisibleCount] = useState(names.length);
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !names.length) return;
+    const update = () => {
+      const availableWidth = container.clientWidth;
+      if (availableWidth <= 0) return;
+      const measured = Array.from(
+        measureRef.current?.children ?? [],
+      ) as HTMLElement[];
+      const gap = Number.parseFloat(getComputedStyle(container).columnGap) || 0;
+      const widths = names.map(
+        (_, index) => measured[index]?.getBoundingClientRect().width ?? 0,
+      );
+      const fullWidth =
+        widths.reduce((total, width) => total + width, 0) +
+        gap * (names.length - 1);
+      if (fullWidth <= availableWidth) {
+        setVisibleCount(names.length);
+        return;
+      }
+      let usedWidth = 0;
+      let count = 0;
+      for (const width of widths) {
+        const overflowWidth =
+          measured[names.length + count]?.getBoundingClientRect().width ?? 0;
+        const nextWidth =
+          usedWidth +
+          (count > 0 ? gap : 0) +
+          width +
+          gap +
+          overflowWidth;
+        if (nextWidth > availableWidth) break;
+        usedWidth += (count > 0 ? gap : 0) + width;
+        count += 1;
+      }
+      setVisibleCount(count);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [names]);
+
+  if (!names.length) return null;
+  const shownCount = Math.min(visibleCount, names.length);
+  const hiddenNames = names.slice(shownCount);
+  return (
+    <span className="list-tag-cell" ref={containerRef}>
+      <span aria-hidden className="list-tag-measure" ref={measureRef}>
+        {names.map((name, index) => (
+          <NameTag key={`${name}-${index}`} name={name} />
+        ))}
+        {names.slice(0, -1).map((_, index) => (
+          <Tag key={`overflow-${index}`}>+{names.length - index - 1}</Tag>
+        ))}
+      </span>
+      {names.slice(0, shownCount).map((name, index) => (
+        <NameTag key={`${name}-${index}`} name={name} />
+      ))}
+      {hiddenNames.length > 0 && (
+        <Tooltip
+          placement="top"
+          title={
+            <span className="list-tag-tooltip">
+              {hiddenNames.map((name, index) => (
+                <NameTag key={`${name}-${index}`} name={name} />
+              ))}
+            </span>
+          }
+        >
+          <Tag className="list-tag-overflow">+{hiddenNames.length}</Tag>
+        </Tooltip>
+      )}
+    </span>
+  );
+}
+
+function nameTags(value: unknown): ReactNode {
+  return <NameTags value={value} />;
 }
 
 interface DepartmentTreeNode {
@@ -134,6 +275,9 @@ function UserDepartmentSidePanel({
   const selectedId = Number(filters.departmentId || 0);
   return (
     <div className="side-panel-groups">
+      <div className="side-panel-heading">
+        <span>{t("system.users.department")}</span>
+      </div>
       <Input
         allowClear
         className="side-panel-search"
@@ -176,9 +320,21 @@ function userColumns(): ColumnConfig[] {
     { title: i18n.t("pages.profile.account"), dataIndex: "username", width: 140 },
     { title: i18n.t("pages.profile.realName"), dataIndex: "displayName", width: 120 },
     { title: i18n.t("pages.profile.mobile"), dataIndex: "mobile", width: 140 },
-    { title: i18n.t("pages.profile.role"), dataIndex: "roleNames", width: 120 },
+    {
+      title: i18n.t("pages.profile.role"),
+      dataIndex: "roleNames",
+      width: 180,
+      render: (value) => nameTags(value),
+    },
     { title: i18n.t("system.users.department"), dataIndex: "departmentName", width: 160 },
+    {
+      title: i18n.t("system.users.position"),
+      dataIndex: "positionNames",
+      width: 180,
+      render: (value) => nameTags(value),
+    },
     { title: i18n.t("common.status"), dataIndex: "status", width: 90 },
+    createdAtColumn(),
   ];
 }
 
@@ -304,44 +460,126 @@ export function UserPage() {
     (state) => state.userInfo?.passwordMinLength ?? 8,
   );
   const currentUserId = useAccessStore((state) => state.userInfo?.userId);
+  const [resetTarget, setResetTarget] = useState<ResourceRecord | null>(null);
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetForm] = Form.useForm();
   const fields = useMemo(
     () => userFields(passwordMinLength),
     [passwordMinLength, i18n.language],
   );
   const columns = useMemo(() => userColumns(), [i18n.language]);
+  const extraSearchFilters = useMemo(
+    () => [
+      {
+        key: "createdAt",
+        label: t("common.createdAt"),
+        options: [],
+        type: "dateRange" as const,
+        rangeKeys: ["createdFrom", "createdTo"] as [string, string],
+        width: 280,
+      },
+    ],
+    [i18n.language],
+  );
+
+  const openReset = (row: ResourceRecord) => {
+    setResetTarget(row);
+    resetForm.resetFields();
+  };
+  const closeReset = () => {
+    setResetTarget(null);
+    resetForm.resetFields();
+  };
+  const submitReset = async () => {
+    if (!resetTarget) return;
+    const values = await resetForm.validateFields();
+    setResetSaving(true);
+    try {
+      await resetUserPasswordApi(Number(resetTarget.id), values.password);
+      void message.success(t("system.users.passwordReset"));
+      closeReset();
+    } finally {
+      setResetSaving(false);
+    }
+  };
+
+  const rowActions: RowAction[] = [
+    {
+      icon: <KeyRound size={16} />,
+      label: t("system.users.resetPassword"),
+      // The backend refuses to reset the built-in super administrator's
+      // password (ResetUserPassword excludes is_super_admin). Keep this
+      // action disabled so the UI never offers a guaranteed 404.
+      disabled: (row) => !!row.isSuperAdmin,
+      onClick: (row) => {
+        openReset(row);
+      },
+      reload: false,
+    },
+  ];
+
   return (
-    <ResourceCrudPage
-      columns={columns}
-      createCode="system:user:create"
-      createDefaultsFromFilters={async (filters) => {
-        const id = Number(filters.departmentId || 0);
-        if (!id) return {};
-        const departments = await listDepartmentsApi();
-        const selected = departments.find((item) => Number(item.id) === id);
-        if (!selected || !isEnabledStatus(Number(selected.status ?? 1)))
-          return {};
-        return { departmentId: id };
-      }}
-      defaultValues={{
-        gender: 0,
-        status: 1,
-        mustChangePassword: true,
-        roleIds: [],
-        positionIds: [],
-      }}
-      deleteCode="system:user:delete"
-      endpoint="/system/users"
-      fields={fields}
-      loadDetailOnEdit
-      paged
-      protectedField="isSuperAdmin"
-      searchMode="submit"
-      searchPlaceholder={t("system.users.searchPlaceholder")}
-      sidePanel={(context) => <UserDepartmentSidePanel {...context} />}
-      statusSwitchDisabled={(record) => String(record.id) === currentUserId}
-      title={t("system.users.title")}
-      updateCode="system:user:update"
-    />
+    <>
+      <ResourceCrudPage
+        columns={columns}
+        createCode="system:user:create"
+        createDefaultsFromFilters={async (filters) => {
+          const id = Number(filters.departmentId || 0);
+          if (!id) return {};
+          const departments = await listDepartmentsApi();
+          const selected = departments.find((item) => Number(item.id) === id);
+          if (!selected || !isEnabledStatus(Number(selected.status ?? 1)))
+            return {};
+          return { departmentId: id };
+        }}
+        defaultValues={{
+          gender: 0,
+          status: 1,
+          mustChangePassword: true,
+          roleIds: [],
+          positionIds: [],
+        }}
+        deleteCode="system:user:delete"
+        endpoint="/system/users"
+        extraSearchFilters={extraSearchFilters}
+        fields={fields}
+        loadDetailOnEdit
+        paged
+        protectedField="isSuperAdmin"
+        rowActions={rowActions}
+        searchMode="submit"
+        searchPlaceholder={t("system.users.searchPlaceholder")}
+        sidePanel={(context) => <UserDepartmentSidePanel {...context} />}
+        statusSwitchDisabled={(record) => String(record.id) === currentUserId}
+        title={t("system.users.title")}
+        updateCode="system:user:update"
+      />
+      <Modal
+        confirmLoading={resetSaving}
+        okText={t("common.confirm")}
+        cancelText={t("common.cancel")}
+        open={!!resetTarget}
+        title={t("system.users.resetPasswordFor", { name: String(resetTarget?.displayName || resetTarget?.username || "") })}
+        onCancel={closeReset}
+        onOk={() => void submitReset()}
+      >
+        <Form form={resetForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="password"
+            label={t("system.users.newPassword")}
+            rules={[
+              {
+                validator: formValidator((value) =>
+                  passwordError(String(value || ""), passwordMinLength),
+                ),
+              },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   );
 }
 
@@ -528,14 +766,36 @@ function RoleGrantTree({
   );
 }
 
+/** sys_role.data_scope enum: 0 ALL, 1 SELF, 2 DEPT, 3 DEPT_AND_CHILDREN, 4 CUSTOM. */
+function dataScopeOptions(): SelectOption[] {
+  return [
+    { label: i18n.t("system.users.dataScopeAll"), value: 0 },
+    { label: i18n.t("system.users.dataScopeSelf"), value: 1 },
+    { label: i18n.t("system.users.dataScopeDept"), value: 2 },
+    {
+      label: i18n.t("system.users.dataScopeDeptChildren"),
+      value: 3,
+    },
+    { label: i18n.t("system.users.dataScopeCustom"), value: 4 },
+  ] satisfies SelectOption[];
+}
+
 function roleColumns(): ColumnConfig[] {
   return [
     { title: i18n.t("system.users.roleName"), dataIndex: "name", width: 180 },
     { title: i18n.t("system.users.roleCode"), dataIndex: "code", width: 160 },
-    { title: i18n.t("system.users.dataScope"), dataIndex: "dataScope", width: 160 },
+    {
+      title: i18n.t("system.users.dataScope"),
+      dataIndex: "dataScope",
+      width: 160,
+      labelMap: Object.fromEntries(
+        dataScopeOptions().map((option) => [String(option.value), option.label]),
+      ),
+    },
     { title: i18n.t("system.users.userCount"), dataIndex: "userCount", width: 100 },
     { title: i18n.t("common.status"), dataIndex: "status", width: 90 },
     { title: i18n.t("common.remark"), dataIndex: "remark", width: 160 },
+    createdAtColumn(),
   ];
 }
 
@@ -547,16 +807,7 @@ function roleFields(): FieldConfig[] {
       key: "dataScope",
       label: i18n.t("system.users.dataScope"),
       type: "select",
-      options: [
-        { label: i18n.t("system.users.dataScopeAll"), value: "all" },
-        {
-          label: i18n.t("system.users.dataScopeDeptChildren"),
-          value: "department_and_children",
-        },
-        { label: i18n.t("system.users.dataScopeDept"), value: "department" },
-        { label: i18n.t("system.users.dataScopeSelf"), value: "self" },
-        { label: i18n.t("system.users.dataScopeCustom"), value: "custom" },
-      ] satisfies SelectOption[],
+      options: dataScopeOptions(),
     },
     statusField(),
     {
@@ -618,13 +869,13 @@ export function RolePage() {
       <ResourceCrudPage
         columns={columns}
         createCode="system:role:create"
-        defaultValues={{ dataScope: "self", sort: 0, status: 1 }}
+        defaultValues={{ dataScope: 1, sort: 0, status: 1 }}
         deleteCode="system:role:delete"
         endpoint="/system/roles"
         fields={fields}
         protectedField="isSystem"
         rowActions={rowActions}
-        searchMode="local"
+        searchMode="local-submit"
         title={t("pages.profile.role")}
         updateCode="system:role:update"
       />
@@ -644,29 +895,29 @@ export function RolePage() {
           >
             <Select
               options={[
-                { label: t("system.users.dataScopeAll"), value: "all" },
+                { label: t("system.users.dataScopeAll"), value: 0 },
                 {
-                  label: t("system.users.dataScopeDeptChildren"),
-                  value: "department_and_children",
+                  label: t("system.users.dataScopeSelfData"),
+                  value: 1,
                 },
                 {
                   label: t("system.users.dataScopeDeptData"),
-                  value: "department",
+                  value: 2,
                 },
                 {
-                  label: t("system.users.dataScopeSelfData"),
-                  value: "self",
+                  label: t("system.users.dataScopeDeptChildren"),
+                  value: 3,
                 },
                 {
                   label: t("system.users.dataScopeCustom"),
-                  value: "custom",
+                  value: 4,
                 },
               ]}
             />
           </Form.Item>
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) =>
-              getFieldValue("dataScope") === "custom" && (
+              getFieldValue("dataScope") === 4 && (
                 <Form.Item
                   name="departmentIds"
                   label={t("system.users.grantDepartments")}

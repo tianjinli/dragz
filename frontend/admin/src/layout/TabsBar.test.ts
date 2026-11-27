@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { tabCloseAvailability } from './TabsBar';
 import type { TabDefinition } from '@/types';
 
-const tab = (key: string, affix = false): TabDefinition => ({ affix, key, path: key, title: key });
+const tab = (key: string): TabDefinition => ({ key, path: key, title: key });
 
 describe('tab more-menu availability', () => {
   it('disables close-left on the first tab and close-right on the last tab', () => {
-    const tabs = [tab('/a', true), tab('/b'), tab('/c')];
+    const tabs = [tab('/a'), tab('/b'), tab('/c')];
     expect(tabCloseAvailability(tabs[0]!, tabs)).toMatchObject({
       canClose: true,
       canCloseLeft: false,
@@ -21,7 +21,7 @@ describe('tab more-menu availability', () => {
   });
 
   it('disables close-all when only one tab remains', () => {
-    const tabs = [tab('/users', true)];
+    const tabs = [tab('/users')];
     expect(tabCloseAvailability(tabs[0]!, tabs)).toEqual({
       canClose: false,
       canCloseAll: false,
@@ -32,7 +32,7 @@ describe('tab more-menu availability', () => {
   });
 
   it('disables every close action when only the workbench remains', () => {
-    const tabs = [tab('/analytics', true)];
+    const tabs = [tab('/analytics')];
     expect(tabCloseAvailability(tabs[0]!, tabs)).toEqual({
       canClose: false,
       canCloseAll: false,

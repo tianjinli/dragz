@@ -20,7 +20,7 @@
 
 - 管理后台 <http://127.0.0.1:5279>
 - API 健康检查 <http://127.0.0.1:5280/api/health>
-- 默认账号 `admin` / `Dragz!7xZ`（由 `migrations/001_system_init.sql` 种入，首次登录需改密）
+- 默认账号 `admin` / `Dragz123`（由 `migrations/001_system_init.sql` 种入，首次登录需改密）
 
 `up.sh` 是幂等的：重复执行只会重建有变化的镜像层。
 

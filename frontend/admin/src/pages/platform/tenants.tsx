@@ -16,9 +16,8 @@ import {
   Typography,
   message,
 } from "antd";
-import { CreditCard, Download, Globe, KeyRound, Plus, Receipt, TimerReset, Undo2 } from "lucide-react";
+import { CreditCard, Download, Globe, KeyRound, Plus, TimerReset, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import {
   addTenantDomain,
   cancelTenantPurge,
@@ -79,7 +78,6 @@ export function PlatformTenantsPage() {
 
 function TenantConsole() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [items, setItems] = useState<PlatformTenant[]>([]);
   const [plans, setPlans] = useState<PlatformPlan[]>([]);
   const [loading, setLoading] = useState(false);
@@ -399,11 +397,6 @@ function TenantConsole() {
                         icon: <CreditCard size={16} />,
                         label: t("platform.subscription"),
                         onClick: () => setSubscriptionTarget(row),
-                      },
-                      {
-                        icon: <Receipt size={16} />,
-                        label: t("platform.invoices"),
-                        onClick: () => navigate(`/platform/invoices?tenantId=${row.id}`),
                       },
                       {
                         icon: <KeyRound size={16} />,

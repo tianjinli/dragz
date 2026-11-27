@@ -160,6 +160,12 @@ html.invert-mode.grayscale-mode { filter: invert(1) grayscale(1); }
 .table-card {
   min-height: 200px;
 }
+.department-resource-table .ant-table-thead > tr > th:first-child {
+  /* Body cells stay left-aligned so the tree indent is visible; the header
+     keeps its centred label. antd writes text-align inline on the th, so this
+     needs !important to win. */
+  text-align: center !important;
+}
 .department-resource-table .ant-table-tbody > tr > td:first-child {
   /* Keep table-cell display so column width stays locked to the header col.
      Tree indent + antd native expand icon live in this cell. */

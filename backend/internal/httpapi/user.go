@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zeromicro/go-zero/rest/pathvar"
 	"golang.org/x/crypto/bcrypt"
@@ -122,12 +123,30 @@ func listUsersHandler(ctx *app.Context) http.HandlerFunc {
 			converted := int8(parsed)
 			status = &converted
 		}
+		var createdFrom, createdTo *time.Time
+		if value := strings.TrimSpace(query.Get("createdFrom")); value != "" {
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				fail(w, r, http.StatusBadRequest, 40001, "errors.bad_request")
+				return
+			}
+			createdFrom = &parsed
+		}
+		if value := strings.TrimSpace(query.Get("createdTo")); value != "" {
+			parsed, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				fail(w, r, http.StatusBadRequest, 40001, "errors.bad_request")
+				return
+			}
+			createdTo = &parsed
+		}
 		scope, valid := requestUserDataScope(ctx, w, r)
 		if !valid {
 			return
 		}
 		items, total, err := logic.NewUserLogic(logicContext(ctx)).ListUsers(r.Context(), store.UserListFilter{
 			Keyword: query.Get("keyword"), DepartmentID: departmentID, Status: status,
+			CreatedFrom: createdFrom, CreatedTo: createdTo,
 			Page: page, PageSize: pageSize, Scope: &scope,
 		})
 		if err != nil {

@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -299,7 +301,69 @@ func createInviteHandler(ctx *app.Context) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusCreated)
 		ok(w, r, createInviteResponse{Invite: invite, Token: token})
+		// Email delivery is best-effort and off the request path: the invite
+		// exists and is valid whether or not the mail goes out, so nothing
+		// below may fail the response. The outcome lands on the invite row
+		// (pending / sent / failed / skipped) for the admin UI.
+		baseURL := ctx.MailInviteBaseURL(r.Context())
+		if baseURL == "" {
+			_ = ctx.Tenants.MarkInviteDelivery(r.Context(), invite.ID, store.InviteMailSkipped, "")
+			return
+		}
+		_ = ctx.Tenants.MarkInviteDelivery(r.Context(), invite.ID, store.InviteMailPending, "")
+		go sendInviteEmail(ctx, baseURL, token, invite.ID, userID)
 	}
+}
+
+// sendInviteEmail renders and delivers the invitation link on a background
+// context; a process restart mid-send leaves the invite "pending", which the
+// UI renders as still sending. A delivery failure never invalidates the
+// invitation — the admin copies the one-time link by hand instead.
+func sendInviteEmail(ctx *app.Context, baseURL, token string, inviteID, inviterID uint64) {
+	bgCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Reload with the tenant name; the create response row does not carry it.
+	full, err := ctx.Tenants.InviteByToken(bgCtx, token)
+	if err != nil {
+		_ = ctx.Tenants.MarkInviteDelivery(bgCtx, inviteID, store.InviteMailFailed, "reload invite: "+err.Error())
+		return
+	}
+	inviter := ""
+	if user, err := ctx.Auth.FindUserByID(bgCtx, inviterID); err == nil {
+		inviter = user.DisplayName
+		if strings.TrimSpace(inviter) == "" {
+			inviter = user.Username
+		}
+	}
+
+	subject := fmt.Sprintf("邀请加入 %s", full.TenantName)
+	body := fmt.Sprintf(`您好，
+
+%s 邀请您加入「%s」。
+
+请打开以下链接接受邀请（仅可使用一次）：
+%s
+
+链接有效期至：%s
+若链接无法点击，请将其复制到浏览器地址栏打开。此邮件由系统发送，请勿回复。
+`,
+		inviterOrFallback(inviter), full.TenantName, inviteLinkURL(baseURL, token),
+		full.ExpiresAt.Format("2006-01-02 15:04"))
+
+	ctx.SendInviteMail(inviteID, subject, body)
+}
+
+func inviterOrFallback(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return "管理员"
+	}
+	return name
+}
+
+// inviteLinkURL mirrors the frontend inviteLink(): {origin}/auth/invite/{token}.
+func inviteLinkURL(baseURL, token string) string {
+	return strings.TrimRight(baseURL, "/") + "/auth/invite/" + token
 }
 
 func listInvitesHandler(ctx *app.Context) http.HandlerFunc {

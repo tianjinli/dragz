@@ -10,22 +10,21 @@ import (
 )
 
 const getMenuManagedFields = `-- name: GetMenuManagedFields :one
-SELECT parent_id, type, code, method, path, is_sensitive, plugin_id, status, managed
+SELECT parent_id, type, code, method, path, plugin_id, status, managed
 FROM sys_menu
 WHERE id = $1 AND deleted_at IS NULL
 FOR UPDATE
 `
 
 type GetMenuManagedFieldsRow struct {
-	ParentID    uint64 `json:"parent_id"`
-	Type        string `json:"type"`
-	Code        string `json:"code"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive int16  `json:"is_sensitive"`
-	PluginID    string `json:"plugin_id"`
-	Status      int16  `json:"status"`
-	Managed     int16  `json:"managed"`
+	ParentID uint64 `json:"parent_id"`
+	Type     string `json:"type"`
+	Code     string `json:"code"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	PluginID string `json:"plugin_id"`
+	Status   int16  `json:"status"`
+	Managed  int16  `json:"managed"`
 }
 
 // Everything the sync owns, locked for the duration of the update transaction
@@ -39,7 +38,6 @@ func (q *Queries) GetMenuManagedFields(ctx context.Context, id int64) (GetMenuMa
 		&i.Code,
 		&i.Method,
 		&i.Path,
-		&i.IsSensitive,
 		&i.PluginID,
 		&i.Status,
 		&i.Managed,
@@ -73,19 +71,18 @@ func (q *Queries) GrantAllButtonsToSystemRole(ctx context.Context) error {
 
 const insertPermissionButton = `-- name: InsertPermissionButton :exec
 INSERT INTO sys_menu
-  (parent_id, type, name, code, method, path, is_sensitive, sort, status, visible, plugin_id, managed)
-VALUES ($1, 'button', $2, $3, $4, $5, $6, $7, 1, 0, $8, 1)
+  (parent_id, type, name, code, method, path, sort, status, plugin_id, managed)
+VALUES ($1, 'button', $2, $3, $4, $5, $6, 1, $7, 1)
 `
 
 type InsertPermissionButtonParams struct {
-	ParentID    uint64 `json:"parent_id"`
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive int16  `json:"is_sensitive"`
-	Sort        int32  `json:"sort"`
-	PluginID    string `json:"plugin_id"`
+	ParentID uint64 `json:"parent_id"`
+	Name     string `json:"name"`
+	Code     string `json:"code"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	Sort     int32  `json:"sort"`
+	PluginID string `json:"plugin_id"`
 }
 
 // First sight of a code: no button row exists at all, not even a retired one.
@@ -96,7 +93,6 @@ func (q *Queries) InsertPermissionButton(ctx context.Context, arg InsertPermissi
 		arg.Code,
 		arg.Method,
 		arg.Path,
-		arg.IsSensitive,
 		arg.Sort,
 		arg.PluginID,
 	)
@@ -178,15 +174,14 @@ UPDATE sys_menu
 SET parent_id = $1,
     method = $2,
     path = $3,
-    is_sensitive = $4,
-    plugin_id = $5,
+    plugin_id = $4,
     managed = 1,
     status = 1,
     deleted_at = NULL,
     updated_at = NOW()
 WHERE id = (
   SELECT m.id FROM sys_menu m
-  WHERE m.code = $6 AND m.type = 'button'
+  WHERE m.code = $5 AND m.type = 'button'
   ORDER BY (m.deleted_at IS NULL) DESC, m.id DESC
   LIMIT 1
 )
@@ -194,12 +189,11 @@ RETURNING id
 `
 
 type RevivePermissionButtonParams struct {
-	ParentID    uint64 `json:"parent_id"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive int16  `json:"is_sensitive"`
-	PluginID    string `json:"plugin_id"`
-	Code        string `json:"code"`
+	ParentID uint64 `json:"parent_id"`
+	Method   string `json:"method"`
+	Path     string `json:"path"`
+	PluginID string `json:"plugin_id"`
+	Code     string `json:"code"`
 }
 
 // Brings an existing button row back in line with the route table, whether it
@@ -223,7 +217,6 @@ func (q *Queries) RevivePermissionButton(ctx context.Context, arg RevivePermissi
 		arg.ParentID,
 		arg.Method,
 		arg.Path,
-		arg.IsSensitive,
 		arg.PluginID,
 		arg.Code,
 	)

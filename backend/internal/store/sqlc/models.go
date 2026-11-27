@@ -26,6 +26,7 @@ type SysApiToken struct {
 	LastUsedAt  sql.NullTime          `json:"last_used_at"`
 	LastUsedIp  string                `json:"last_used_ip"`
 	CreatedAt   time.Time             `json:"created_at"`
+	CreatedBy   uint64                `json:"created_by"`
 	RevokedAt   sql.NullTime          `json:"revoked_at"`
 }
 
@@ -48,7 +49,9 @@ type SysAuthProvider struct {
 	Status                int16         `json:"status"`
 	Sort                  int32         `json:"sort"`
 	CreatedAt             time.Time     `json:"created_at"`
+	CreatedBy             uint64        `json:"created_by"`
 	UpdatedAt             time.Time     `json:"updated_at"`
+	UpdatedBy             uint64        `json:"updated_by"`
 	DeletedAt             sql.NullTime  `json:"deleted_at"`
 }
 
@@ -61,12 +64,14 @@ type SysConfig struct {
 	ValueType    string         `json:"value_type"`
 	ConfigValue  string         `json:"config_value"`
 	DefaultValue sql.NullString `json:"default_value"`
-	IsSecret     int16          `json:"is_secret"`
-	IsReadonly   int16          `json:"is_readonly"`
+	IsSecret     bool           `json:"is_secret"`
+	IsReadonly   bool           `json:"is_readonly"`
 	EffectMode   string         `json:"effect_mode"`
-	Description  string         `json:"description"`
+	Remark       string         `json:"remark"`
 	CreatedAt    time.Time      `json:"created_at"`
+	CreatedBy    uint64         `json:"created_by"`
 	UpdatedAt    time.Time      `json:"updated_at"`
+	UpdatedBy    uint64         `json:"updated_by"`
 }
 
 type SysConfigLog struct {
@@ -77,6 +82,7 @@ type SysConfigLog struct {
 	BeforeJson pqtype.NullRawMessage `json:"before_json"`
 	AfterJson  pqtype.NullRawMessage `json:"after_json"`
 	CreatedAt  time.Time             `json:"created_at"`
+	CreatedBy  uint64                `json:"created_by"`
 }
 
 type SysDepartment struct {
@@ -86,11 +92,14 @@ type SysDepartment struct {
 	Ancestors    string        `json:"ancestors"`
 	Code         string        `json:"code"`
 	Name         string        `json:"name"`
+	Remark       string        `json:"remark"`
 	LeaderUserID sql.NullInt64 `json:"leader_user_id"`
 	Sort         int32         `json:"sort"`
 	Status       int16         `json:"status"`
 	CreatedAt    time.Time     `json:"created_at"`
+	CreatedBy    uint64        `json:"created_by"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+	UpdatedBy    uint64        `json:"updated_by"`
 	DeletedAt    sql.NullTime  `json:"deleted_at"`
 }
 
@@ -104,10 +113,12 @@ type SysDictItem struct {
 	CssClass   string       `json:"css_class"`
 	Sort       int32        `json:"sort"`
 	Status     int16        `json:"status"`
-	IsDefault  int16        `json:"is_default"`
+	IsDefault  bool         `json:"is_default"`
 	Remark     string       `json:"remark"`
 	CreatedAt  time.Time    `json:"created_at"`
+	CreatedBy  uint64       `json:"created_by"`
 	UpdatedAt  time.Time    `json:"updated_at"`
+	UpdatedBy  uint64       `json:"updated_by"`
 	DeletedAt  sql.NullTime `json:"deleted_at"`
 }
 
@@ -118,10 +129,12 @@ type SysDictType struct {
 	Name        string       `json:"name"`
 	DisplayType string       `json:"display_type"`
 	Status      int16        `json:"status"`
-	IsSystem    int16        `json:"is_system"`
+	IsSystem    bool         `json:"is_system"`
 	Remark      string       `json:"remark"`
 	CreatedAt   time.Time    `json:"created_at"`
+	CreatedBy   uint64       `json:"created_by"`
 	UpdatedAt   time.Time    `json:"updated_at"`
+	UpdatedBy   uint64       `json:"updated_by"`
 	DeletedAt   sql.NullTime `json:"deleted_at"`
 }
 
@@ -142,6 +155,7 @@ type SysErrorLog struct {
 	ResolvedBy sql.NullInt64  `json:"resolved_by"`
 	ResolvedAt sql.NullTime   `json:"resolved_at"`
 	CreatedAt  time.Time      `json:"created_at"`
+	CreatedBy  uint64         `json:"created_by"`
 }
 
 type SysFile struct {
@@ -162,7 +176,9 @@ type SysFile struct {
 	PurgeAfter   sql.NullTime `json:"purge_after"`
 	PurgeError   string       `json:"purge_error"`
 	CreatedAt    time.Time    `json:"created_at"`
+	CreatedBy    uint64       `json:"created_by"`
 	UpdatedAt    time.Time    `json:"updated_at"`
+	UpdatedBy    uint64       `json:"updated_by"`
 	DeletedAt    sql.NullTime `json:"deleted_at"`
 }
 
@@ -177,21 +193,6 @@ type SysFileReference struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-type SysInvoice struct {
-	ID             int64         `json:"id"`
-	TenantID       uint64        `json:"tenant_id"`
-	SubscriptionID sql.NullInt64 `json:"subscription_id"`
-	Kind           string        `json:"kind"`
-	Status         string        `json:"status"`
-	AmountCents    uint64        `json:"amount_cents"`
-	Currency       string        `json:"currency"`
-	PeriodStart    sql.NullTime  `json:"period_start"`
-	PeriodEnd      sql.NullTime  `json:"period_end"`
-	Memo           string        `json:"memo"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
-}
-
 type SysJobLog struct {
 	ID           int64          `json:"id"`
 	TenantID     uint64         `json:"tenant_id"`
@@ -204,6 +205,7 @@ type SysJobLog struct {
 	Output       sql.NullString `json:"output"`
 	ErrorMessage sql.NullString `json:"error_message"`
 	CreatedAt    time.Time      `json:"created_at"`
+	CreatedBy    uint64         `json:"created_by"`
 }
 
 type SysLoginLog struct {
@@ -219,35 +221,33 @@ type SysLoginLog struct {
 	DeviceType    string        `json:"device_type"`
 	Os            string        `json:"os"`
 	Browser       string        `json:"browser"`
-	IsSuspicious  int16         `json:"is_suspicious"`
+	IsSuspicious  bool          `json:"is_suspicious"`
 	CreatedAt     time.Time     `json:"created_at"`
+	CreatedBy     uint64        `json:"created_by"`
 }
 
 type SysMenu struct {
-	ID          int64        `json:"id"`
-	ParentID    uint64       `json:"parent_id"`
-	Type        string       `json:"type"`
-	Name        string       `json:"name"`
-	Code        string       `json:"code"`
-	RouteName   string       `json:"route_name"`
-	RoutePath   string       `json:"route_path"`
-	Component   string       `json:"component"`
-	Redirect    string       `json:"redirect"`
-	Icon        string       `json:"icon"`
-	Sort        int32        `json:"sort"`
-	Status      int16        `json:"status"`
-	Visible     int16        `json:"visible"`
-	KeepAlive   int16        `json:"keep_alive"`
-	AffixTab    int16        `json:"affix_tab"`
-	ExternalUrl string       `json:"external_url"`
-	PluginID    string       `json:"plugin_id"`
-	Method      string       `json:"method"`
-	Path        string       `json:"path"`
-	IsSensitive int16        `json:"is_sensitive"`
-	Managed     int16        `json:"managed"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
-	DeletedAt   sql.NullTime `json:"deleted_at"`
+	ID        int64        `json:"id"`
+	ParentID  uint64       `json:"parent_id"`
+	Type      string       `json:"type"`
+	Name      string       `json:"name"`
+	Code      string       `json:"code"`
+	RouteName string       `json:"route_name"`
+	RoutePath string       `json:"route_path"`
+	Component string       `json:"component"`
+	Redirect  string       `json:"redirect"`
+	Icon      string       `json:"icon"`
+	Sort      int32        `json:"sort"`
+	Status    int16        `json:"status"`
+	PluginID  string       `json:"plugin_id"`
+	Method    string       `json:"method"`
+	Path      string       `json:"path"`
+	Managed   int16        `json:"managed"`
+	CreatedAt time.Time    `json:"created_at"`
+	CreatedBy uint64       `json:"created_by"`
+	UpdatedAt time.Time    `json:"updated_at"`
+	UpdatedBy uint64       `json:"updated_by"`
+	DeletedAt sql.NullTime `json:"deleted_at"`
 }
 
 type SysNotice struct {
@@ -260,14 +260,16 @@ type SysNotice struct {
 	TargetType  string                `json:"target_type"`
 	TargetIds   pqtype.NullRawMessage `json:"target_ids"`
 	Status      string                `json:"status"`
-	IsPinned    int16                 `json:"is_pinned"`
+	IsPinned    bool                  `json:"is_pinned"`
 	PublishAt   sql.NullTime          `json:"publish_at"`
 	NotifiedAt  sql.NullTime          `json:"notified_at"`
 	PublishedBy sql.NullInt64         `json:"published_by"`
 	RevokedAt   sql.NullTime          `json:"revoked_at"`
+	RevokedBy   uint64                `json:"revoked_by"`
 	CreatedBy   uint64                `json:"created_by"`
 	CreatedAt   time.Time             `json:"created_at"`
 	UpdatedAt   time.Time             `json:"updated_at"`
+	UpdatedBy   uint64                `json:"updated_by"`
 	DeletedAt   sql.NullTime          `json:"deleted_at"`
 }
 
@@ -289,6 +291,7 @@ type SysNotification struct {
 	BizID     string       `json:"biz_id"`
 	ReadAt    sql.NullTime `json:"read_at"`
 	CreatedAt time.Time    `json:"created_at"`
+	CreatedBy uint64       `json:"created_by"`
 }
 
 type SysOperationLog struct {
@@ -315,6 +318,7 @@ type SysOperationLog struct {
 	ErrorCode    string                `json:"error_code"`
 	ErrorMessage string                `json:"error_message"`
 	CreatedAt    time.Time             `json:"created_at"`
+	CreatedBy    uint64                `json:"created_by"`
 }
 
 type SysOutbox struct {
@@ -329,33 +333,22 @@ type SysOutbox struct {
 	ClaimedAt   sql.NullTime    `json:"claimed_at"`
 	ClaimedBy   string          `json:"claimed_by"`
 	CreatedAt   time.Time       `json:"created_at"`
+	CreatedBy   uint64          `json:"created_by"`
 	SentAt      sql.NullTime    `json:"sent_at"`
 }
 
-type SysPaymentEvent struct {
-	ID          int64           `json:"id"`
-	Provider    string          `json:"provider"`
-	EventID     string          `json:"event_id"`
-	EventType   string          `json:"event_type"`
-	TenantID    uint64          `json:"tenant_id"`
-	Payload     json.RawMessage `json:"payload"`
-	Status      string          `json:"status"`
-	Attempts    int32           `json:"attempts"`
-	LastError   string          `json:"last_error"`
-	ReceivedAt  time.Time       `json:"received_at"`
-	ProcessedAt sql.NullTime    `json:"processed_at"`
-}
-
 type SysPlan struct {
-	ID          int64     `json:"id"`
-	Code        string    `json:"code"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Status      int16     `json:"status"`
-	Sort        int32     `json:"sort"`
-	Version     int32     `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID        int64     `json:"id"`
+	Code      string    `json:"code"`
+	Name      string    `json:"name"`
+	Remark    string    `json:"remark"`
+	Status    int16     `json:"status"`
+	Sort      int32     `json:"sort"`
+	Version   int32     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy uint64    `json:"created_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy uint64    `json:"updated_by"`
 }
 
 type SysPlanEntitlement struct {
@@ -364,7 +357,9 @@ type SysPlanEntitlement struct {
 	EntitlementKey   string    `json:"entitlement_key"`
 	EntitlementValue string    `json:"entitlement_value"`
 	CreatedAt        time.Time `json:"created_at"`
+	CreatedBy        uint64    `json:"created_by"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	UpdatedBy        uint64    `json:"updated_by"`
 }
 
 type SysPlanVersion struct {
@@ -381,6 +376,7 @@ type SysPlatformOperator struct {
 	GrantedBy uint64    `json:"granted_by"`
 	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
+	CreatedBy uint64    `json:"created_by"`
 }
 
 type SysPlugin struct {
@@ -394,7 +390,9 @@ type SysPlugin struct {
 	EnabledAt   sql.NullTime `json:"enabled_at"`
 	InstalledAt sql.NullTime `json:"installed_at"`
 	CreatedAt   time.Time    `json:"created_at"`
+	CreatedBy   uint64       `json:"created_by"`
 	UpdatedAt   time.Time    `json:"updated_at"`
+	UpdatedBy   uint64       `json:"updated_by"`
 }
 
 type SysPluginMigration struct {
@@ -414,7 +412,9 @@ type SysPosition struct {
 	Status    int16        `json:"status"`
 	Remark    string       `json:"remark"`
 	CreatedAt time.Time    `json:"created_at"`
+	CreatedBy uint64       `json:"created_by"`
 	UpdatedAt time.Time    `json:"updated_at"`
+	UpdatedBy uint64       `json:"updated_by"`
 	DeletedAt sql.NullTime `json:"deleted_at"`
 }
 
@@ -434,6 +434,7 @@ type SysRefreshToken struct {
 	RevokedAt    sql.NullTime  `json:"revoked_at"`
 	RevokeReason string        `json:"revoke_reason"`
 	CreatedAt    time.Time     `json:"created_at"`
+	CreatedBy    uint64        `json:"created_by"`
 }
 
 type SysRole struct {
@@ -441,13 +442,15 @@ type SysRole struct {
 	TenantID  uint64       `json:"tenant_id"`
 	Code      string       `json:"code"`
 	Name      string       `json:"name"`
-	DataScope string       `json:"data_scope"`
+	DataScope int16        `json:"data_scope"`
 	Sort      int32        `json:"sort"`
 	Status    int16        `json:"status"`
-	IsSystem  int16        `json:"is_system"`
+	IsSystem  bool         `json:"is_system"`
 	Remark    string       `json:"remark"`
 	CreatedAt time.Time    `json:"created_at"`
+	CreatedBy uint64       `json:"created_by"`
 	UpdatedAt time.Time    `json:"updated_at"`
+	UpdatedBy uint64       `json:"updated_by"`
 	DeletedAt sql.NullTime `json:"deleted_at"`
 }
 
@@ -477,7 +480,9 @@ type SysScheduledJob struct {
 	LastRunAt      sql.NullTime          `json:"last_run_at"`
 	NextRunAt      sql.NullTime          `json:"next_run_at"`
 	CreatedAt      time.Time             `json:"created_at"`
+	CreatedBy      uint64                `json:"created_by"`
 	UpdatedAt      time.Time             `json:"updated_at"`
+	UpdatedBy      uint64                `json:"updated_by"`
 	DeletedAt      sql.NullTime          `json:"deleted_at"`
 }
 
@@ -496,10 +501,12 @@ type SysStorageConfig struct {
 	PrivateAccess      int16          `json:"private_access"`
 	MaxFileSize        uint64         `json:"max_file_size"`
 	AllowedExtensions  sql.NullString `json:"allowed_extensions"`
-	IsDefault          int16          `json:"is_default"`
+	IsDefault          bool           `json:"is_default"`
 	Status             int16          `json:"status"`
 	CreatedAt          time.Time      `json:"created_at"`
+	CreatedBy          uint64         `json:"created_by"`
 	UpdatedAt          time.Time      `json:"updated_at"`
+	UpdatedBy          uint64         `json:"updated_by"`
 	DeletedAt          sql.NullTime   `json:"deleted_at"`
 }
 
@@ -513,7 +520,9 @@ type SysTenant struct {
 	PurgeStatus string       `json:"purge_status"`
 	Slug        string       `json:"slug"`
 	CreatedAt   time.Time    `json:"created_at"`
+	CreatedBy   uint64       `json:"created_by"`
 	UpdatedAt   time.Time    `json:"updated_at"`
+	UpdatedBy   uint64       `json:"updated_by"`
 	DeletedAt   sql.NullTime `json:"deleted_at"`
 }
 
@@ -522,16 +531,11 @@ type SysTenantDomain struct {
 	TenantID   uint64       `json:"tenant_id"`
 	Host       string       `json:"host"`
 	VerifiedAt sql.NullTime `json:"verified_at"`
-	IsPrimary  int16        `json:"is_primary"`
+	IsPrimary  bool         `json:"is_primary"`
 	CreatedAt  time.Time    `json:"created_at"`
+	CreatedBy  uint64       `json:"created_by"`
 	UpdatedAt  time.Time    `json:"updated_at"`
-}
-
-type SysTenantEntitlement struct {
-	TenantID   uint64    `json:"tenant_id"`
-	FeatureKey string    `json:"feature_key"`
-	Enabled    bool      `json:"enabled"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	UpdatedBy  uint64       `json:"updated_by"`
 }
 
 type SysTenantImpersonation struct {
@@ -544,6 +548,7 @@ type SysTenantImpersonation struct {
 	ExpiresAt    time.Time    `json:"expires_at"`
 	EndedAt      sql.NullTime `json:"ended_at"`
 	CreatedAt    time.Time    `json:"created_at"`
+	CreatedBy    uint64       `json:"created_by"`
 }
 
 type SysTenantInvite struct {
@@ -552,7 +557,7 @@ type SysTenantInvite struct {
 	Email         string        `json:"email"`
 	RoleIds       []uint64      `json:"role_ids"`
 	DepartmentID  sql.NullInt64 `json:"department_id"`
-	IsTenantAdmin int16         `json:"is_tenant_admin"`
+	IsTenantAdmin bool          `json:"is_tenant_admin"`
 	TokenHash     string        `json:"token_hash"`
 	Status        string        `json:"status"`
 	InvitedBy     uint64        `json:"invited_by"`
@@ -561,18 +566,22 @@ type SysTenantInvite struct {
 	AcceptedAt    sql.NullTime  `json:"accepted_at"`
 	RevokedAt     sql.NullTime  `json:"revoked_at"`
 	CreatedAt     time.Time     `json:"created_at"`
+	CreatedBy     uint64        `json:"created_by"`
 	UpdatedAt     time.Time     `json:"updated_at"`
+	UpdatedBy     uint64        `json:"updated_by"`
 }
 
 type SysTenantMember struct {
 	TenantID           uint64        `json:"tenant_id"`
 	UserID             uint64        `json:"user_id"`
 	DepartmentID       sql.NullInt64 `json:"department_id"`
-	IsTenantAdmin      int16         `json:"is_tenant_admin"`
+	IsTenantAdmin      bool          `json:"is_tenant_admin"`
 	IsPlatformOperator bool          `json:"is_platform_operator"`
 	Status             int16         `json:"status"`
 	CreatedAt          time.Time     `json:"created_at"`
+	CreatedBy          uint64        `json:"created_by"`
 	UpdatedAt          time.Time     `json:"updated_at"`
+	UpdatedBy          uint64        `json:"updated_by"`
 }
 
 type SysTenantQuotum struct {
@@ -581,6 +590,7 @@ type SysTenantQuotum struct {
 	LimitValue uint64    `json:"limit_value"`
 	UsedValue  uint64    `json:"used_value"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	UpdatedBy  uint64    `json:"updated_by"`
 }
 
 type SysTenantSubscription struct {
@@ -595,7 +605,9 @@ type SysTenantSubscription struct {
 	PlanVersionID sql.NullInt64   `json:"plan_version_id"`
 	PlanSnapshot  json.RawMessage `json:"plan_snapshot"`
 	CreatedAt     time.Time       `json:"created_at"`
+	CreatedBy     uint64          `json:"created_by"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	UpdatedBy     uint64          `json:"updated_by"`
 }
 
 type SysTranslation struct {
@@ -605,7 +617,9 @@ type SysTranslation struct {
 	Lang      string    `json:"lang"`
 	Value     string    `json:"value"`
 	CreatedAt time.Time `json:"created_at"`
+	CreatedBy uint64    `json:"created_by"`
 	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy uint64    `json:"updated_by"`
 }
 
 type SysUsageCounter struct {
@@ -614,6 +628,7 @@ type SysUsageCounter struct {
 	PeriodKey string    `json:"period_key"`
 	UsedValue uint64    `json:"used_value"`
 	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy uint64    `json:"updated_by"`
 }
 
 type SysUser struct {
@@ -627,7 +642,7 @@ type SysUser struct {
 	AvatarFileID       sql.NullInt64 `json:"avatar_file_id"`
 	Gender             int16         `json:"gender"`
 	Status             int16         `json:"status"`
-	IsSuperAdmin       int16         `json:"is_super_admin"`
+	IsSuperAdmin       bool          `json:"is_super_admin"`
 	MustChangePassword int16         `json:"must_change_password"`
 	PasswordChangedAt  sql.NullTime  `json:"password_changed_at"`
 	LastLoginAt        sql.NullTime  `json:"last_login_at"`
@@ -637,7 +652,9 @@ type SysUser struct {
 	TokenVersion       uint64        `json:"token_version"`
 	Remark             string        `json:"remark"`
 	CreatedAt          time.Time     `json:"created_at"`
+	CreatedBy          uint64        `json:"created_by"`
 	UpdatedAt          time.Time     `json:"updated_at"`
+	UpdatedBy          uint64        `json:"updated_by"`
 	DeletedAt          sql.NullTime  `json:"deleted_at"`
 }
 
@@ -659,6 +676,7 @@ type SysUserNotifyPref struct {
 	Channel   string    `json:"channel"`
 	Enabled   int16     `json:"enabled"`
 	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy uint64    `json:"updated_by"`
 }
 
 type SysUserPosition struct {
@@ -666,6 +684,7 @@ type SysUserPosition struct {
 	UserID     uint64    `json:"user_id"`
 	PositionID uint64    `json:"position_id"`
 	CreatedAt  time.Time `json:"created_at"`
+	CreatedBy  uint64    `json:"created_by"`
 }
 
 type SysUserRole struct {
@@ -673,6 +692,7 @@ type SysUserRole struct {
 	UserID    uint64    `json:"user_id"`
 	RoleID    uint64    `json:"role_id"`
 	CreatedAt time.Time `json:"created_at"`
+	CreatedBy uint64    `json:"created_by"`
 }
 
 type SysWebhook struct {
@@ -690,7 +710,9 @@ type SysWebhook struct {
 	LastSuccessAt       sql.NullTime    `json:"last_success_at"`
 	LastFailureAt       sql.NullTime    `json:"last_failure_at"`
 	CreatedAt           time.Time       `json:"created_at"`
+	CreatedBy           uint64          `json:"created_by"`
 	UpdatedAt           time.Time       `json:"updated_at"`
+	UpdatedBy           uint64          `json:"updated_by"`
 	DeletedAt           sql.NullTime    `json:"deleted_at"`
 }
 

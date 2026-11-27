@@ -50,28 +50,24 @@ WITH RECURSIVE visible_menu AS (
     AND (c.plugin_id = '' OR COALESCE(p.enabled, FALSE))
 )
 SELECT m.id, m.parent_id, m.type, m.name, m.code, m.route_name, m.route_path, m.component, m.redirect,
-  m.icon, m.sort, m.visible, m.keep_alive, m.affix_tab, m.external_url
+  m.icon, m.sort
 FROM sys_menu m
 INNER JOIN visible_menu v ON v.id = m.id
 ORDER BY m.sort, m.id
 `
 
 type ListAllVisibleMenusRow struct {
-	ID          int64  `json:"id"`
-	ParentID    uint64 `json:"parent_id"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	RouteName   string `json:"route_name"`
-	RoutePath   string `json:"route_path"`
-	Component   string `json:"component"`
-	Redirect    string `json:"redirect"`
-	Icon        string `json:"icon"`
-	Sort        int32  `json:"sort"`
-	Visible     int16  `json:"visible"`
-	KeepAlive   int16  `json:"keep_alive"`
-	AffixTab    int16  `json:"affix_tab"`
-	ExternalUrl string `json:"external_url"`
+	ID        int64  `json:"id"`
+	ParentID  uint64 `json:"parent_id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	RouteName string `json:"route_name"`
+	RoutePath string `json:"route_path"`
+	Component string `json:"component"`
+	Redirect  string `json:"redirect"`
+	Icon      string `json:"icon"`
+	Sort      int32  `json:"sort"`
 }
 
 // Walks down from the roots so a disabled plugin prunes its whole subtree.
@@ -101,10 +97,6 @@ func (q *Queries) ListAllVisibleMenus(ctx context.Context) ([]ListAllVisibleMenu
 			&i.Redirect,
 			&i.Icon,
 			&i.Sort,
-			&i.Visible,
-			&i.KeepAlive,
-			&i.AffixTab,
-			&i.ExternalUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -242,8 +234,8 @@ type ListUserRoleDataScopesParams struct {
 }
 
 type ListUserRoleDataScopesRow struct {
-	ID        int64  `json:"id"`
-	DataScope string `json:"data_scope"`
+	ID        int64 `json:"id"`
+	DataScope int16 `json:"data_scope"`
 }
 
 func (q *Queries) ListUserRoleDataScopes(ctx context.Context, arg ListUserRoleDataScopesParams) ([]ListUserRoleDataScopesRow, error) {
@@ -399,7 +391,7 @@ visible_menu AS (
     AND (c.plugin_id = '' OR COALESCE(p.enabled, FALSE))
 )
 SELECT DISTINCT m.id, m.parent_id, m.type, m.name, m.code, m.route_name, m.route_path,
-  m.component, m.redirect, m.icon, m.sort, m.visible, m.keep_alive, m.affix_tab, m.external_url
+  m.component, m.redirect, m.icon, m.sort
 FROM sys_menu m
 INNER JOIN granted_menus gm ON gm.id = m.id
 INNER JOIN visible_menu vm ON vm.id = m.id
@@ -412,21 +404,17 @@ type ListUserVisibleMenusParams struct {
 }
 
 type ListUserVisibleMenusRow struct {
-	ID          int64  `json:"id"`
-	ParentID    uint64 `json:"parent_id"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	RouteName   string `json:"route_name"`
-	RoutePath   string `json:"route_path"`
-	Component   string `json:"component"`
-	Redirect    string `json:"redirect"`
-	Icon        string `json:"icon"`
-	Sort        int32  `json:"sort"`
-	Visible     int16  `json:"visible"`
-	KeepAlive   int16  `json:"keep_alive"`
-	AffixTab    int16  `json:"affix_tab"`
-	ExternalUrl string `json:"external_url"`
+	ID        int64  `json:"id"`
+	ParentID  uint64 `json:"parent_id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	RouteName string `json:"route_name"`
+	RoutePath string `json:"route_path"`
+	Component string `json:"component"`
+	Redirect  string `json:"redirect"`
+	Icon      string `json:"icon"`
+	Sort      int32  `json:"sort"`
 }
 
 // Two recursive sets intersected:
@@ -458,10 +446,6 @@ func (q *Queries) ListUserVisibleMenus(ctx context.Context, arg ListUserVisibleM
 			&i.Redirect,
 			&i.Icon,
 			&i.Sort,
-			&i.Visible,
-			&i.KeepAlive,
-			&i.AffixTab,
-			&i.ExternalUrl,
 		); err != nil {
 			return nil, err
 		}

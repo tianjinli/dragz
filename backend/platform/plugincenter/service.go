@@ -678,8 +678,6 @@ func menuNodes(pluginID string, menus []plugin.Menu) []menuperm.MenuNode {
 			Redirect:   menu.Redirect,
 			Icon:       menu.Icon,
 			Sort:       menu.Sort,
-			Hidden:     menu.Hidden,
-			KeepAlive:  menu.KeepAlive,
 			PluginID:   pluginID,
 		})
 	}

@@ -14,15 +14,18 @@ func columnList(spec Spec) string {
 	for _, field := range spec.Fields {
 		names = append(names, field.Name)
 	}
-	names = append(names, "created_at", "updated_at")
+	names = append(names, "created_at", "updated_at", "created_by", "updated_by")
 	return strings.Join(names, ", ")
 }
 
 func insertList(spec Spec) string {
-	names := make([]string, 0, len(spec.Fields))
+	names := make([]string, 0, len(spec.Fields)+2)
 	for _, field := range spec.Fields {
 		names = append(names, field.Name)
 	}
+	// Audit columns are part of every generated insert: the author is also the
+	// first editor, so one session value fills both.
+	names = append(names, "created_by", "updated_by")
 	return strings.Join(names, ", ")
 }
 
@@ -54,7 +57,7 @@ func setClause(spec Spec) string {
 	for i, field := range spec.Fields {
 		parts = append(parts, fmt.Sprintf("%s = $%d", field.Name, i+2))
 	}
-	parts = append(parts, "updated_at = NOW()")
+	parts = append(parts, "updated_at = NOW()", fmt.Sprintf("updated_by = $%d", len(spec.Fields)+2))
 	return strings.Join(parts, ",\n  ")
 }
 
@@ -86,12 +89,13 @@ FROM %s
 WHERE id = $1 AND tenant_id = app_current_tenant_id() AND deleted_at IS NULL`, columnList(spec), table),
 		Create: fmt.Sprintf(`INSERT INTO %s (%s)
 VALUES (%s)
-RETURNING id`, table, insertList(spec), placeholders(len(spec.Fields))),
+RETURNING id`, table, insertList(spec),
+			placeholders(len(spec.Fields))+", $"+fmt.Sprint(len(spec.Fields)+1)+", $"+fmt.Sprint(len(spec.Fields)+1)),
 		Update: fmt.Sprintf(`UPDATE %s
 SET %s
 WHERE id = $1 AND tenant_id = app_current_tenant_id() AND deleted_at IS NULL`, table, setClause(spec)),
 		Delete: fmt.Sprintf(`UPDATE %s
-SET deleted_at = NOW(), updated_at = NOW()
+SET deleted_at = NOW(), updated_at = NOW(), updated_by = $2
 WHERE id = $1 AND tenant_id = app_current_tenant_id() AND deleted_at IS NULL`, table),
 	}
 }

@@ -7,6 +7,8 @@ import { usePreferencesStore } from '@/stores/preferences';
 import type { ApiEnvelope } from '@/types';
 
 const baseURL = import.meta.env.VITE_GLOB_API_URL || '/api';
+/** Business code for "initial password must be changed" (backend CodePasswordChangeRequired). */
+const CODE_PASSWORD_CHANGE_REQUIRED = 40302;
 
 export const rawClient = axios.create({ baseURL, timeout: 30_000, withCredentials: true });
 export const requestClient = axios.create({ baseURL, timeout: 30_000, withCredentials: true });
@@ -154,7 +156,16 @@ requestClient.interceptors.response.use(
     }
 
     const text = error.response?.data?.message || error.message || i18n.t('requestFailed');
-    if (!shouldSilentPublicAuthError(status, original?.url)) {
+    const code = error.response?.data?.code;
+    if (code === CODE_PASSWORD_CHANGE_REQUIRED) {
+      // The backend may set the flag after this tab loaded its profile (e.g.
+      // an admin reset the password). Reflect it in the store so the global
+      // modal opens, and keep the message inside the modal instead of a toast.
+      const access = useAccessStore.getState();
+      if (access.userInfo && !access.userInfo.mustChangePassword) {
+        access.setUserInfo({ ...access.userInfo, mustChangePassword: true });
+      }
+    } else if (!shouldSilentPublicAuthError(status, original?.url)) {
       showErrorOnce(text);
     }
     return Promise.reject(error);

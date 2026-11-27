@@ -23,9 +23,6 @@ type Config struct {
 	// TenantHost maps the request Host onto a tenant. Empty BaseDomain means
 	// only verified custom domains resolve; slug subdomains stay off.
 	TenantHost TenantHostConf `json:",optional"`
-	// Billing configures the payment webhook adapter. A deployment that does not
-	// sell anything leaves it empty; the webhook endpoint then refuses requests.
-	Billing BillingConf `json:",optional"`
 	// AllowDevSecrets permits known development default secrets (local only).
 	AllowDevSecrets bool `json:",optional"`
 	// Metrics exposes GET /api/metrics for a Prometheus scrape. Off by default:
@@ -36,25 +33,6 @@ type Config struct {
 // MetricsConf turns on the in-process request meter.
 type MetricsConf struct {
 	Enabled bool `json:",optional"`
-}
-
-// BillingConf is the payment provider adapter.
-//
-// Provider selects the webhook dialect:
-//   - "none" (default) parses the JSON body without a signature and is only
-//     accepted in development mode;
-//   - "hmac" verifies an HMAC-SHA256 signature over "<timestamp>.<body>".
-//
-// SignatureHeader names the header carrying the signature (default
-// X-Signature) and EventIDHeader optionally carries the event id in a header
-// instead of the body. ToleranceSeconds bounds how old a signed request may be,
-// which is what makes a captured request expire.
-type BillingConf struct {
-	Provider         string `json:",default=none"`
-	WebhookSecret    string `json:",optional"`
-	SignatureHeader  string `json:",default=X-Signature"`
-	EventIDHeader    string `json:",optional"`
-	ToleranceSeconds int    `json:",default=300"`
 }
 
 // TenantHostConf is how a browser host becomes a tenant.

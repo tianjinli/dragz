@@ -29,6 +29,28 @@
   min-width: 0;
 }
 
+/* 字段说明图标：贴在 label 文字右侧，随 label 一起右对齐 */
+.form-label-with-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.form-label-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  cursor: pointer;
+  line-height: 1;
+}
+.form-label-hint:hover,
+.form-label-hint:focus-visible {
+  color: var(--ant-color-primary, #1677ff);
+}
+
 .storage-image-upload {
   position: relative;
   display: inline-block;
@@ -195,12 +217,10 @@
 .notice-content { white-space: pre-wrap; line-height: 1.8; }
 
 @media (max-width: 900px) {
-  .user-list-layout {
-    flex-direction: column;
-  }
-  .department-tree-card {
-    width: 100%;
-    flex: 0 0 220px;
+  /* 窄屏：隐藏部门树与展开/折叠按钮，列表占满宽度 */
+  .department-tree-card,
+  .department-side-panel-resizer {
+    display: none;
   }
   .profile-grid,
   .split-page { grid-template-columns: 1fr; }
@@ -260,6 +280,43 @@
   text-overflow: ellipsis;
   line-height: 40px;
   overflow-wrap: normal;
+}
+/* 单元格里成组的标签只排一行：内容多少都不改变行高，溢出部分裁掉。
+   antd 的 Space 用内联样式写 flex-wrap，必须用 !important 压住。 */
+.fit-list .ant-table-tbody > tr.ant-table-row > td .ant-space,
+.list-tag-cell {
+  flex-wrap: nowrap !important;
+  overflow: hidden;
+}
+.list-tag-cell {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+.list-tag-measure {
+  position: absolute;
+  display: flex;
+  visibility: hidden;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.list-tag-cell .ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+.list-tag-overflow {
+  cursor: default;
+}
+/* 悬浮提示里的隐藏项沿用单元格内同样的彩色标签，而不是纯文本。 */
+.list-tag-tooltip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 320px;
 }
 .fit-list .ant-table,
 .fit-list .ant-table-container {

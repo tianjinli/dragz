@@ -62,8 +62,8 @@ func listConfigsHandler(ctx *app.Context) http.HandlerFunc {
 			fail(w, r, http.StatusInternalServerError, 50000, "errors.config_list_failed")
 			return
 		}
-		// Preset configs store label/description as i18n message IDs.
-		ok(w, r, localizeList(r, items, "name", "description"))
+		// Preset configs store label/remark as i18n message IDs.
+		ok(w, r, localizeList(r, items, "name", "remark"))
 	}
 }
 

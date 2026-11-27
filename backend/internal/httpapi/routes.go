@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"dragz-admin/backend/internal/app"
+	"dragz-admin/backend/internal/pkg/ctxkey"
+	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/plugin"
 )
 
@@ -211,17 +213,12 @@ func Routes() []plugin.Route {
 		{Method: http.MethodGet, Path: "/api/platform/plans", Platform: true, Handler: listPlatformPlansHandler},
 		{Method: http.MethodPut, Path: "/api/platform/tenants/:id/subscription", Platform: true, AuditPermission: "platform", Handler: updatePlatformSubscriptionHandler},
 		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/impersonate", Platform: true, AuditPermission: "platform", Handler: impersonatePlatformTenantHandler},
-		{Method: http.MethodGet, Path: "/api/platform/tenants/:id/invoices", Platform: true, Handler: listPlatformTenantInvoicesHandler},
-		{Method: http.MethodGet, Path: "/api/platform/invoices", Platform: true, Handler: listPlatformInvoicesHandler},
 		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/export", Platform: true, AuditPermission: "platform", Handler: exportPlatformTenantHandler},
 		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/schedule-purge", Platform: true, AuditPermission: "platform", Handler: schedulePlatformPurgeHandler},
 		{Method: http.MethodPost, Path: "/api/platform/tenants/:id/cancel-purge", Platform: true, AuditPermission: "platform", Handler: cancelPlatformPurgeHandler},
 		{Method: http.MethodPost, Path: "/api/platform/plans", Platform: true, AuditPermission: "platform", Handler: createPlatformPlanHandler},
 		{Method: http.MethodPut, Path: "/api/platform/plans/:id", Platform: true, AuditPermission: "platform", Handler: updatePlatformPlanHandler},
 		{Method: http.MethodPut, Path: "/api/platform/plans/:id/status", Platform: true, AuditPermission: "platform", Handler: updatePlatformPlanStatusHandler},
-		// Login only: any member of the current tenant can read their own bill.
-		{Method: http.MethodGet, Path: "/api/billing/summary", Handler: billingSummaryHandler},
-
 		// Open API for third-party callers. authenticate rejects JWTs on
 		// /api/open/; guard checks OpenScopes against the token. Scopes are
 		// free-form strings on the token (see createAPITokenHandler).
@@ -272,14 +269,6 @@ func Routes() []plugin.Route {
 		{Method: http.MethodGet, Path: "/api/platform/operators", Platform: true, Handler: listPlatformOperatorsHandler},
 		{Method: http.MethodPost, Path: "/api/platform/operators", Platform: true, AuditPermission: "platform", Handler: grantPlatformOperatorHandler},
 		{Method: http.MethodDelete, Path: "/api/platform/operators/:id", Platform: true, AuditPermission: "platform", Handler: revokePlatformOperatorHandler},
-
-		// ---- usage metering ----
-		{Method: http.MethodGet, Path: "/api/billing/usage", Handler: billingUsageHandler},
-
-		// Payment provider callback. Public because the provider has no session;
-		// the signature is the credential, and the (provider, event id) pair
-		// makes a retry idempotent.
-		{Method: http.MethodPost, Path: "/api/billing/webhook/:provider", Public: true, RateLimit: 300, Handler: paymentWebhookHandler},
 	}
 }
 
@@ -324,5 +313,37 @@ func guard(ctx *app.Context, route plugin.Route, next http.HandlerFunc) http.Han
 		// consume the tenant's billed API calls.
 		next = meterOpenAPI(ctx, next)
 	}
-	return next
+	// Outermost: block everything except the few routes the forced-change
+	// dialog needs before any permission or feature check runs.
+	return requirePasswordChanged(next)
+}
+
+// requirePasswordChanged keeps a first-login session inside the change-password
+// flow. The flag comes from the user row on every authenticated request, so it
+// clears immediately after ChangeSelfPassword without reissuing the token.
+// API tokens never set the flag and are unaffected.
+func requirePasswordChanged(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		required, ok := ctxkey.MustChangePasswordFrom(r.Context())
+		if ok && required && !passwordChangeExempt(r.Method, r.URL.Path) {
+			fail(w, r, http.StatusForbidden, apierrors.CodePasswordChangeRequired, "errors.password_change_required")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// passwordChangeExempt covers the profile bootstrap (profile + codes + menus
+// are fetched together by the client) and the change itself. Logout is public,
+// so it never reaches this middleware.
+func passwordChangeExempt(method, path string) bool {
+	switch {
+	case path == "/api/auth/change-password" && method == http.MethodPost:
+	case path == "/api/auth/profile" && method == http.MethodGet:
+	case path == "/api/auth/codes" && method == http.MethodGet:
+	case path == "/api/auth/menus" && method == http.MethodGet:
+	default:
+		return false
+	}
+	return true
 }

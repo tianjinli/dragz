@@ -162,8 +162,7 @@ func resolveBindingUser(ctx context.Context, q *sqlcstore.Queries, provider Auth
 	if provider.DefaultRoleID != nil {
 		if err := q.InsertUserRoleIfActive(ctx, sqlcstore.InsertUserRoleIfActiveParams{
 			UserID: uint64(userID), ID: int64(*provider.DefaultRoleID),
-		}); err != nil {
-			return 0, err
+		}); err != nil {			return 0, err
 		}
 	}
 	return uint64(userID), nil

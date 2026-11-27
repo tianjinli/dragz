@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { usePreferencesStore } from './preferences';
 import { useTabsStore } from './tabs';
 
-const tab = (key: string, affix = false) => ({ affix, key, path: key, title: key });
+const tab = (key: string) => ({ key, path: key, title: key });
 
 describe('tabs store', () => {
   beforeEach(() => {
@@ -23,9 +23,9 @@ describe('tabs store', () => {
     expect(useTabsStore.getState().visitHistory.at(-1)).toBe('/a');
   });
 
-  it('closes every tab including affix, but keeps the last tab', () => {
+  it('closes every tab but keeps the last tab', () => {
     const s = useTabsStore.getState();
-    s.add(tab('/home', true));
+    s.add(tab('/home'));
     s.add(tab('/a'));
     s.add(tab('/b'));
     expect(s.close('/home')).toBe('/b');
@@ -38,7 +38,7 @@ describe('tabs store', () => {
 
   it('close-all keeps only the first tab', () => {
     const s = useTabsStore.getState();
-    s.add(tab('/home', true));
+    s.add(tab('/home'));
     s.add(tab('/a'));
     s.add(tab('/b'));
     expect(s.closeAll()).toBe('/home');

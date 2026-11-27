@@ -142,6 +142,7 @@ func (r *AuthRepository) CreateJob(ctx context.Context, input SaveJobInput) (uin
 		Name: input.Name, Code: input.Code, Handler: input.Handler, CronExpression: input.CronExpression,
 		Payload: jobPayload(input.Payload), TimeoutSeconds: int32(input.TimeoutSeconds),
 		MaxRetries: int32(input.MaxRetries), Status: int16(input.Status), NextRunAt: nullTimeFromPtr(input.NextRunAt),
+		CreatedBy: actorID(ctx),
 	})
 	return uint64(id), err
 }
@@ -152,7 +153,7 @@ func (r *AuthRepository) UpdateJob(ctx context.Context, jobID uint64, input Save
 		Name: input.Name, Code: input.Code, Handler: input.Handler, CronExpression: input.CronExpression,
 		Payload: jobPayload(input.Payload), TimeoutSeconds: int32(input.TimeoutSeconds),
 		MaxRetries: int32(input.MaxRetries), Status: int16(input.Status),
-		NextRunAt: nullTimeFromPtr(input.NextRunAt), ID: int64(jobID),
+		NextRunAt: nullTimeFromPtr(input.NextRunAt), ID: int64(jobID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -165,7 +166,9 @@ func (r *AuthRepository) UpdateJob(ctx context.Context, jobID uint64, input Save
 
 // DeleteJob soft deletes a scheduled job.
 func (r *AuthRepository) DeleteJob(ctx context.Context, jobID uint64) error {
-	affected, err := r.queries.SoftDeleteJob(ctx, int64(jobID))
+	affected, err := r.queries.SoftDeleteJob(ctx, sqlcstore.SoftDeleteJobParams{
+		ID: int64(jobID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}

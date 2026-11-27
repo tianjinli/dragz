@@ -19,6 +19,7 @@ type Department struct {
 	AncestorPath string    `json:"ancestorPath"`
 	Code         string    `json:"code"`
 	Name         string    `json:"name"`
+	Remark       string    `json:"remark"`
 	LeaderUserID *uint64   `json:"leaderUserId"`
 	LeaderName   string    `json:"leaderName"`
 	Sort         int       `json:"sort"`
@@ -31,6 +32,7 @@ type SaveDepartmentInput struct {
 	ParentID     uint64
 	Code         string
 	Name         string
+	Remark       string
 	LeaderUserID *uint64
 	Sort         int
 	Status       int8
@@ -69,6 +71,7 @@ func (r *AuthRepository) ListDepartments(ctx context.Context, keyword string, st
 	for _, row := range rows {
 		items = append(items, Department{
 			ID: uint64(row.ID), ParentID: row.ParentID, Ancestors: row.Ancestors, Code: row.Code, Name: row.Name,
+			Remark: row.Remark,
 			LeaderUserID: nullInt64Ptr(row.LeaderUserID), LeaderName: row.LeaderName,
 			Sort: int(row.Sort), Status: int8(row.Status), CreatedAt: row.CreatedAt,
 		})
@@ -91,7 +94,9 @@ func (r *AuthRepository) CreateDepartment(ctx context.Context, input SaveDepartm
 	}
 	id, err := r.queries.CreateDepartment(ctx, sqlcstore.CreateDepartmentParams{
 		ParentID: input.ParentID, Ancestors: ancestors, Code: input.Code, Name: input.Name,
+		Remark: input.Remark,
 		LeaderUserID: ptrUint64Null(input.LeaderUserID), Sort: int32(input.Sort), Status: int16(input.Status),
+		CreatedBy: actorID(ctx),
 	})
 	return uint64(id), wrapDuplicate(err)
 }
@@ -126,8 +131,10 @@ func (r *AuthRepository) UpdateDepartment(ctx context.Context, departmentID uint
 	q := r.qtx(tx)
 	affected, err := q.UpdateDepartment(ctx, sqlcstore.UpdateDepartmentParams{
 		ParentID: input.ParentID, Ancestors: newAncestors, Code: input.Code, Name: input.Name,
+		Remark: input.Remark,
 		LeaderUserID: ptrUint64Null(input.LeaderUserID), Sort: int32(input.Sort), Status: int16(input.Status),
-		ID: int64(departmentID),
+		UpdatedBy: actorID(ctx),
+		ID:        int64(departmentID),
 	})
 	if err != nil {
 		return wrapDuplicate(err)
@@ -140,6 +147,7 @@ func (r *AuthRepository) UpdateDepartment(ctx context.Context, departmentID uint
 		newPrefix := fmt.Sprintf("%s,%d", newAncestors, departmentID)
 		if err := q.RewriteDepartmentAncestorsPrefix(ctx, sqlcstore.RewriteDepartmentAncestorsPrefixParams{
 			Column1: newPrefix, Column2: oldPrefix, Ancestors: oldPrefix, Column4: oldPrefix,
+			UpdatedBy: actorID(ctx),
 		}); err != nil {
 			return err
 		}
@@ -147,7 +155,7 @@ func (r *AuthRepository) UpdateDepartment(ctx context.Context, departmentID uint
 	if input.Status != 1 {
 		prefix := fmt.Sprintf("%s,%d", newAncestors, departmentID)
 		if err := q.DisableDepartmentDescendants(ctx, sqlcstore.DisableDepartmentDescendantsParams{
-			Ancestors: prefix, Column2: prefix,
+			Ancestors: prefix, Column2: prefix, UpdatedBy: actorID(ctx),
 		}); err != nil {
 			return err
 		}
@@ -168,7 +176,7 @@ func (r *AuthRepository) UpdateDepartmentStatus(ctx context.Context, departmentI
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
 	affected, err := q.UpdateDepartmentStatus(ctx, sqlcstore.UpdateDepartmentStatusParams{
-		Status: int16(status), ID: int64(departmentID),
+		Status: int16(status), ID: int64(departmentID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -179,7 +187,7 @@ func (r *AuthRepository) UpdateDepartmentStatus(ctx context.Context, departmentI
 	if status != 1 {
 		prefix := fmt.Sprintf("%s,%d", info.Ancestors, departmentID)
 		if err := q.DisableDepartmentDescendants(ctx, sqlcstore.DisableDepartmentDescendantsParams{
-			Ancestors: prefix, Column2: prefix,
+			Ancestors: prefix, Column2: prefix, UpdatedBy: actorID(ctx),
 		}); err != nil {
 			return err
 		}
@@ -201,7 +209,9 @@ func (r *AuthRepository) DeleteDepartment(ctx context.Context, departmentID uint
 	if counts.ChildCount > 0 || counts.UserCount > 0 {
 		return ErrDepartmentInUse
 	}
-	affected, err := r.queries.SoftDeleteDepartment(ctx, int64(departmentID))
+	affected, err := r.queries.SoftDeleteDepartment(ctx, sqlcstore.SoftDeleteDepartmentParams{
+		ID: int64(departmentID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -297,6 +307,7 @@ func (r *AuthRepository) ListPositions(ctx context.Context, keyword string, stat
 func (r *AuthRepository) CreatePosition(ctx context.Context, input SavePositionInput) (uint64, error) {
 	id, err := r.queries.CreatePosition(ctx, sqlcstore.CreatePositionParams{
 		Code: input.Code, Name: input.Name, Sort: int32(input.Sort), Status: int16(input.Status), Remark: input.Remark,
+		CreatedBy: actorID(ctx),
 	})
 	return uint64(id), wrapDuplicate(err)
 }
@@ -305,7 +316,7 @@ func (r *AuthRepository) CreatePosition(ctx context.Context, input SavePositionI
 func (r *AuthRepository) UpdatePosition(ctx context.Context, positionID uint64, input SavePositionInput) error {
 	affected, err := r.queries.UpdatePosition(ctx, sqlcstore.UpdatePositionParams{
 		Code: input.Code, Name: input.Name, Sort: int32(input.Sort), Status: int16(input.Status),
-		Remark: input.Remark, ID: int64(positionID),
+		Remark: input.Remark, ID: int64(positionID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return wrapDuplicate(err)
@@ -325,7 +336,9 @@ func (r *AuthRepository) DeletePosition(ctx context.Context, positionID uint64) 
 	if count > 0 {
 		return ErrPositionInUse
 	}
-	affected, err := r.queries.SoftDeletePosition(ctx, int64(positionID))
+	affected, err := r.queries.SoftDeletePosition(ctx, sqlcstore.SoftDeletePositionParams{
+		ID: int64(positionID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -338,7 +351,7 @@ func (r *AuthRepository) DeletePosition(ctx context.Context, positionID uint64) 
 // UpdatePositionStatus enables or disables a position.
 func (r *AuthRepository) UpdatePositionStatus(ctx context.Context, positionID uint64, status int8) error {
 	affected, err := r.queries.UpdatePositionStatus(ctx, sqlcstore.UpdatePositionStatusParams{
-		Status: int16(status), ID: int64(positionID),
+		Status: int16(status), ID: int64(positionID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err

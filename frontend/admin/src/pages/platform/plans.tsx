@@ -27,7 +27,7 @@ interface EntitlementValue {
 interface PlanFormValues {
   code: string;
   name: string;
-  description?: string;
+  remark?: string;
   status: number;
   sort: number;
   entitlements?: EntitlementValue[];
@@ -94,7 +94,7 @@ function PlanCatalog() {
       await createPlan({
         code: values.code.trim(),
         name: values.name.trim(),
-        description: values.description?.trim() ?? "",
+        remark: values.remark?.trim() ?? "",
         status: values.status,
         sort: values.sort,
         entitlements: cleanEntitlements(values.entitlements),
@@ -122,7 +122,7 @@ function PlanCatalog() {
       await updatePlan(editing.id, {
         code: editing.code,
         name: values.name.trim(),
-        description: values.description?.trim() ?? "",
+        remark: values.remark?.trim() ?? "",
         status: values.status,
         sort: values.sort,
         entitlements: cleanEntitlements(values.entitlements),
@@ -164,7 +164,7 @@ function PlanCatalog() {
               { title: t("platform.id"), dataIndex: "id", width: 80 },
               { title: t("platform.code"), dataIndex: "code", width: 140 },
               { title: t("common.name"), dataIndex: "name", width: 180 },
-              { title: t("platform.description"), dataIndex: "description" },
+              { title: t("platform.remark"), dataIndex: "remark" },
               {
                 title: t("common.status"),
                 dataIndex: "status",
@@ -249,7 +249,7 @@ function PlanCatalog() {
           preserve={false}
           initialValues={{
             name: editing?.name,
-            description: editing?.description ?? "",
+            remark: editing?.remark ?? "",
             status: editing?.status ?? 1,
             sort: editing?.sort ?? 0,
             entitlements: editing?.entitlements ?? [],
@@ -303,9 +303,9 @@ function PlanFields({ includeCode = false }: { includeCode?: boolean }) {
         <Input maxLength={128} />
       </Form.Item>
       <Form.Item
-        name="description"
-        label={t("platform.description")}
-        rules={[{ max: 500, message: t("platform.descriptionTooLong") }]}
+        name="remark"
+        label={t("platform.remark")}
+        rules={[{ max: 500, message: t("platform.remarkTooLong") }]}
       >
         <Input.TextArea maxLength={500} rows={3} showCount />
       </Form.Item>

@@ -317,55 +317,6 @@
         ]
       }
     },
-    "/api/billing/summary": {
-      "get": {
-        "operationId": "get_api_billing_summary",
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/api/billing/usage": {
-      "get": {
-        "operationId": "get_api_billing_usage",
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/api/billing/webhook/:provider": {
-      "post": {
-        "operationId": "post_api_billing_webhook__provider",
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "tags": [
-          "system"
-        ]
-      }
-    },
     "/api/dashboard": {
       "get": {
         "operationId": "get_api_dashboard",
@@ -704,24 +655,6 @@
         ]
       }
     },
-    "/api/platform/invoices": {
-      "get": {
-        "operationId": "get_api_platform_invoices",
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "tags": [
-          "system"
-        ]
-      }
-    },
     "/api/platform/operators": {
       "get": {
         "operationId": "get_api_platform_operators",
@@ -987,24 +920,6 @@
     "/api/platform/tenants/:id/impersonate": {
       "post": {
         "operationId": "post_api_platform_tenants__id_impersonate",
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/api/platform/tenants/:id/invoices": {
-      "get": {
-        "operationId": "get_api_platform_tenants__id_invoices",
         "responses": {
           "200": {
             "description": "OK"

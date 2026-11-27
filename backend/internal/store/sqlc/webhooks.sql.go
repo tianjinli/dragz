@@ -15,8 +15,8 @@ import (
 const createWebhook = `-- name: CreateWebhook :one
 INSERT INTO sys_webhook
   (name, url, secret_encrypted, events, headers_encrypted, allow_private_network,
-   timeout_seconds, max_retries, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+   timeout_seconds, max_retries, status, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 RETURNING id
 `
 
@@ -30,6 +30,7 @@ type CreateWebhookParams struct {
 	TimeoutSeconds      int32           `json:"timeout_seconds"`
 	MaxRetries          int32           `json:"max_retries"`
 	Status              int16           `json:"status"`
+	CreatedBy           uint64          `json:"created_by"`
 }
 
 func (q *Queries) CreateWebhook(ctx context.Context, arg CreateWebhookParams) (int64, error) {
@@ -43,6 +44,7 @@ func (q *Queries) CreateWebhook(ctx context.Context, arg CreateWebhookParams) (i
 		arg.TimeoutSeconds,
 		arg.MaxRetries,
 		arg.Status,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -238,18 +240,24 @@ const markWebhookSuccess = `-- name: MarkWebhookSuccess :exec
 UPDATE sys_webhook SET last_success_at = NOW() WHERE id = $1
 `
 
+// Delivery outcome, not an edit: the last human editor must survive it.
 func (q *Queries) MarkWebhookSuccess(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, markWebhookSuccess, id)
 	return err
 }
 
 const softDeleteWebhook = `-- name: SoftDeleteWebhook :execrows
-UPDATE sys_webhook SET deleted_at = NOW(), status = 0
+UPDATE sys_webhook SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteWebhook(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteWebhook, id)
+type SoftDeleteWebhookParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteWebhook(ctx context.Context, arg SoftDeleteWebhookParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteWebhook, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -258,8 +266,8 @@ func (q *Queries) SoftDeleteWebhook(ctx context.Context, id int64) (int64, error
 
 const updateWebhook = `-- name: UpdateWebhook :execrows
 UPDATE sys_webhook SET name = $1, url = $2, events = $3, allow_private_network = $4,
-  timeout_seconds = $5, max_retries = $6, status = $7
-WHERE id = $8 AND deleted_at IS NULL
+  timeout_seconds = $5, max_retries = $6, status = $7, updated_by = $8
+WHERE id = $9 AND deleted_at IS NULL
 `
 
 type UpdateWebhookParams struct {
@@ -270,6 +278,7 @@ type UpdateWebhookParams struct {
 	TimeoutSeconds      int32           `json:"timeout_seconds"`
 	MaxRetries          int32           `json:"max_retries"`
 	Status              int16           `json:"status"`
+	UpdatedBy           uint64          `json:"updated_by"`
 	ID                  int64           `json:"id"`
 }
 
@@ -282,6 +291,7 @@ func (q *Queries) UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) (i
 		arg.TimeoutSeconds,
 		arg.MaxRetries,
 		arg.Status,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -291,17 +301,18 @@ func (q *Queries) UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) (i
 }
 
 const updateWebhookStatus = `-- name: UpdateWebhookStatus :execrows
-UPDATE sys_webhook SET status = $1
+UPDATE sys_webhook SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL
 `
 
 type UpdateWebhookStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateWebhookStatus(ctx context.Context, arg UpdateWebhookStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateWebhookStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updateWebhookStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -310,8 +321,8 @@ func (q *Queries) UpdateWebhookStatus(ctx context.Context, arg UpdateWebhookStat
 
 const updateWebhookWithHeaders = `-- name: UpdateWebhookWithHeaders :execrows
 UPDATE sys_webhook SET name = $1, url = $2, events = $3, allow_private_network = $4,
-  timeout_seconds = $5, max_retries = $6, status = $7, headers_encrypted = $8
-WHERE id = $9 AND deleted_at IS NULL
+  timeout_seconds = $5, max_retries = $6, status = $7, headers_encrypted = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL
 `
 
 type UpdateWebhookWithHeadersParams struct {
@@ -323,6 +334,7 @@ type UpdateWebhookWithHeadersParams struct {
 	MaxRetries          int32           `json:"max_retries"`
 	Status              int16           `json:"status"`
 	HeadersEncrypted    sql.NullString  `json:"headers_encrypted"`
+	UpdatedBy           uint64          `json:"updated_by"`
 	ID                  int64           `json:"id"`
 }
 
@@ -336,6 +348,7 @@ func (q *Queries) UpdateWebhookWithHeaders(ctx context.Context, arg UpdateWebhoo
 		arg.MaxRetries,
 		arg.Status,
 		arg.HeadersEncrypted,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -346,8 +359,8 @@ func (q *Queries) UpdateWebhookWithHeaders(ctx context.Context, arg UpdateWebhoo
 
 const updateWebhookWithSecret = `-- name: UpdateWebhookWithSecret :execrows
 UPDATE sys_webhook SET name = $1, url = $2, events = $3, allow_private_network = $4,
-  timeout_seconds = $5, max_retries = $6, status = $7, secret_encrypted = $8
-WHERE id = $9 AND deleted_at IS NULL
+  timeout_seconds = $5, max_retries = $6, status = $7, secret_encrypted = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL
 `
 
 type UpdateWebhookWithSecretParams struct {
@@ -359,6 +372,7 @@ type UpdateWebhookWithSecretParams struct {
 	MaxRetries          int32           `json:"max_retries"`
 	Status              int16           `json:"status"`
 	SecretEncrypted     string          `json:"secret_encrypted"`
+	UpdatedBy           uint64          `json:"updated_by"`
 	ID                  int64           `json:"id"`
 }
 
@@ -372,6 +386,7 @@ func (q *Queries) UpdateWebhookWithSecret(ctx context.Context, arg UpdateWebhook
 		arg.MaxRetries,
 		arg.Status,
 		arg.SecretEncrypted,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -382,8 +397,9 @@ func (q *Queries) UpdateWebhookWithSecret(ctx context.Context, arg UpdateWebhook
 
 const updateWebhookWithSecretAndHeaders = `-- name: UpdateWebhookWithSecretAndHeaders :execrows
 UPDATE sys_webhook SET name = $1, url = $2, events = $3, allow_private_network = $4,
-  timeout_seconds = $5, max_retries = $6, status = $7, secret_encrypted = $8, headers_encrypted = $9
-WHERE id = $10 AND deleted_at IS NULL
+  timeout_seconds = $5, max_retries = $6, status = $7, secret_encrypted = $8, headers_encrypted = $9,
+  updated_by = $10
+WHERE id = $11 AND deleted_at IS NULL
 `
 
 type UpdateWebhookWithSecretAndHeadersParams struct {
@@ -396,6 +412,7 @@ type UpdateWebhookWithSecretAndHeadersParams struct {
 	Status              int16           `json:"status"`
 	SecretEncrypted     string          `json:"secret_encrypted"`
 	HeadersEncrypted    sql.NullString  `json:"headers_encrypted"`
+	UpdatedBy           uint64          `json:"updated_by"`
 	ID                  int64           `json:"id"`
 }
 
@@ -410,6 +427,7 @@ func (q *Queries) UpdateWebhookWithSecretAndHeaders(ctx context.Context, arg Upd
 		arg.Status,
 		arg.SecretEncrypted,
 		arg.HeadersEncrypted,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {

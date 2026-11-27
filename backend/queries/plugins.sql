@@ -38,19 +38,19 @@ WHERE plugin_id = $1;
 -- so the enable-without-prior-install path stays consistent with Install.
 UPDATE sys_plugin
 SET enabled = TRUE, last_error = '', enabled_at = NOW(),
-    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE;
 
 -- name: MarkPluginInstalled :execrows
 -- Install without enabling: migrations have run (or there were none), data is
 -- ready, but the plugin stays dark until an administrator flips the switch.
 UPDATE sys_plugin
-SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE;
 
 -- name: DisablePlugin :execrows
 UPDATE sys_plugin
-SET enabled = FALSE, updated_at = NOW()
+SET enabled = FALSE, updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE;
 
 -- name: SetPluginError :exec
@@ -81,13 +81,16 @@ SELECT COUNT(*) FROM sys_plugin_migration;
 -- stay visible even when every non-builtin plugin is off.
 INSERT INTO sys_menu
   (id, parent_id, type, name, code, route_name, route_path, component, redirect, icon,
-   sort, status, visible, keep_alive, affix_tab, external_url)
+   sort, status)
 VALUES
   (87, 20, 'page', '插件中心', 'system_plugin', 'SystemPlugin', '/settings/plugins',
-   '/system/plugin/index', '', 'lucide:puzzle', 24, 1, 1, 1, 0, '')
+   '/system/plugin/index', '', 'lucide:puzzle', 24, 1)
 ON CONFLICT DO NOTHING;
 
 -- name: SeedPluginRoleMenu :exec
-INSERT INTO sys_role_menu (role_id, menu_id)
-SELECT 1, id FROM sys_menu WHERE code = 'system_plugin' AND deleted_at IS NULL
+-- The plugin center is a core menu granted to the built-in tenant-1 role.
+-- Name the tenant explicitly: Seed runs with RLS bypass and no tenant session,
+-- and sys_role_menu no longer has a DEFAULT 1 to fall back to.
+INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
+SELECT 1, 1, id FROM sys_menu WHERE code = 'system_plugin' AND deleted_at IS NULL
 ON CONFLICT DO NOTHING;

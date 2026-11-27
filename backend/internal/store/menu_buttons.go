@@ -65,23 +65,21 @@ func syncPermissionMenus(ctx context.Context, tx *Tx, buttons []menuperm.Button)
 		// keeps its id, and therefore its grants. Only a code the sync has
 		// never seen needs an INSERT.
 		_, err := q.RevivePermissionButton(ctx, sqlcstore.RevivePermissionButtonParams{
-			ParentID:    button.ParentID,
-			Method:      button.Method,
-			Path:        button.Path,
-			IsSensitive: boolSmallInt16(button.Sensitive),
-			PluginID:    button.PluginID,
-			Code:        button.Code,
+			ParentID: button.ParentID,
+			Method:   button.Method,
+			Path:     button.Path,
+			PluginID: button.PluginID,
+			Code:     button.Code,
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			err = q.InsertPermissionButton(ctx, sqlcstore.InsertPermissionButtonParams{
-				ParentID:    button.ParentID,
-				Name:        button.Name,
-				Code:        button.Code,
-				Method:      button.Method,
-				Path:        button.Path,
-				IsSensitive: boolSmallInt16(button.Sensitive),
-				Sort:        int32(button.Sort),
-				PluginID:    button.PluginID,
+				ParentID: button.ParentID,
+				Name:     button.Name,
+				Code:     button.Code,
+				Method:   button.Method,
+				Path:     button.Path,
+				Sort:     int32(button.Sort),
+				PluginID: button.PluginID,
 			})
 			if err != nil {
 				// uk_menu_code is unique among live rows, so a duplicate here

@@ -58,10 +58,8 @@ func TestSyncPermissionMenusRevivesRetiredButtonsAgainstPostgres(t *testing.T) {
 		   code VARCHAR(128) NOT NULL,
 		   method VARCHAR(16) NOT NULL DEFAULT '',
 		   path VARCHAR(255) NOT NULL DEFAULT '',
-		   is_sensitive SMALLINT NOT NULL DEFAULT 0,
 		   sort INT NOT NULL DEFAULT 0,
 		   status SMALLINT NOT NULL DEFAULT 1,
-		   visible SMALLINT NOT NULL DEFAULT 1,
 		   plugin_id VARCHAR(16) NOT NULL DEFAULT '',
 		   managed SMALLINT NOT NULL DEFAULT 0,
 		   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -72,12 +70,12 @@ func TestSyncPermissionMenusRevivesRetiredButtonsAgainstPostgres(t *testing.T) {
 		// tenant_admin sync joins sys_role; keep a minimal table so boot grant/revoke is a no-op here.
 		`CREATE TABLE sys_role (
 		   id BIGSERIAL PRIMARY KEY,
-		   tenant_id BIGINT NOT NULL DEFAULT 1,
+		   tenant_id BIGINT NOT NULL,
 		   code VARCHAR(64) NOT NULL,
 		   deleted_at TIMESTAMPTZ NULL
 		 )`,
 		`CREATE TABLE sys_role_menu (
-		   tenant_id BIGINT NOT NULL DEFAULT 1,
+		   tenant_id BIGINT NOT NULL,
 		   role_id BIGINT NOT NULL,
 		   menu_id BIGINT NOT NULL,
 		   PRIMARY KEY (role_id, menu_id)

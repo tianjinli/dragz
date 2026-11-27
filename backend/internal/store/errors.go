@@ -121,9 +121,6 @@ var (
 	ErrLastTenantAdmin = errors.New("tenant must keep at least one administrator")
 	// ErrTenantInactive means the tenant is disabled, so it cannot be entered.
 	ErrTenantInactive = errors.New("tenant is disabled")
-	// ErrPaymentEventInvalid means a provider webhook could not be verified or
-	// does not name a known event.
-	ErrPaymentEventInvalid = errors.New("payment event is invalid")
 )
 
 // ConstraintName returns the unique-index name behind a duplicate-key error.

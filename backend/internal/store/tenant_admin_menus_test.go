@@ -11,7 +11,7 @@ func TestTenantAdminPageCodesAllowlist(t *testing.T) {
 	codes := tenantAdminPageCodes()
 	want := map[string]bool{
 		"dashboard": true, "system_member": true, "system_department": true,
-		"system_position": true, "system_role": true, "system_billing": true,
+		"system_position": true, "system_role": true,
 		"system_config": true, "system_notice": true, "my_messages": true,
 		"system_file": true, "system_file_recycle": true, "system_online": true,
 		"system_token": true, "system_login_log": true, "system_operation_log": true,
@@ -74,12 +74,12 @@ func TestSyncTenantAdminRoleMenusAllowlistAgainstPostgres(t *testing.T) {
 		 )`,
 		`CREATE TABLE sys_role (
 		   id BIGSERIAL PRIMARY KEY,
-		   tenant_id BIGINT NOT NULL DEFAULT 1,
+		   tenant_id BIGINT NOT NULL,
 		   code VARCHAR(64) NOT NULL,
 		   deleted_at TIMESTAMPTZ NULL
 		 )`,
 		`CREATE TABLE sys_role_menu (
-		   tenant_id BIGINT NOT NULL DEFAULT 1,
+		   tenant_id BIGINT NOT NULL,
 		   role_id BIGINT NOT NULL,
 		   menu_id BIGINT NOT NULL,
 		   PRIMARY KEY (role_id, menu_id)

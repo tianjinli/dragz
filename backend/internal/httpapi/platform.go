@@ -261,7 +261,7 @@ type planEntitlementBody struct {
 type planWriteBody struct {
 	Code         string                 `json:"code"`
 	Name         string                 `json:"name"`
-	Description  *string                `json:"description"`
+	Remark       *string                `json:"remark"`
 	Status       *int16                 `json:"status"`
 	Sort         *int                   `json:"sort"`
 	Entitlements *[]planEntitlementBody `json:"entitlements"`
@@ -370,16 +370,16 @@ func normalizePlanWrite(body planWriteBody, creating bool) (store.PlanWrite, boo
 	if !validTenantCode(body.Code) || body.Name == "" || utf8.RuneCountInString(body.Name) > 128 {
 		return store.PlanWrite{}, false
 	}
-	var description *string
-	if creating || body.Description != nil {
+	var remark *string
+	if creating || body.Remark != nil {
 		value := ""
-		if body.Description != nil {
-			value = strings.TrimSpace(*body.Description)
+		if body.Remark != nil {
+			value = strings.TrimSpace(*body.Remark)
 		}
 		if utf8.RuneCountInString(value) > 500 {
 			return store.PlanWrite{}, false
 		}
-		description = &value
+		remark = &value
 	}
 	if body.Status != nil && *body.Status != 0 && *body.Status != 1 {
 		return store.PlanWrite{}, false
@@ -413,7 +413,7 @@ func normalizePlanWrite(body planWriteBody, creating bool) (store.PlanWrite, boo
 	return store.PlanWrite{
 		Code:                body.Code,
 		Name:                body.Name,
-		Description:         description,
+		Remark:              remark,
 		Status:              status,
 		Sort:                sort,
 		Entitlements:        entitlements,

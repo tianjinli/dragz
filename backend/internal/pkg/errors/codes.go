@@ -22,6 +22,9 @@ const (
 	CodeNeedRelogin = 40111
 	// CodeAccountDisabled is a correct credential on a disabled or locked account.
 	CodeAccountDisabled = 40301
+	// CodePasswordChangeRequired means the session is valid but the user must
+	// change the initial password before using any other protected route.
+	CodePasswordChangeRequired = 40302
 	// CodeForbidden is a missing permission code.
 	CodeForbidden = 40300
 	// CodeTenantForbidden means the caller is not a member of the requested tenant.

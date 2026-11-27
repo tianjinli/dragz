@@ -24,7 +24,7 @@ type ConfigItem struct {
 	IsSecret     bool      `json:"isSecret"`
 	IsReadonly   bool      `json:"isReadonly"`
 	EffectMode   string    `json:"effectMode"`
-	Description  string    `json:"description"`
+	Remark       string    `json:"remark"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
@@ -118,11 +118,11 @@ type LoginSecuritySettings struct {
 	PasswordMinLength int
 }
 
-func mapConfigRow(id int64, group, key, name, valueType, value, defaultValue string, isSecret, isReadonly int16, effectMode, description string, updatedAt time.Time) ConfigItem {
+func mapConfigRow(id int64, group, key, name, valueType, value, defaultValue string, isSecret, isReadonly bool, effectMode, remark string, updatedAt time.Time) ConfigItem {
 	return ConfigItem{
 		ID: uint64(id), Group: group, Key: key, Name: name, ValueType: valueType,
-		Value: value, DefaultValue: defaultValue, IsSecret: smallIntBool(isSecret),
-		IsReadonly: smallIntBool(isReadonly), EffectMode: effectMode, Description: description, UpdatedAt: updatedAt,
+		Value: value, DefaultValue: defaultValue, IsSecret: isSecret,
+		IsReadonly: isReadonly, EffectMode: effectMode, Remark: remark, UpdatedAt: updatedAt,
 	}
 }
 
@@ -236,7 +236,7 @@ func (r *AuthRepository) ListConfigs(ctx context.Context, group string) ([]Confi
 			return nil, err
 		}
 		for _, row := range rows {
-			item := mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Description, row.UpdatedAt)
+			item := mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Remark, row.UpdatedAt)
 			if item.IsSecret && item.Value != "" {
 				item.Value = "********"
 			}
@@ -248,7 +248,7 @@ func (r *AuthRepository) ListConfigs(ctx context.Context, group string) ([]Confi
 			return nil, err
 		}
 		for _, row := range rows {
-			item := mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Description, row.UpdatedAt)
+			item := mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Remark, row.UpdatedAt)
 			if item.IsSecret && item.Value != "" {
 				item.Value = "********"
 			}
@@ -267,7 +267,7 @@ func (r *AuthRepository) ConfigMetadata(ctx context.Context, key string) (Config
 	if err != nil {
 		return ConfigItem{}, err
 	}
-	return mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Description, row.UpdatedAt), nil
+	return mapConfigRow(row.ID, row.ConfigGroup, row.ConfigKey, row.Name, row.ValueType, row.ConfigValue, row.DefaultValue, row.IsSecret, row.IsReadonly, row.EffectMode, row.Remark, row.UpdatedAt), nil
 }
 
 // UpdateConfig writes a value and records the before/after pair in the config log in one transaction. Secret values are masked in the log.
@@ -282,11 +282,13 @@ func (r *AuthRepository) UpdateConfig(ctx context.Context, key, value string, op
 	if err != nil {
 		return err
 	}
-	before := mapConfigRow(beforeRow.ID, beforeRow.ConfigGroup, beforeRow.ConfigKey, beforeRow.Name, beforeRow.ValueType, beforeRow.ConfigValue, beforeRow.DefaultValue, beforeRow.IsSecret, beforeRow.IsReadonly, beforeRow.EffectMode, beforeRow.Description, beforeRow.UpdatedAt)
+	before := mapConfigRow(beforeRow.ID, beforeRow.ConfigGroup, beforeRow.ConfigKey, beforeRow.Name, beforeRow.ValueType, beforeRow.ConfigValue, beforeRow.DefaultValue, beforeRow.IsSecret, beforeRow.IsReadonly, beforeRow.EffectMode, beforeRow.Remark, beforeRow.UpdatedAt)
 	if before.IsReadonly {
 		return ErrReadonly
 	}
-	if err := q.UpdateConfigValue(ctx, sqlcstore.UpdateConfigValueParams{ConfigValue: value, ConfigKey: key}); err != nil {
+	if err := q.UpdateConfigValue(ctx, sqlcstore.UpdateConfigValueParams{
+		ConfigValue: value, ConfigKey: key, UpdatedBy: operatorID,
+	}); err != nil {
 		return err
 	}
 	beforeJSON, _ := json.Marshal(map[string]any{"value": auditConfigValue(before.Value, before.IsSecret)})
@@ -343,6 +345,7 @@ func (r *AuthRepository) CreateAuthProvider(ctx context.Context, input SaveAuthP
 		CallbackUrl: input.CallbackURL, Scopes: input.Scopes, AutoRegister: boolSmallInt16(input.AutoRegister),
 		DefaultRoleID: ptrUint64Null(input.DefaultRoleID), BindingRule: input.BindingRule,
 		Status: int16(input.Status), Sort: int32(input.Sort),
+		CreatedBy: operatorID,
 	})
 	return uint64(id), err
 }
@@ -357,6 +360,7 @@ func (r *AuthRepository) UpdateAuthProvider(ctx context.Context, providerID uint
 		IssuerUrl: input.IssuerURL, CallbackUrl: input.CallbackURL, Scopes: input.Scopes,
 		AutoRegister: boolSmallInt16(input.AutoRegister), DefaultRoleID: ptrUint64Null(input.DefaultRoleID),
 		BindingRule: input.BindingRule, Status: int16(input.Status), Sort: int32(input.Sort), ID: int64(providerID),
+		UpdatedBy: operatorID,
 	}
 	if keepSecret {
 		affected, err = r.queries.UpdateAuthProvider(ctx, base)
@@ -367,6 +371,7 @@ func (r *AuthRepository) UpdateAuthProvider(ctx context.Context, providerID uint
 			IssuerUrl: base.IssuerUrl, CallbackUrl: base.CallbackUrl, Scopes: base.Scopes,
 			AutoRegister: base.AutoRegister, DefaultRoleID: base.DefaultRoleID, BindingRule: base.BindingRule,
 			Status: base.Status, Sort: base.Sort, ClientSecretEncrypted: input.ClientSecretEncrypted, ID: base.ID,
+			UpdatedBy: operatorID,
 		})
 	}
 	if err != nil {
@@ -381,7 +386,7 @@ func (r *AuthRepository) UpdateAuthProvider(ctx context.Context, providerID uint
 // UpdateAuthProviderStatus enables or disables a provider.
 func (r *AuthRepository) UpdateAuthProviderStatus(ctx context.Context, providerID uint64, status int8) error {
 	affected, err := r.queries.UpdateAuthProviderStatus(ctx, sqlcstore.UpdateAuthProviderStatusParams{
-		Status: int16(status), ID: int64(providerID),
+		Status: int16(status), ID: int64(providerID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -401,7 +406,9 @@ func (r *AuthRepository) DeleteAuthProvider(ctx context.Context, providerID uint
 	if identities > 0 {
 		return ErrInUse
 	}
-	affected, err := r.queries.SoftDeleteAuthProvider(ctx, int64(providerID))
+	affected, err := r.queries.SoftDeleteAuthProvider(ctx, sqlcstore.SoftDeleteAuthProviderParams{
+		ID: int64(providerID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -411,12 +418,12 @@ func (r *AuthRepository) DeleteAuthProvider(ctx context.Context, providerID uint
 	return nil
 }
 
-func mapStorageRow(id int64, name, storageType, endpoint, bucket, region, accessKey, secretKey, basePath, publicBaseURL string, useHTTPS, privateAccess int16, maxFileSize uint64, allowedExtensions string, isDefault, status int16, updatedAt time.Time) StorageConfig {
+func mapStorageRow(id int64, name, storageType, endpoint, bucket, region, accessKey, secretKey, basePath, publicBaseURL string, useHTTPS, privateAccess int16, maxFileSize uint64, allowedExtensions string, isDefault bool, status int16, updatedAt time.Time) StorageConfig {
 	return StorageConfig{
 		ID: uint64(id), Name: name, StorageType: storageType, Endpoint: endpoint, Bucket: bucket, Region: region,
 		AccessKey: accessKey, SecretKey: secretKey, BasePath: basePath, PublicBaseURL: publicBaseURL,
 		UseHTTPS: smallIntBool(useHTTPS), PrivateAccess: smallIntBool(privateAccess), MaxFileSize: maxFileSize,
-		AllowedExtensions: allowedExtensions, IsDefault: smallIntBool(isDefault), Status: int8(status), UpdatedAt: updatedAt,
+		AllowedExtensions: allowedExtensions, IsDefault: isDefault, Status: int8(status), UpdatedAt: updatedAt,
 	}
 }
 
@@ -489,8 +496,8 @@ func (r *AuthRepository) CreateStorageConfig(ctx context.Context, input SaveStor
 		SecretKeyEncrypted: optionalString(input.SecretKeyEncrypted), BasePath: input.BasePath,
 		PublicBaseUrl: input.PublicBaseURL, UseHttps: boolSmallInt16(input.UseHTTPS),
 		PrivateAccess: boolSmallInt16(input.PrivateAccess), MaxFileSize: input.MaxFileSize,
-		AllowedExtensions: optionalString(input.AllowedExtensions), IsDefault: boolSmallInt16(input.IsDefault),
-		Status: int16(input.Status),
+		AllowedExtensions: optionalString(input.AllowedExtensions), IsDefault: input.IsDefault,
+		Status: int16(input.Status), CreatedBy: operatorID,
 	})
 	if err != nil {
 		return 0, err
@@ -520,7 +527,8 @@ func (r *AuthRepository) UpdateStorageConfig(ctx context.Context, storageID uint
 		Region: input.Region, BasePath: input.BasePath, PublicBaseUrl: input.PublicBaseURL,
 		UseHttps: boolSmallInt16(input.UseHTTPS), PrivateAccess: boolSmallInt16(input.PrivateAccess),
 		MaxFileSize: input.MaxFileSize, AllowedExtensions: optionalString(input.AllowedExtensions),
-		IsDefault: boolSmallInt16(input.IsDefault), Status: int16(input.Status), ID: int64(storageID),
+		IsDefault: input.IsDefault, Status: int16(input.Status), ID: int64(storageID),
+		UpdatedBy: operatorID,
 	}
 	switch {
 	case !keepAccessKey && !keepSecretKey:
@@ -530,7 +538,7 @@ func (r *AuthRepository) UpdateStorageConfig(ctx context.Context, storageID uint
 			UseHttps: base.UseHttps, PrivateAccess: base.PrivateAccess, MaxFileSize: base.MaxFileSize,
 			AllowedExtensions: base.AllowedExtensions, IsDefault: base.IsDefault, Status: base.Status,
 			AccessKeyEncrypted: optionalString(input.AccessKeyEncrypted),
-			SecretKeyEncrypted: optionalString(input.SecretKeyEncrypted), ID: base.ID,
+			SecretKeyEncrypted: optionalString(input.SecretKeyEncrypted), ID: base.ID, UpdatedBy: operatorID,
 		})
 	case !keepAccessKey:
 		affected, err = q.UpdateStorageConfigWithAccessKey(ctx, sqlcstore.UpdateStorageConfigWithAccessKeyParams{
@@ -538,7 +546,7 @@ func (r *AuthRepository) UpdateStorageConfig(ctx context.Context, storageID uint
 			Region: base.Region, BasePath: base.BasePath, PublicBaseUrl: base.PublicBaseUrl,
 			UseHttps: base.UseHttps, PrivateAccess: base.PrivateAccess, MaxFileSize: base.MaxFileSize,
 			AllowedExtensions: base.AllowedExtensions, IsDefault: base.IsDefault, Status: base.Status,
-			AccessKeyEncrypted: optionalString(input.AccessKeyEncrypted), ID: base.ID,
+			AccessKeyEncrypted: optionalString(input.AccessKeyEncrypted), ID: base.ID, UpdatedBy: operatorID,
 		})
 	case !keepSecretKey:
 		affected, err = q.UpdateStorageConfigWithSecretKey(ctx, sqlcstore.UpdateStorageConfigWithSecretKeyParams{
@@ -546,7 +554,7 @@ func (r *AuthRepository) UpdateStorageConfig(ctx context.Context, storageID uint
 			Region: base.Region, BasePath: base.BasePath, PublicBaseUrl: base.PublicBaseUrl,
 			UseHttps: base.UseHttps, PrivateAccess: base.PrivateAccess, MaxFileSize: base.MaxFileSize,
 			AllowedExtensions: base.AllowedExtensions, IsDefault: base.IsDefault, Status: base.Status,
-			SecretKeyEncrypted: optionalString(input.SecretKeyEncrypted), ID: base.ID,
+			SecretKeyEncrypted: optionalString(input.SecretKeyEncrypted), ID: base.ID, UpdatedBy: operatorID,
 		})
 	default:
 		affected, err = q.UpdateStorageConfig(ctx, base)
@@ -566,10 +574,12 @@ func (r *AuthRepository) DeleteStorageConfig(ctx context.Context, storageID uint
 	if err != nil {
 		return err
 	}
-	if smallIntBool(checks.IsDefault) || checks.FileCount > 0 {
+	if checks.IsDefault || checks.FileCount > 0 {
 		return ErrDefaultOrInUse
 	}
-	affected, err := r.queries.SoftDeleteStorageConfig(ctx, int64(storageID))
+	affected, err := r.queries.SoftDeleteStorageConfig(ctx, sqlcstore.SoftDeleteStorageConfigParams{
+		ID: int64(storageID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}

@@ -80,8 +80,8 @@ func (q *Queries) CountNoticesFiltered(ctx context.Context, arg CountNoticesFilt
 const createNotice = `-- name: CreateNotice :one
 INSERT INTO sys_notice
   (title, notice_type, priority, content, target_type, target_ids, status,
-   is_pinned, publish_at, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9)
+   is_pinned, publish_at, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $9)
 RETURNING id
 `
 
@@ -92,11 +92,13 @@ type CreateNoticeParams struct {
 	Content    string                `json:"content"`
 	TargetType string                `json:"target_type"`
 	TargetIds  pqtype.NullRawMessage `json:"target_ids"`
-	IsPinned   int16                 `json:"is_pinned"`
+	IsPinned   bool                  `json:"is_pinned"`
 	PublishAt  sql.NullTime          `json:"publish_at"`
 	CreatedBy  uint64                `json:"created_by"`
 }
 
+// created_by and updated_by start as the same person: the author is also the
+// first editor.
 func (q *Queries) CreateNotice(ctx context.Context, arg CreateNoticeParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, createNotice,
 		arg.Title,
@@ -140,7 +142,7 @@ type GetNoticeDetailRow struct {
 	TargetType  string                `json:"target_type"`
 	TargetIds   pqtype.NullRawMessage `json:"target_ids"`
 	Status      string                `json:"status"`
-	IsPinned    int16                 `json:"is_pinned"`
+	IsPinned    bool                  `json:"is_pinned"`
 	PublishAt   sql.NullTime          `json:"publish_at"`
 	PublishedBy sql.NullInt64         `json:"published_by"`
 	CreatedBy   uint64                `json:"created_by"`
@@ -270,7 +272,7 @@ type ListMyNoticesRow struct {
 	TargetType  string                `json:"target_type"`
 	TargetIds   pqtype.NullRawMessage `json:"target_ids"`
 	Status      string                `json:"status"`
-	IsPinned    int16                 `json:"is_pinned"`
+	IsPinned    bool                  `json:"is_pinned"`
 	PublishAt   sql.NullTime          `json:"publish_at"`
 	PublishedBy sql.NullInt64         `json:"published_by"`
 	CreatedBy   uint64                `json:"created_by"`
@@ -355,7 +357,7 @@ type ListNoticesFilteredRow struct {
 	TargetType  string                `json:"target_type"`
 	TargetIds   pqtype.NullRawMessage `json:"target_ids"`
 	Status      string                `json:"status"`
-	IsPinned    int16                 `json:"is_pinned"`
+	IsPinned    bool                  `json:"is_pinned"`
 	PublishAt   sql.NullTime          `json:"publish_at"`
 	PublishedBy sql.NullInt64         `json:"published_by"`
 	CreatedBy   uint64                `json:"created_by"`
@@ -466,7 +468,7 @@ func (q *Queries) NoticeAllowedForUser(ctx context.Context, arg NoticeAllowedFor
 const publishNotice = `-- name: PublishNotice :execrows
 UPDATE sys_notice SET status = 'published',
   publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL,
-  notified_at = NULL
+  notified_at = NULL, updated_by = $1
 WHERE id = $2 AND deleted_at IS NULL AND status = 'draft'
 `
 
@@ -484,12 +486,20 @@ func (q *Queries) PublishNotice(ctx context.Context, arg PublishNoticeParams) (i
 }
 
 const revokeNotice = `-- name: RevokeNotice :execrows
-UPDATE sys_notice SET status = 'revoked', revoked_at = NOW()
+UPDATE sys_notice SET status = 'revoked', revoked_at = NOW(), revoked_by = $2, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL AND status = 'published'
 `
 
-func (q *Queries) RevokeNotice(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeNotice, id)
+type RevokeNoticeParams struct {
+	ID        int64  `json:"id"`
+	RevokedBy uint64 `json:"revoked_by"`
+}
+
+// revoked_by names the revoker; updated_by is the same person here, but the two
+// stay separate columns because an edit after publication would only move
+// updated_by.
+func (q *Queries) RevokeNotice(ctx context.Context, arg RevokeNoticeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeNotice, arg.ID, arg.RevokedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -497,12 +507,17 @@ func (q *Queries) RevokeNotice(ctx context.Context, id int64) (int64, error) {
 }
 
 const softDeleteNotice = `-- name: SoftDeleteNotice :execrows
-UPDATE sys_notice SET deleted_at = NOW()
+UPDATE sys_notice SET deleted_at = NOW(), updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL AND status IN ('draft', 'revoked')
 `
 
-func (q *Queries) SoftDeleteNotice(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteNotice, id)
+type SoftDeleteNoticeParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteNotice(ctx context.Context, arg SoftDeleteNoticeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteNotice, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -511,8 +526,9 @@ func (q *Queries) SoftDeleteNotice(ctx context.Context, id int64) (int64, error)
 
 const updateNoticeDraft = `-- name: UpdateNoticeDraft :execrows
 UPDATE sys_notice SET title = $1, notice_type = $2,
-  priority = $3, content = $4, target_type = $5, target_ids = $6, is_pinned = $7, publish_at = $8
-WHERE id = $9 AND deleted_at IS NULL AND status = 'draft'
+  priority = $3, content = $4, target_type = $5, target_ids = $6, is_pinned = $7, publish_at = $8,
+  updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL AND status = 'draft'
 `
 
 type UpdateNoticeDraftParams struct {
@@ -522,8 +538,9 @@ type UpdateNoticeDraftParams struct {
 	Content    string                `json:"content"`
 	TargetType string                `json:"target_type"`
 	TargetIds  pqtype.NullRawMessage `json:"target_ids"`
-	IsPinned   int16                 `json:"is_pinned"`
+	IsPinned   bool                  `json:"is_pinned"`
 	PublishAt  sql.NullTime          `json:"publish_at"`
+	UpdatedBy  uint64                `json:"updated_by"`
 	ID         int64                 `json:"id"`
 }
 
@@ -537,6 +554,7 @@ func (q *Queries) UpdateNoticeDraft(ctx context.Context, arg UpdateNoticeDraftPa
 		arg.TargetIds,
 		arg.IsPinned,
 		arg.PublishAt,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {

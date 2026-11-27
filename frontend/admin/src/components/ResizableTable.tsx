@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Table, type TableColumnType, type TableColumnsType, type TableProps } from 'antd';
+import { Table, Tooltip, type TableColumnType, type TableColumnsType, type TableProps } from 'antd';
 import { useTranslation } from 'react-i18next';
 import {
   flexRender,
@@ -50,19 +50,20 @@ function ResizeHandle<TData extends object>({ header }: ResizeHandleTitleProps<T
 
   if (!canResize) return null;
   return (
-    <span
-      aria-label={t('common.resizeColumn', { label })}
-      className="resizable-th-handle"
-      data-resizing={column.getIsResizing() ? 'true' : undefined}
-      onDoubleClick={(event) => {
-        event.stopPropagation();
-        column.resetSize();
-      }}
-      onMouseDown={startResize}
-      onTouchStart={startResize}
-      role="separator"
-      title={t('common.resizeColumnTip')}
-    />
+    <Tooltip title={t('common.resizeColumnTip')}>
+      <span
+        aria-label={t('common.resizeColumn', { label })}
+        className="resizable-th-handle"
+        data-resizing={column.getIsResizing() ? 'true' : undefined}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          column.resetSize();
+        }}
+        onMouseDown={startResize}
+        onTouchStart={startResize}
+        role="separator"
+      />
+    </Tooltip>
   );
 }
 

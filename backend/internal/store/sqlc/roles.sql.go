@@ -25,30 +25,26 @@ func (q *Queries) CountMenuChildren(ctx context.Context, parentID uint64) (int64
 const createMenu = `-- name: CreateMenu :one
 INSERT INTO sys_menu
   (parent_id, type, name, code, route_name, route_path, component, redirect, icon,
-   method, path, is_sensitive, managed, sort, status, visible, keep_alive, affix_tab, external_url)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, $13, $14, $15, $16, $17, $18)
+   method, path, managed, sort, status, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $14)
 RETURNING id
 `
 
 type CreateMenuParams struct {
-	ParentID    uint64 `json:"parent_id"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	RouteName   string `json:"route_name"`
-	RoutePath   string `json:"route_path"`
-	Component   string `json:"component"`
-	Redirect    string `json:"redirect"`
-	Icon        string `json:"icon"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive int16  `json:"is_sensitive"`
-	Sort        int32  `json:"sort"`
-	Status      int16  `json:"status"`
-	Visible     int16  `json:"visible"`
-	KeepAlive   int16  `json:"keep_alive"`
-	AffixTab    int16  `json:"affix_tab"`
-	ExternalUrl string `json:"external_url"`
+	ParentID  uint64 `json:"parent_id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	RouteName string `json:"route_name"`
+	RoutePath string `json:"route_path"`
+	Component string `json:"component"`
+	Redirect  string `json:"redirect"`
+	Icon      string `json:"icon"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Sort      int32  `json:"sort"`
+	Status    int16  `json:"status"`
+	CreatedBy uint64 `json:"created_by"`
 }
 
 // managed is hardcoded: anything the admin UI creates is a normal row. Only the
@@ -66,13 +62,9 @@ func (q *Queries) CreateMenu(ctx context.Context, arg CreateMenuParams) (int64, 
 		arg.Icon,
 		arg.Method,
 		arg.Path,
-		arg.IsSensitive,
 		arg.Sort,
 		arg.Status,
-		arg.Visible,
-		arg.KeepAlive,
-		arg.AffixTab,
-		arg.ExternalUrl,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -80,18 +72,19 @@ func (q *Queries) CreateMenu(ctx context.Context, arg CreateMenuParams) (int64, 
 }
 
 const createRole = `-- name: CreateRole :one
-INSERT INTO sys_role (code, name, data_scope, sort, status, remark)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sys_role (code, name, data_scope, sort, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 RETURNING id
 `
 
 type CreateRoleParams struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
-	DataScope string `json:"data_scope"`
+	DataScope int16  `json:"data_scope"`
 	Sort      int32  `json:"sort"`
 	Status    int16  `json:"status"`
 	Remark    string `json:"remark"`
+	CreatedBy uint64 `json:"created_by"`
 }
 
 func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (int64, error) {
@@ -102,6 +95,7 @@ func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (int64, 
 		arg.Sort,
 		arg.Status,
 		arg.Remark,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -139,9 +133,9 @@ const getRoleDataScope = `-- name: GetRoleDataScope :one
 SELECT data_scope FROM sys_role WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) GetRoleDataScope(ctx context.Context, id int64) (string, error) {
+func (q *Queries) GetRoleDataScope(ctx context.Context, id int64) (int16, error) {
 	row := q.db.QueryRowContext(ctx, getRoleDataScope, id)
-	var data_scope string
+	var data_scope int16
 	err := row.Scan(&data_scope)
 	return data_scope, err
 }
@@ -155,7 +149,7 @@ WHERE r.id = $1 AND r.deleted_at IS NULL
 `
 
 type GetRoleDeleteChecksRow struct {
-	IsSystem  int16 `json:"is_system"`
+	IsSystem  bool  `json:"is_system"`
 	UserCount int64 `json:"user_count"`
 }
 
@@ -170,9 +164,9 @@ const getRoleIsSystem = `-- name: GetRoleIsSystem :one
 SELECT is_system FROM sys_role WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) GetRoleIsSystem(ctx context.Context, id int64) (int16, error) {
+func (q *Queries) GetRoleIsSystem(ctx context.Context, id int64) (bool, error) {
 	row := q.db.QueryRowContext(ctx, getRoleIsSystem, id)
-	var is_system int16
+	var is_system bool
 	err := row.Scan(&is_system)
 	return is_system, err
 }
@@ -253,35 +247,29 @@ func (q *Queries) ListCasbinPolicies(ctx context.Context) ([]ListCasbinPoliciesR
 
 const listMenuResources = `-- name: ListMenuResources :many
 SELECT id, parent_id, type, name, code, route_name,
-  route_path, component, redirect, icon, method, path, is_sensitive, managed, sort, status, visible, keep_alive,
-  affix_tab, external_url, created_at
+  route_path, component, redirect, icon, method, path, managed, sort, status, created_at
 FROM sys_menu
 WHERE deleted_at IS NULL
 ORDER BY sort, id
 `
 
 type ListMenuResourcesRow struct {
-	ID          int64     `json:"id"`
-	ParentID    uint64    `json:"parent_id"`
-	Type        string    `json:"type"`
-	Name        string    `json:"name"`
-	Code        string    `json:"code"`
-	RouteName   string    `json:"route_name"`
-	RoutePath   string    `json:"route_path"`
-	Component   string    `json:"component"`
-	Redirect    string    `json:"redirect"`
-	Icon        string    `json:"icon"`
-	Method      string    `json:"method"`
-	Path        string    `json:"path"`
-	IsSensitive int16     `json:"is_sensitive"`
-	Managed     int16     `json:"managed"`
-	Sort        int32     `json:"sort"`
-	Status      int16     `json:"status"`
-	Visible     int16     `json:"visible"`
-	KeepAlive   int16     `json:"keep_alive"`
-	AffixTab    int16     `json:"affix_tab"`
-	ExternalUrl string    `json:"external_url"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID        int64     `json:"id"`
+	ParentID  uint64    `json:"parent_id"`
+	Type      string    `json:"type"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	RouteName string    `json:"route_name"`
+	RoutePath string    `json:"route_path"`
+	Component string    `json:"component"`
+	Redirect  string    `json:"redirect"`
+	Icon      string    `json:"icon"`
+	Method    string    `json:"method"`
+	Path      string    `json:"path"`
+	Managed   int16     `json:"managed"`
+	Sort      int32     `json:"sort"`
+	Status    int16     `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (q *Queries) ListMenuResources(ctx context.Context) ([]ListMenuResourcesRow, error) {
@@ -306,14 +294,9 @@ func (q *Queries) ListMenuResources(ctx context.Context) ([]ListMenuResourcesRow
 			&i.Icon,
 			&i.Method,
 			&i.Path,
-			&i.IsSensitive,
 			&i.Managed,
 			&i.Sort,
 			&i.Status,
-			&i.Visible,
-			&i.KeepAlive,
-			&i.AffixTab,
-			&i.ExternalUrl,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -405,10 +388,10 @@ type ListRolesFilteredRow struct {
 	ID        int64     `json:"id"`
 	Code      string    `json:"code"`
 	Name      string    `json:"name"`
-	DataScope string    `json:"data_scope"`
+	DataScope int16     `json:"data_scope"`
 	Sort      int32     `json:"sort"`
 	Status    int16     `json:"status"`
-	IsSystem  int16     `json:"is_system"`
+	IsSystem  bool      `json:"is_system"`
 	Remark    string    `json:"remark"`
 	UserCount int64     `json:"user_count"`
 	CreatedAt time.Time `json:"created_at"`
@@ -465,12 +448,17 @@ func (q *Queries) MenuParentIsDescendant(ctx context.Context, arg MenuParentIsDe
 }
 
 const softDeleteMenu = `-- name: SoftDeleteMenu :execrows
-UPDATE sys_menu SET deleted_at = NOW(), status = 0
+UPDATE sys_menu SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteMenu(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteMenu, id)
+type SoftDeleteMenuParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteMenu(ctx context.Context, arg SoftDeleteMenuParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteMenu, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -478,12 +466,17 @@ func (q *Queries) SoftDeleteMenu(ctx context.Context, id int64) (int64, error) {
 }
 
 const softDeleteRole = `-- name: SoftDeleteRole :execrows
-UPDATE sys_role SET deleted_at = NOW(), status = 0
+UPDATE sys_role SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteRole(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteRole, id)
+type SoftDeleteRoleParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteRole(ctx context.Context, arg SoftDeleteRoleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteRole, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -493,31 +486,28 @@ func (q *Queries) SoftDeleteRole(ctx context.Context, id int64) (int64, error) {
 const updateMenu = `-- name: UpdateMenu :execrows
 UPDATE sys_menu SET parent_id = $1, type = $2, name = $3,
   code = $4, route_name = $5, route_path = $6, component = $7, redirect = $8, icon = $9,
-  method = $10, path = $11, is_sensitive = $12,
-  sort = $13, status = $14, visible = $15, keep_alive = $16, affix_tab = $17, external_url = $18
-WHERE id = $19 AND deleted_at IS NULL
+  method = $10, path = $11,
+  sort = $12, status = $13,
+  updated_by = $14
+WHERE id = $15 AND deleted_at IS NULL
 `
 
 type UpdateMenuParams struct {
-	ParentID    uint64 `json:"parent_id"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	RouteName   string `json:"route_name"`
-	RoutePath   string `json:"route_path"`
-	Component   string `json:"component"`
-	Redirect    string `json:"redirect"`
-	Icon        string `json:"icon"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive int16  `json:"is_sensitive"`
-	Sort        int32  `json:"sort"`
-	Status      int16  `json:"status"`
-	Visible     int16  `json:"visible"`
-	KeepAlive   int16  `json:"keep_alive"`
-	AffixTab    int16  `json:"affix_tab"`
-	ExternalUrl string `json:"external_url"`
-	ID          int64  `json:"id"`
+	ParentID  uint64 `json:"parent_id"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Code      string `json:"code"`
+	RouteName string `json:"route_name"`
+	RoutePath string `json:"route_path"`
+	Component string `json:"component"`
+	Redirect  string `json:"redirect"`
+	Icon      string `json:"icon"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Sort      int32  `json:"sort"`
+	Status    int16  `json:"status"`
+	UpdatedBy uint64 `json:"updated_by"`
+	ID        int64  `json:"id"`
 }
 
 func (q *Queries) UpdateMenu(ctx context.Context, arg UpdateMenuParams) (int64, error) {
@@ -533,13 +523,9 @@ func (q *Queries) UpdateMenu(ctx context.Context, arg UpdateMenuParams) (int64, 
 		arg.Icon,
 		arg.Method,
 		arg.Path,
-		arg.IsSensitive,
 		arg.Sort,
 		arg.Status,
-		arg.Visible,
-		arg.KeepAlive,
-		arg.AffixTab,
-		arg.ExternalUrl,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -549,17 +535,18 @@ func (q *Queries) UpdateMenu(ctx context.Context, arg UpdateMenuParams) (int64, 
 }
 
 const updateMenuStatus = `-- name: UpdateMenuStatus :execrows
-UPDATE sys_menu SET status = $1
+UPDATE sys_menu SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL
 `
 
 type UpdateMenuStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateMenuStatus(ctx context.Context, arg UpdateMenuStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateMenuStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updateMenuStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -568,17 +555,18 @@ func (q *Queries) UpdateMenuStatus(ctx context.Context, arg UpdateMenuStatusPara
 
 const updateRole = `-- name: UpdateRole :execrows
 UPDATE sys_role SET code = $1, name = $2, data_scope = $3,
-  sort = $4, status = $5, remark = $6
-WHERE id = $7 AND deleted_at IS NULL AND is_system = 0
+  sort = $4, status = $5, remark = $6, updated_by = $7
+WHERE id = $8 AND deleted_at IS NULL AND is_system = FALSE
 `
 
 type UpdateRoleParams struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
-	DataScope string `json:"data_scope"`
+	DataScope int16  `json:"data_scope"`
 	Sort      int32  `json:"sort"`
 	Status    int16  `json:"status"`
 	Remark    string `json:"remark"`
+	UpdatedBy uint64 `json:"updated_by"`
 	ID        int64  `json:"id"`
 }
 
@@ -590,6 +578,7 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, 
 		arg.Sort,
 		arg.Status,
 		arg.Remark,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -599,31 +588,33 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (int64, 
 }
 
 const updateRoleDataScope = `-- name: UpdateRoleDataScope :exec
-UPDATE sys_role SET data_scope = $1 WHERE id = $2
+UPDATE sys_role SET data_scope = $1, updated_by = $3 WHERE id = $2
 `
 
 type UpdateRoleDataScopeParams struct {
-	DataScope string `json:"data_scope"`
+	DataScope int16  `json:"data_scope"`
 	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateRoleDataScope(ctx context.Context, arg UpdateRoleDataScopeParams) error {
-	_, err := q.db.ExecContext(ctx, updateRoleDataScope, arg.DataScope, arg.ID)
+	_, err := q.db.ExecContext(ctx, updateRoleDataScope, arg.DataScope, arg.ID, arg.UpdatedBy)
 	return err
 }
 
 const updateRoleStatus = `-- name: UpdateRoleStatus :execrows
-UPDATE sys_role SET status = $1
-WHERE id = $2 AND deleted_at IS NULL AND is_system = 0
+UPDATE sys_role SET status = $1, updated_by = $3
+WHERE id = $2 AND deleted_at IS NULL AND is_system = FALSE
 `
 
 type UpdateRoleStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateRoleStatus(ctx context.Context, arg UpdateRoleStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateRoleStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updateRoleStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

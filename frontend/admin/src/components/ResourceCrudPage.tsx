@@ -4,11 +4,14 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   cloneElement,
   Fragment,
   isValidElement,
   type ReactElement,
+  type CSSProperties,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -30,7 +33,17 @@ import {
   type TableColumnsType,
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { Pencil, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import {
+  CircleHelp,
+  GripVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { getDateTimeFormat } from "@/stores/system-config";
 import { SCROLL_TO_FIRST_ERROR } from "@/constants/forms";
 import {
@@ -59,11 +72,41 @@ import {
 } from "./TableActionGroup";
 
 const EMPTY_FILTERS: Record<string, unknown> = {};
+const DEFAULT_SIDE_PANEL_WIDTH = 242;
+const MIN_SIDE_PANEL_WIDTH = 180;
+const MAX_SIDE_PANEL_WIDTH = 560;
 
 export const STATUS_OPTIONS = (): SelectOption[] => [
   { label: i18n.t("common.enabled"), value: 1 },
   { label: i18n.t("crud.disabled"), value: 0 },
 ];
+
+/**
+ * A label that carries a click-to-open hint. The icon lives inside the label so
+ * the rule belongs to the field name; a placeholder is too narrow to hold a
+ * sentence and would crowd out the example value.
+ */
+function fieldLabel(
+  label: string,
+  hint: string | undefined,
+  hintLabel: string,
+): ReactNode {
+  if (!hint) return label;
+  return (
+    <span className="form-label-with-hint">
+      <span>{label}</span>
+      <Tooltip placement="top" title={hint} trigger="click">
+        <button
+          aria-label={hintLabel}
+          className="form-label-hint"
+          type="button"
+        >
+          <CircleHelp aria-hidden size={14} />
+        </button>
+      </Tooltip>
+    </span>
+  );
+}
 
 export interface SelectOption {
   className?: string;
@@ -127,6 +170,11 @@ export interface FieldConfig {
   hiddenOnCreate?: boolean;
   /** Hide this field while editing (e.g. create-only password). */
   hiddenOnEdit?: boolean;
+  /**
+   * 点击后弹出的字段说明，渲染成 label 右侧的帮助图标。用于那些填写规则
+   * 用一段话才说得清、塞进 placeholder 会挤掉示例值的字段。
+   */
+  hint?: string;
   key: string;
   label: string;
   mode?: "multiple" | "tags";
@@ -183,6 +231,11 @@ export interface SearchFilterConfig {
   options: SelectOption[];
   placeholder?: string;
   width?: number;
+  /** Render a date-range picker instead of a select. The staged value is an
+   *  ISO string `start|end`; `onApply` turns it into two RFC3339 filters. */
+  type?: "dateRange";
+  /** Query-param keys written for the lower / upper bounds of a date range. */
+  rangeKeys?: [string, string];
 }
 export interface RowAction {
   danger?: boolean;
@@ -252,7 +305,20 @@ interface Props {
    * name / title / username / code the record actually has.
    */
   rowLabel?: (record: ResourceRecord) => string;
-  searchMode?: "auto" | "local" | "none" | "submit";
+  /**
+   * auto: filter on every keystroke, server-side.
+   * submit: stage input, apply on query click / Enter, server-side.
+   * local: filter on every keystroke against the loaded rows (keeps trees whole).
+   * local-submit: stage input, apply on query click / Enter, against loaded rows.
+   * none: no search controls.
+   */
+  searchMode?: "auto" | "local" | "local-submit" | "none" | "submit";
+  /**
+   * Fields the keyword box matches in local search modes. Defaults to
+   * `name` + `code`; pass e.g. `["name"]` when the box is labelled as one
+   * single field. Server-side modes ignore it (the endpoint decides).
+   */
+  searchKeys?: readonly string[];
   searchPlaceholder?: string;
   sidePanel?: (context: {
     filters: Record<string, unknown>;
@@ -362,10 +428,17 @@ function buildTree(
   return roots;
 }
 
-function recordMatchesKeyword(item: ResourceRecord, keyword: string): boolean {
+/** Fields a keyword search looks at unless the page narrows them. */
+const DEFAULT_SEARCH_KEYS: readonly string[] = ["name", "code"];
+
+function recordMatchesKeyword(
+  item: ResourceRecord,
+  keyword: string,
+  keys: readonly string[] = DEFAULT_SEARCH_KEYS,
+): boolean {
   const value = keyword.trim().toLowerCase();
   if (!value) return true;
-  return ["name", "code"].some((key) =>
+  return keys.some((key) =>
     String(item[key] ?? "")
       .toLowerCase()
       .includes(value),
@@ -377,8 +450,9 @@ function recordMatchesFilters(
   keyword: string,
   statusFilter: number | undefined,
   filters: Record<string, unknown>,
+  keys: readonly string[] = DEFAULT_SEARCH_KEYS,
 ): boolean {
-  if (!recordMatchesKeyword(item, keyword)) return false;
+  if (!recordMatchesKeyword(item, keyword, keys)) return false;
   if (
     (statusFilter === 0 || statusFilter === 1) &&
     Number(item.status) !== statusFilter
@@ -399,6 +473,7 @@ function localFilterItems(
   statusFilter: number | undefined,
   filters: Record<string, unknown>,
   parentKey: string,
+  keys: readonly string[] = DEFAULT_SEARCH_KEYS,
 ): ResourceRecord[] {
   const hasFilters =
     keyword.trim() ||
@@ -411,7 +486,8 @@ function localFilterItems(
   const byID = new Map(items.map((item) => [Number(item.id), item]));
   const included = new Set<number>();
   items.forEach((item) => {
-    if (!recordMatchesFilters(item, keyword, statusFilter, filters)) return;
+    if (!recordMatchesFilters(item, keyword, statusFilter, filters, keys))
+      return;
     let current: ResourceRecord | undefined = item;
     while (current) {
       const id = Number(current.id);
@@ -486,6 +562,7 @@ export function ResourceCrudPage({
   rowActions = [],
   rowLabel,
   searchMode = "auto",
+  searchKeys = DEFAULT_SEARCH_KEYS,
   searchPlaceholder,
   sidePanel,
   statusFilterAfterExtra = false,
@@ -495,6 +572,20 @@ export function ResourceCrudPage({
   updateCode,
 }: Props) {
   const { t } = useTranslation();
+  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const [sidePanelWidth, setSidePanelWidth] = useState(DEFAULT_SIDE_PANEL_WIDTH);
+  const sidePanelLayoutRef = useRef<HTMLDivElement>(null);
+  const sidePanelDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    bodyCursor: string;
+    bodyUserSelect: string;
+  } | null>(null);
+  // local modes filter against already-loaded rows; staged modes wait for the
+  // query button / Enter before applying the typed value.
+  const isLocalSearch = searchMode === "local" || searchMode === "local-submit";
+  const isStagedSearch = searchMode === "submit" || searchMode === "local-submit";
   const resolvedSearchPlaceholder =
     searchPlaceholder ?? t("crud.searchPlaceholder");
   const defaults = useMemo(() => defaultValues, []);
@@ -546,7 +637,7 @@ export function ResourceCrudPage({
   }, []);
   const searchedItems = useMemo(
     () =>
-      searchMode === "local"
+      isLocalSearch
         ? sourceItems.filter((item) =>
             recordMatchesFilters(
               item,
@@ -557,22 +648,21 @@ export function ResourceCrudPage({
                   ([key]) => key !== "groupName",
                 ),
               ),
+              searchKeys,
             ),
           )
         : items,
-    [filterValues, items, keyword, searchMode, sourceItems, statusFilter],
+    [filterValues, isLocalSearch, items, keyword, searchKeys, sourceItems, statusFilter],
   );
   const activeFilters = filterValues;
   const remoteKeyword =
-    searchMode === "local" || searchMode === "none" ? "" : keyword;
+    isLocalSearch || searchMode === "none" ? "" : keyword;
   const remoteStatus =
-    searchMode === "local" || searchMode === "none" ? undefined : statusFilter;
+    isLocalSearch || searchMode === "none" ? undefined : statusFilter;
   const remoteFilters = useMemo(
     () =>
-      searchMode === "local" || searchMode === "none"
-        ? EMPTY_FILTERS
-        : activeFilters,
-    [activeFilters, searchMode],
+      isLocalSearch || searchMode === "none" ? EMPTY_FILTERS : activeFilters,
+    [activeFilters, isLocalSearch, searchMode],
   );
   const load = useCallback(async () => {
     setLoading(true);
@@ -590,7 +680,7 @@ export function ResourceCrudPage({
       setSourceItems(next);
       setItems(tree ? buildTree(next, parentKey) : next);
       setTotal(
-        searchMode === "local"
+        isLocalSearch
           ? next.length
           : Array.isArray(result)
             ? result.length
@@ -607,28 +697,29 @@ export function ResourceCrudPage({
     remoteFilters,
     remoteKeyword,
     remoteStatus,
-    searchMode,
     tree,
   ]);
   useEffect(() => {
     void load();
   }, [load]);
   useEffect(() => {
-    if (searchMode !== "local") return;
+    if (!isLocalSearch) return;
     const filtered = localFilterItems(
       sourceItems,
       keyword,
       statusFilter,
       filterValues,
       parentKey,
+      searchKeys,
     );
     setItems(tree ? buildTree(filtered, parentKey) : filtered);
     setTotal(filtered.length);
   }, [
     filterValues,
+    isLocalSearch,
     keyword,
     parentKey,
-    searchMode,
+    searchKeys,
     sourceItems,
     statusFilter,
     tree,
@@ -869,7 +960,10 @@ export function ResourceCrudPage({
             return {
               ...rest,
               render: (value: unknown) => (
-                <span>{labelMap[String(value)] ?? String(value ?? "—")}</span>
+                <span>
+                  {labelMap[String(value)] ??
+                    (value == null || value === "" ? "" : String(value))}
+                </span>
               ),
             };
           }
@@ -880,7 +974,8 @@ export function ResourceCrudPage({
               // get ellipsis from normalizeListColumns and show "..." instead.
               ellipsis: false,
               render: (value: unknown, record: ResourceRecord) => {
-                const isChecked = Number(value ?? 0) === 1;
+                if (value == null || value === "") return null;
+                const isChecked = Number(value) === 1;
                 return statusSwitchEnabled ? (
                   <Switch
                     checked={isChecked}
@@ -1007,38 +1102,110 @@ export function ResourceCrudPage({
       updateCode,
     ],
   );
+  const applyStagedSearch = useCallback(() => {
+    setKeyword(searchKeyword);
+    setStatusFilter(searchStatusFilter);
+    setFilterValues((previous) => {
+      const next = { ...previous };
+      extraSearchFilters.forEach((filter) => {
+        const value = searchFilterValues[filter.key];
+        if (filter.type === "dateRange") {
+          const [fromKey, toKey] = filter.rangeKeys || [
+            `${filter.key}From`,
+            `${filter.key}To`,
+          ];
+          const range = value as [Dayjs | null, Dayjs | null] | null;
+          if (range && range[0] && range[1]) {
+            next[fromKey] = range[0].startOf("day").toISOString();
+            next[toKey] = range[1].endOf("day").toISOString();
+          } else {
+            delete next[fromKey];
+            delete next[toKey];
+          }
+          delete next[filter.key];
+          return;
+        }
+        if (value === undefined || value === null || value === "")
+          delete next[filter.key];
+        else next[filter.key] = value;
+      });
+      return next;
+    });
+    setPage(1);
+  }, [extraSearchFilters, searchFilterValues, searchKeyword, searchStatusFilter]);
   const statusFilterNode = (
     <Select
       allowClear
       options={STATUS_OPTIONS()}
       placeholder={t("common.status")}
       style={{ width: 120 }}
-      value={searchMode === "submit" ? searchStatusFilter : statusFilter}
+      value={isStagedSearch ? searchStatusFilter : statusFilter}
       onChange={(value) => {
-        if (searchMode === "submit") setSearchStatusFilter(value);
+        if (isStagedSearch) setSearchStatusFilter(value);
         else setStatusFilter(value);
       }}
     />
   );
-  const extraFilterNodes = extraSearchFilters.map((filter) => (
-    <Select
-      allowClear
-      key={filter.key}
-      options={filter.options}
-      placeholder={filter.placeholder || filter.label}
-      style={{ width: filter.width || 140 }}
-      value={
-        (searchMode === "submit" ? searchFilterValues : filterValues)[
-          filter.key
-        ]
-      }
-      onChange={(value) => {
-        const setter =
-          searchMode === "submit" ? setSearchFilterValues : setFilterValues;
-        setter((previous) => ({ ...previous, [filter.key]: value }));
-      }}
-    />
-  ));
+  const extraFilterNodes = extraSearchFilters.map((filter) => {
+    if (filter.type === "dateRange") {
+      const [fromKey, toKey] = filter.rangeKeys || [
+        `${filter.key}From`,
+        `${filter.key}To`,
+      ];
+      const setter = isStagedSearch ? setSearchFilterValues : setFilterValues;
+      return (
+        <DatePicker.RangePicker
+          allowClear
+          key={filter.key}
+          placeholder={[
+            filter.placeholder || filter.label,
+            filter.placeholder || filter.label,
+          ]}
+          style={{ width: filter.width || 260 }}
+          value={
+            (isStagedSearch ? searchFilterValues : filterValues)[filter.key] as
+              | [Dayjs | null, Dayjs | null]
+              | null
+          }
+          onChange={(dates) => {
+            setter((previous) => {
+              const next = { ...previous, [filter.key]: dates };
+              if (!isStagedSearch) {
+                delete next[filter.key];
+                const from = dates?.[0] as Dayjs | null | undefined;
+                const to = dates?.[1] as Dayjs | null | undefined;
+                if (from && to) {
+                  next[fromKey] = from.startOf("day").toISOString();
+                  next[toKey] = to.endOf("day").toISOString();
+                } else {
+                  delete next[fromKey];
+                  delete next[toKey];
+                }
+              }
+              return next;
+            });
+          }}
+        />
+      );
+    }
+    return (
+      <Select
+        allowClear
+        key={filter.key}
+        options={filter.options}
+        placeholder={filter.placeholder || filter.label}
+        style={{ width: filter.width || 140 }}
+        value={
+          (isStagedSearch ? searchFilterValues : filterValues)[filter.key]
+        }
+        onChange={(value) => {
+          const setter =
+            isStagedSearch ? setSearchFilterValues : setFilterValues;
+          setter((previous) => ({ ...previous, [filter.key]: value }));
+        }}
+      />
+    );
+  });
   const search =
     searchMode === "none" ? undefined : (
       <Space wrap>
@@ -1046,84 +1213,61 @@ export function ResourceCrudPage({
           allowClear
           placeholder={resolvedSearchPlaceholder}
           prefix={<Search size={16} />}
-          value={searchMode === "submit" ? searchKeyword : keyword}
+          value={isStagedSearch ? searchKeyword : keyword}
           onChange={(event) => {
-            if (searchMode === "submit") setSearchKeyword(event.target.value);
+            if (isStagedSearch) setSearchKeyword(event.target.value);
             else setKeyword(event.target.value);
           }}
           onPressEnter={() => {
-            if (searchMode === "submit") {
-              setKeyword(searchKeyword);
-              setStatusFilter(searchStatusFilter);
-              setFilterValues((previous) => {
-                const next = { ...previous };
-                extraSearchFilters.forEach((filter) => {
-                  const value = searchFilterValues[filter.key];
-                  if (value === undefined || value === null || value === "")
-                    delete next[filter.key];
-                  else next[filter.key] = value;
-                });
-                return next;
-              });
-              setPage(1);
-            } else void load();
+            if (isStagedSearch) applyStagedSearch();
+            else void load();
           }}
         />
         {statusFilterAfterExtra ? extraFilterNodes : statusFilterNode}
         {statusFilterAfterExtra ? statusFilterNode : extraFilterNodes}
         {searchMode === "local" ? null : (
-          <Button
-            aria-label={t("crud.query")}
-            title={t("crud.query")}
-            type="primary"
-            icon={<Search size={16} />}
-            onClick={() => {
-              if (searchMode === "submit") {
-                setKeyword(searchKeyword);
-                setStatusFilter(searchStatusFilter);
-                setFilterValues((previous) => {
-                  const next = { ...previous };
-                  extraSearchFilters.forEach((filter) => {
-                    const value = searchFilterValues[filter.key];
-                    if (value === undefined || value === null || value === "")
-                      delete next[filter.key];
-                    else next[filter.key] = value;
-                  });
-                  return next;
-                });
-                setPage(1);
-              } else void load();
-            }}
-          />
+          <Tooltip title={t("crud.query")}>
+            <Button
+              aria-label={t("crud.query")}
+              type="primary"
+              icon={<Search size={16} />}
+              onClick={() => {
+                if (isStagedSearch) applyStagedSearch();
+                else void load();
+              }}
+            />
+          </Tooltip>
         )}
         {searchMode === "local" ? null : (
-          <Button
-            aria-label={t("common.reset")}
-            title={t("common.reset")}
-            icon={<RotateCcw size={16} />}
-            onClick={() => {
-              setKeyword("");
-              setSearchKeyword("");
-              setStatusFilter(undefined);
-              setSearchStatusFilter(undefined);
-              setFilterValues({});
-              setSearchFilterValues({});
-              setPage(1);
-            }}
-          />
+          <Tooltip title={t("common.reset")}>
+            <Button
+              aria-label={t("common.reset")}
+              icon={<RotateCcw size={16} />}
+              onClick={() => {
+                setKeyword("");
+                setSearchKeyword("");
+                setStatusFilter(undefined);
+                setSearchStatusFilter(undefined);
+                setFilterValues({});
+                setSearchFilterValues({});
+                setPage(1);
+              }}
+            />
+          </Tooltip>
         )}
       </Space>
     );
   const listToolbar = {
     search,
     actions: !hideCreate && hasAccessByCodes([createCode]) ? (
-      <Button
-        aria-label={t("common.add")}
-        title={t("common.add")}
-        type="primary"
-        icon={<Plus size={16} />}
-        onClick={openCreate}
-      />
+      <Tooltip title={t("common.add")}>
+        <Button
+          aria-label={t("common.add")}
+          type="primary"
+          icon={<Plus size={16} />}
+          onClick={openCreate}
+        />
+      </Tooltip>
     ) : undefined,
     onRefresh: () => void load(),
   };
@@ -1162,11 +1306,60 @@ export function ResourceCrudPage({
     </ListPagePanel>
     </Card>
   );
+  const startSidePanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidePanelCollapsed || event.button !== 0 || window.matchMedia("(max-width: 900px)").matches)
+      return;
+    event.preventDefault();
+    sidePanelDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: sidePanelWidth,
+      bodyCursor: document.body.style.cursor,
+      bodyUserSelect: document.body.style.userSelect,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  const resizeSidePanel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = sidePanelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const availableWidth = sidePanelLayoutRef.current?.clientWidth || 1000;
+    const maxWidth = Math.max(
+      MIN_SIDE_PANEL_WIDTH,
+      Math.min(MAX_SIDE_PANEL_WIDTH, availableWidth - 360),
+    );
+    setSidePanelWidth(
+      Math.min(
+        maxWidth,
+        Math.max(MIN_SIDE_PANEL_WIDTH, drag.startWidth + event.clientX - drag.startX),
+      ),
+    );
+  };
+  const stopSidePanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = sidePanelDragRef.current;
+    if (!drag) return;
+    sidePanelDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(drag.pointerId))
+      event.currentTarget.releasePointerCapture(drag.pointerId);
+    document.body.style.cursor = drag.bodyCursor;
+    document.body.style.userSelect = drag.bodyUserSelect;
+  };
   return (
     <Page description={description} title={t("crud.pageTitle", { title })}>
       {sidePanel ? (
-        <div className="user-list-layout">
-          <Card className="department-tree-card side-panel-card">
+        <div
+          className={`user-list-layout${sidePanelCollapsed ? " is-side-panel-collapsed" : ""}`}
+          ref={sidePanelLayoutRef}
+          style={{
+            "--side-panel-width": `${sidePanelWidth}px`,
+          } as CSSProperties}
+        >
+          <Card
+            aria-hidden={sidePanelCollapsed || undefined}
+            className="department-tree-card side-panel-card"
+            inert={sidePanelCollapsed}
+          >
             {sidePanel({
               filters: filterValues,
               items: sourceItems,
@@ -1174,6 +1367,51 @@ export function ResourceCrudPage({
               setFilter,
             })}
           </Card>
+          <div
+            className={`department-side-panel-resizer${sidePanelCollapsed ? " is-side-panel-collapsed" : ""}`}
+            onLostPointerCapture={stopSidePanelResize}
+            onPointerCancel={stopSidePanelResize}
+            onPointerDown={startSidePanelResize}
+            onPointerMove={resizeSidePanel}
+            onPointerUp={stopSidePanelResize}
+          >
+            {!sidePanelCollapsed && (
+              <>
+                <div
+                  aria-label={t("system.users.resizeDepartmentTree")}
+                  aria-orientation="vertical"
+                  className="department-side-panel-resize-track"
+                  role="separator"
+                />
+                <GripVertical aria-hidden className="department-side-panel-resize-grip" size={14} />
+              </>
+            )}
+            <Tooltip
+              title={t(
+                sidePanelCollapsed
+                  ? "system.users.expandDepartmentTree"
+                  : "system.users.collapseDepartmentTree",
+              )}
+            >
+              <button
+                aria-label={t(
+                  sidePanelCollapsed
+                    ? "system.users.expandDepartmentTree"
+                    : "system.users.collapseDepartmentTree",
+                )}
+                className="side-panel-collapse-toggle"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setSidePanelCollapsed((prev) => !prev)}
+              >
+                {sidePanelCollapsed ? (
+                  <PanelLeftOpen aria-hidden size={15} />
+                ) : (
+                  <PanelLeftClose aria-hidden size={15} />
+                )}
+              </button>
+            </Tooltip>
+          </div>
           <div className="user-list-main">{tableCard}</div>
         </div>
       ) : (
@@ -1380,7 +1618,7 @@ export function ResourceCrudPage({
               const formItem = (
                 <Form.Item
                   dependencies={field.dependencies}
-                  label={field.label}
+                  label={fieldLabel(field.label, field.hint, t("crud.fieldHint"))}
                   name={field.key}
                   rules={[
                     ...(field.required

@@ -15,9 +15,11 @@ const migrationTemplate = `-- {{.Spec.Title}} ({{.Spec.Table}})
 
 CREATE TABLE IF NOT EXISTS {{.Spec.Table}} (
   id BIGSERIAL,
-  tenant_id BIGINT NOT NULL DEFAULT 1,
+  tenant_id BIGINT NOT NULL,
 {{.Columns}}  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0,
   deleted_at TIMESTAMPTZ NULL,
   PRIMARY KEY (id)
 );
@@ -59,7 +61,9 @@ import (
 type {{.Type}} struct {
 	ID uint64 ` + "`json:\"id\"`" + `
 {{.StructFields}}	CreatedAt time.Time ` + "`json:\"createdAt\"`" + `
+	CreatedBy uint64    ` + "`json:\"createdBy\"`" + `
 	UpdatedAt time.Time ` + "`json:\"updatedAt\"`" + `
+	UpdatedBy uint64    ` + "`json:\"updatedBy\"`" + `
 }
 
 // {{.Type}}Create is the insert payload.
@@ -124,7 +128,8 @@ func (r *{{.Repo}}) Get{{.Type}}(ctx context.Context, id uint64) ({{.Type}}, err
 func (r *{{.Repo}}) Create{{.Type}}(ctx context.Context, input {{.Type}}Create) (uint64, error) {
 	var id uint64
 	err := DBTX(ctx, r.db).QueryRowContext(ctx, ` + "`" + `{{.SQL.Create}}` + "`" + `,
-{{.CreateArgs}}	).Scan(&id)
+{{.CreateArgs}}		actorID(ctx),
+	).Scan(&id)
 	if err != nil {
 		return 0, wrapDuplicate(err)
 	}
@@ -140,7 +145,8 @@ func (r *{{.Repo}}) Update{{.Type}}(ctx context.Context, id uint64, input {{.Typ
 {{.ApplyInput}}
 	result, err := DBTX(ctx, r.db).ExecContext(ctx, ` + "`" + `{{.SQL.Update}}` + "`" + `,
 		id,
-{{.UpdateArgs}}	)
+{{.UpdateArgs}}		actorID(ctx),
+	)
 	if err != nil {
 		return wrapDuplicate(err)
 	}
@@ -156,7 +162,7 @@ func (r *{{.Repo}}) Update{{.Type}}(ctx context.Context, id uint64, input {{.Typ
 
 // Delete{{.Type}} soft deletes one row.
 func (r *{{.Repo}}) Delete{{.Type}}(ctx context.Context, id uint64) error {
-	result, err := DBTX(ctx, r.db).ExecContext(ctx, ` + "`" + `{{.SQL.Delete}}` + "`" + `, id)
+	result, err := DBTX(ctx, r.db).ExecContext(ctx, ` + "`" + `{{.SQL.Delete}}` + "`" + `, id, actorID(ctx))
 	if err != nil {
 		return err
 	}
@@ -176,7 +182,9 @@ func scan{{.Type}}(scanner interface{ Scan(...any) error }) ({{.Type}}, error) {
 	err := scanner.Scan(
 		&item.ID,
 {{.ScanArgs}}		&item.CreatedAt,
+		&item.CreatedBy,
 		&item.UpdatedAt,
+		&item.UpdatedBy,
 	)
 	return item, err
 }

@@ -19,6 +19,20 @@ function DrawerWithForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** An edit drawer: the form opens with the record's values already filled in. */
+function DrawerWithPrefilledForm({ onClose }: { onClose: () => void }) {
+  const [form] = Form.useForm();
+  return (
+    <FormDrawer form={form} onClose={onClose} onOk={() => undefined} open title="编辑">
+      <Form form={form} initialValues={{ name: '原值' }}>
+        <Form.Item label="名称" name="name">
+          <Input />
+        </Form.Item>
+      </Form>
+    </FormDrawer>
+  );
+}
+
 describe('FormDrawer', () => {
   it('hides the close icon and shows sticky cancel/save plus maximize', () => {
     const onClose = vi.fn();
@@ -92,5 +106,44 @@ describe('FormDrawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /放\s*弃\s*修\s*改/ }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('ignores mask clicks instead of prompting to discard', () => {
+    const onClose = vi.fn();
+    render(<DrawerWithForm onClose={onClose} />);
+
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '改了一半' } });
+    const mask = document.querySelector('.ant-drawer-mask');
+    expect(mask).not.toBeNull();
+    fireEvent.click(mask!);
+
+    expect(screen.queryByText('放弃未保存的修改？')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes a pre-filled but untouched form without asking', () => {
+    const onClose = vi.fn();
+    render(<DrawerWithPrefilledForm onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+
+    expect(screen.queryByText('放弃未保存的修改？')).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask when a field is changed back to its original value', async () => {
+    const onClose = vi.fn();
+    render(<DrawerWithPrefilledForm onClose={onClose} />);
+    // Let the drawer snapshot the values it opened with (captured on the next
+    // task, after the child Form applies initialValues).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const input = screen.getByLabelText('名称');
+    fireEvent.change(input, { target: { value: '改了一半' } });
+    fireEvent.change(input, { target: { value: '原值' } });
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
+
+    expect(screen.queryByText('放弃未保存的修改？')).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

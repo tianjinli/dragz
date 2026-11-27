@@ -10,21 +10,24 @@ LEFT JOIN sys_user u ON u.id = n.created_by
 WHERE n.id = $2 AND n.deleted_at IS NULL;
 
 -- name: CreateNotice :one
+-- created_by and updated_by start as the same person: the author is also the
+-- first editor.
 INSERT INTO sys_notice
   (title, notice_type, priority, content, target_type, target_ids, status,
-   is_pinned, publish_at, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9)
+   is_pinned, publish_at, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, $9)
 RETURNING id;
 
 -- name: UpdateNoticeDraft :execrows
 UPDATE sys_notice SET title = $1, notice_type = $2,
-  priority = $3, content = $4, target_type = $5, target_ids = $6, is_pinned = $7, publish_at = $8
-WHERE id = $9 AND deleted_at IS NULL AND status = 'draft';
+  priority = $3, content = $4, target_type = $5, target_ids = $6, is_pinned = $7, publish_at = $8,
+  updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL AND status = 'draft';
 
 -- name: PublishNotice :execrows
 UPDATE sys_notice SET status = 'published',
   publish_at = COALESCE(publish_at, NOW()), published_by = $1, revoked_at = NULL,
-  notified_at = NULL
+  notified_at = NULL, updated_by = $1
 WHERE id = $2 AND deleted_at IS NULL AND status = 'draft';
 
 -- name: ListDueNoticesForNotify :many
@@ -56,11 +59,14 @@ WHERE deleted_at IS NULL
   AND publish_at <= NOW() - INTERVAL '2 minutes';
 
 -- name: RevokeNotice :execrows
-UPDATE sys_notice SET status = 'revoked', revoked_at = NOW()
+-- revoked_by names the revoker; updated_by is the same person here, but the two
+-- stay separate columns because an edit after publication would only move
+-- updated_by.
+UPDATE sys_notice SET status = 'revoked', revoked_at = NOW(), revoked_by = $2, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL AND status = 'published';
 
 -- name: SoftDeleteNotice :execrows
-UPDATE sys_notice SET deleted_at = NOW()
+UPDATE sys_notice SET deleted_at = NOW(), updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL AND status IN ('draft', 'revoked');
 
 -- name: MarkNoticeRead :exec

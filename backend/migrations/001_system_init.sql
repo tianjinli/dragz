@@ -688,7 +688,7 @@ VALUES (1, 0, '0', 'root', '总部', 0, 1);
 INSERT INTO sys_role (id, code, name, data_scope, sort, status, is_system, remark)
 VALUES (1, 'super_admin', '超级管理员', 'all', 0, 1, 1, '系统内置角色，不允许删除');
 
--- Development bootstrap administrator. The password is Dragz!7xZ and must be
+-- Development bootstrap administrator. The password is Dragz123 and must be
 -- changed at first login. The bcrypt hash below (cost 10) is the only source
 -- of truth for that password: Bootstrap.AdminPassword in etc/*.yaml is used
 -- only when this row does not exist, which never happens on a fresh database.

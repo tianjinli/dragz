@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { App as AntApp, Button, ConfigProvider, Form, Input, Modal, Spin, theme } from 'antd';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { ForcePasswordChangeModal } from '@/components/auth/ForcePasswordChangeModal';
 import { PreferencesDrawer, type PreferenceTab } from '@/components/preferences/PreferencesDrawer';
 import { antdLocale } from '@/constants/locales';
 import { SCROLL_TO_FIRST_ERROR } from '@/constants/forms';
@@ -74,6 +75,11 @@ function ThemeRoot() {
           },
           Table: { headerBg: dark ? '#1f1f1f' : '#fafafa' },
           Tooltip: {
+            // Blend the hover bubble with the active theme instead of antd's
+            // fixed dark spotlight: a light elevated surface with dark text in
+            // light mode, an elevated dark surface with light text in dark mode.
+            colorBgSpotlight: dark ? '#1f1f1f' : '#ffffff',
+            colorTextLightSolid: dark ? '#f3f4f6' : '#1f2937',
             zIndexPopup: 1100,
           },
         },
@@ -99,6 +105,7 @@ function Protected() {
   const { t } = useTranslation();
   const checked = useAccessStore((state) => state.checked);
   const token = useAccessStore((state) => state.accessToken);
+  const mustChangePassword = useAccessStore((state) => Boolean(state.userInfo?.mustChangePassword));
   const bootstrap = useAuthStore((state) => state.bootstrap);
   const [ready, setReady] = useState(checked);
   const navigate = useNavigate();
@@ -127,6 +134,11 @@ function Protected() {
   }
   if (!token) {
     return <Navigate replace to={loginPathForRedirect(location.pathname, location.search)} />;
+  }
+  if (mustChangePassword) {
+    // The forced dialog lives at the routes root; do not flash the app shell
+    // (or let tabs fetch data) before the initial password is replaced.
+    return <div className="startup-loading" />;
   }
   return <AdminLayout />;
 }
@@ -322,6 +334,7 @@ function AppRoutes() {
         ) : null}
         <Route element={<Protected />} path="/*" />
       </Routes>
+      <ForcePasswordChangeModal />
       <LoginExpiredModal />
     </>
   );

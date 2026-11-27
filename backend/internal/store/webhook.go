@@ -106,6 +106,7 @@ func (r *AuthRepository) CreateWebhook(ctx context.Context, input SaveWebhookInp
 		HeadersEncrypted:    optionalString(input.HeadersEncrypted),
 		AllowPrivateNetwork: boolSmallInt16(input.AllowPrivateNetwork),
 		TimeoutSeconds:      int32(input.TimeoutSeconds), MaxRetries: int32(input.MaxRetries), Status: int16(input.Status),
+		CreatedBy: actorID(ctx),
 	})
 	return uint64(id), err
 }
@@ -119,26 +120,27 @@ func (r *AuthRepository) UpdateWebhook(ctx context.Context, webhookID uint64, in
 		Name: input.Name, Url: input.URL, Events: events,
 		AllowPrivateNetwork: boolSmallInt16(input.AllowPrivateNetwork),
 		TimeoutSeconds:      int32(input.TimeoutSeconds), MaxRetries: int32(input.MaxRetries),
-		Status: int16(input.Status), ID: int64(webhookID),
+		Status: int16(input.Status), ID: int64(webhookID), UpdatedBy: actorID(ctx),
 	}
 	switch {
 	case !keepSecret && !keepHeaders:
 		affected, err = r.queries.UpdateWebhookWithSecretAndHeaders(ctx, sqlcstore.UpdateWebhookWithSecretAndHeadersParams{
 			Name: base.Name, Url: base.Url, Events: base.Events, AllowPrivateNetwork: base.AllowPrivateNetwork,
 			TimeoutSeconds: base.TimeoutSeconds, MaxRetries: base.MaxRetries, Status: base.Status,
-			SecretEncrypted: input.SecretEncrypted, HeadersEncrypted: optionalString(input.HeadersEncrypted), ID: base.ID,
+			SecretEncrypted: input.SecretEncrypted, HeadersEncrypted: optionalString(input.HeadersEncrypted),
+			ID: base.ID, UpdatedBy: actorID(ctx),
 		})
 	case !keepSecret:
 		affected, err = r.queries.UpdateWebhookWithSecret(ctx, sqlcstore.UpdateWebhookWithSecretParams{
 			Name: base.Name, Url: base.Url, Events: base.Events, AllowPrivateNetwork: base.AllowPrivateNetwork,
 			TimeoutSeconds: base.TimeoutSeconds, MaxRetries: base.MaxRetries, Status: base.Status,
-			SecretEncrypted: input.SecretEncrypted, ID: base.ID,
+			SecretEncrypted: input.SecretEncrypted, ID: base.ID, UpdatedBy: actorID(ctx),
 		})
 	case !keepHeaders:
 		affected, err = r.queries.UpdateWebhookWithHeaders(ctx, sqlcstore.UpdateWebhookWithHeadersParams{
 			Name: base.Name, Url: base.Url, Events: base.Events, AllowPrivateNetwork: base.AllowPrivateNetwork,
 			TimeoutSeconds: base.TimeoutSeconds, MaxRetries: base.MaxRetries, Status: base.Status,
-			HeadersEncrypted: optionalString(input.HeadersEncrypted), ID: base.ID,
+			HeadersEncrypted: optionalString(input.HeadersEncrypted), ID: base.ID, UpdatedBy: actorID(ctx),
 		})
 	default:
 		affected, err = r.queries.UpdateWebhook(ctx, base)
@@ -155,7 +157,7 @@ func (r *AuthRepository) UpdateWebhook(ctx context.Context, webhookID uint64, in
 // UpdateWebhookStatus enables or disables a webhook.
 func (r *AuthRepository) UpdateWebhookStatus(ctx context.Context, webhookID uint64, status int8) error {
 	affected, err := r.queries.UpdateWebhookStatus(ctx, sqlcstore.UpdateWebhookStatusParams{
-		Status: int16(status), ID: int64(webhookID),
+		Status: int16(status), ID: int64(webhookID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -168,7 +170,9 @@ func (r *AuthRepository) UpdateWebhookStatus(ctx context.Context, webhookID uint
 
 // DeleteWebhook soft deletes a webhook.
 func (r *AuthRepository) DeleteWebhook(ctx context.Context, webhookID uint64) error {
-	affected, err := r.queries.SoftDeleteWebhook(ctx, int64(webhookID))
+	affected, err := r.queries.SoftDeleteWebhook(ctx, sqlcstore.SoftDeleteWebhookParams{
+		ID: int64(webhookID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}

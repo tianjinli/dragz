@@ -1,6 +1,6 @@
 import { ListPagePanel } from "@/components/ListPagePanel";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Button, Card, Input, Space, type TableColumnsType } from "antd";
+import { Button, Card, Input, Space, Tooltip, type TableColumnsType } from "antd";
 import { RotateCcw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ResourceRecord } from "@/api/system";
@@ -99,22 +99,24 @@ export function DataTablePage({
                   onChange={(event) => setKeyword(event.target.value)}
                   onPressEnter={() => void load()}
                 />
-                <Button
-                  aria-label={t("common.search")}
-                  title={t("common.search")}
-                  type="primary"
-                  icon={<Search size={16} />}
-                  onClick={() => void load()}
-                />
-                <Button
-                  aria-label={t("common.reset")}
-                  title={t("common.reset")}
-                  icon={<RotateCcw size={16} />}
-                  onClick={() => {
-                    setKeyword("");
-                    setPage(1);
-                  }}
-                />
+                <Tooltip title={t("common.search")}>
+                  <Button
+                    aria-label={t("common.search")}
+                    type="primary"
+                    icon={<Search size={16} />}
+                    onClick={() => void load()}
+                  />
+                </Tooltip>
+                <Tooltip title={t("common.reset")}>
+                  <Button
+                    aria-label={t("common.reset")}
+                    icon={<RotateCcw size={16} />}
+                    onClick={() => {
+                      setKeyword("");
+                      setPage(1);
+                    }}
+                  />
+                </Tooltip>
               </Space>
             ),
             actions: extra,

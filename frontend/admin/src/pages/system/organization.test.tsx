@@ -20,6 +20,7 @@ vi.mock('@/stores/access', () => ({ hasAccessByCodes: () => true }));
 
 const preferencesState = {
   preferences: {
+    app: { timezone: 'Asia/Shanghai' },
     custom: { defaultTableSize: 20, enableFormFullscreen: false },
   },
 };
@@ -39,17 +40,19 @@ vi.stubGlobal('ResizeObserver', ResizeObserverMock);
 
 vi.mock('@/components/Page', () => ({ Page: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
+import { useSystemConfigStore } from '@/stores/system-config';
 import { DepartmentPage, PositionPage } from './organization';
 
 const departments = [
-  { id: 1, parentId: 0, name: '总公司', code: 'HQ', ancestors: '', ancestorPath: '总公司', leaderUserId: 11, leaderName: '张三', sort: 0, status: 1 },
-  { id: 2, parentId: 1, name: '研发部', code: 'RD', ancestors: '1', ancestorPath: '总公司/研发部', leaderUserId: 12, leaderName: '李四', sort: 1, status: 0 },
+  { id: 1, parentId: 0, name: '总公司', code: 'HQ', ancestors: '', remark: '集团总部', leaderUserId: 11, leaderName: '张三', sort: 0, status: 1, createdAt: '2026-11-19T18:19:01.2+08:00' },
+  { id: 2, parentId: 1, name: '研发部', code: 'RD', ancestors: '1', remark: '负责产品研发', leaderUserId: 12, leaderName: '李四', sort: 1, status: 0, createdAt: '2026-11-20T09:05:00+08:00' },
 ];
 
 describe('DepartmentPage edit drawer', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    useSystemConfigStore.setState({ loaded: false, values: {} });
   });
 
   it('brings the current record into the edit form', async () => {
@@ -97,6 +100,45 @@ describe('DepartmentPage edit drawer', () => {
     );
     expect(nameNode).toBeDefined();
     expect(expandButton!.compareDocumentPosition(nameNode!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows remark followed by creation time as the last data columns, instead of the hierarchy path', async () => {
+    useSystemConfigStore.setState({
+      loaded: true,
+      values: { 'system.dateTimeFormat': 'YYYY/MM/DD HH:mm' },
+    });
+    apiMocks.listResourceApi.mockResolvedValue(departments);
+    apiMocks.listDepartmentsApi.mockResolvedValue(departments);
+    apiMocks.listUsersApi.mockResolvedValue({ items: [], total: 0 });
+
+    const { container } = render(<StrictMode><DepartmentPage /></StrictMode>);
+
+    await waitFor(() => expect(container.querySelector('.ant-table-tbody tr.ant-table-row')).toBeInTheDocument());
+    const header = container.querySelector('.ant-table-thead')!;
+    expect(header.textContent).toContain('部门名称');
+    expect(header.textContent).toContain('备注');
+    expect(header.textContent).toContain('创建时间');
+    expect(header.textContent).not.toContain('层级路径');
+    const nameHeader = Array.from(header.querySelectorAll('th')).find((th) => th.textContent?.includes('部门名称'));
+    // Name cells stay left-aligned so the tree indent shows; the header is
+    // centred by CSS, which jsdom does not load.
+    expect(nameHeader).toHaveStyle({ textAlign: 'left' });
+    const { readFileSync } = await import('node:fs');
+    const { dirname, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const baseCss = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../styles/base.css'), 'utf8');
+    expect(baseCss).toMatch(/\.department-resource-table \.ant-table-thead > tr > th:first-child\s*\{[^}]*text-align:\s*center/s);
+    const headers = Array.from(header.querySelectorAll('th')).map((th) => th.textContent || '');
+    const remarkIndex = headers.findIndex((text) => text.includes('备注'));
+    const createdAtIndex = headers.findIndex((text) => text.includes('创建时间'));
+    const statusIndex = headers.findIndex((text) => text.includes('状态'));
+    expect(remarkIndex).toBeGreaterThan(statusIndex);
+    expect(createdAtIndex).toBe(remarkIndex + 1);
+    expect(createdAtIndex).toBe(headers.length - 2); // last data column, before the actions column
+    const firstRow = container.querySelector('.ant-table-tbody tr.ant-table-row')!;
+    expect(firstRow.textContent).toContain('集团总部');
+    expect(firstRow.textContent).toContain('2026/11/19 18:19');
+    expect(firstRow.querySelector('.menu-name-cell svg')).toBeNull();
   });
 
   it('saves the edited record back to the update endpoint', async () => {
@@ -160,20 +202,33 @@ describe('DepartmentPage edit drawer', () => {
     });
   });
 
-  it('filters departments locally without query/reset buttons', async () => {
-    apiMocks.listResourceApi.mockResolvedValue(departments);
+  it('applies the department search only on query click and restores it on reset', async () => {
+    // Flat rows keep this test focused on search timing, not tree expansion.
+    const flatDepartments = departments.map((item) => ({ ...item, parentId: 0, ancestors: '0' }));
+    apiMocks.listResourceApi.mockResolvedValue(flatDepartments);
     apiMocks.listDepartmentsApi.mockResolvedValue(departments);
     apiMocks.listUsersApi.mockResolvedValue({ items: [], total: 0 });
 
-    render(<StrictMode><DepartmentPage /></StrictMode>);
-    await screen.findAllByText('总公司');
+    const { container } = render(<StrictMode><DepartmentPage /></StrictMode>);
+    const rows = () => container.querySelectorAll('.ant-table-tbody tr.ant-table-row');
+    await waitFor(() => expect(rows().length).toBe(2));
     const callsAfterLoad = apiMocks.listResourceApi.mock.calls.length;
 
-    expect(screen.queryByRole('button', { name: /查\s*询/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /重\s*置/ })).toBeNull();
+    const queryButton = screen.getByRole('button', { name: /查\s*询/ });
+    const resetButton = screen.getByRole('button', { name: /重\s*置/ });
     fireEvent.change(screen.getByPlaceholderText('名称或编码'), { target: { value: 'HQ' } });
 
-    await waitFor(() => expect(screen.queryAllByText('总公司').length).toBeGreaterThan(0));
+    // Typing alone must not filter: both departments are still shown.
+    expect(rows().length).toBe(2);
+    fireEvent.click(queryButton);
+
+    await waitFor(() => expect(rows().length).toBe(1));
+    expect(rows()[0].textContent).toContain('总公司');
+    // Local filtering never refetches from the server.
+    expect(apiMocks.listResourceApi.mock.calls.length).toBe(callsAfterLoad);
+
+    fireEvent.click(resetButton);
+    await waitFor(() => expect(rows().length).toBe(2));
     expect(apiMocks.listResourceApi.mock.calls.length).toBe(callsAfterLoad);
   });
 });

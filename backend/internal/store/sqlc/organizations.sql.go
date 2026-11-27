@@ -68,8 +68,8 @@ func (q *Queries) CountPositionsFiltered(ctx context.Context, arg CountPositions
 
 const createDepartment = `-- name: CreateDepartment :one
 INSERT INTO sys_department
-  (parent_id, ancestors, code, name, leader_user_id, sort, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (parent_id, ancestors, code, name, remark, leader_user_id, sort, status, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 RETURNING id
 `
 
@@ -78,9 +78,11 @@ type CreateDepartmentParams struct {
 	Ancestors    string        `json:"ancestors"`
 	Code         string        `json:"code"`
 	Name         string        `json:"name"`
+	Remark       string        `json:"remark"`
 	LeaderUserID sql.NullInt64 `json:"leader_user_id"`
 	Sort         int32         `json:"sort"`
 	Status       int16         `json:"status"`
+	CreatedBy    uint64        `json:"created_by"`
 }
 
 func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (int64, error) {
@@ -89,9 +91,11 @@ func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentPara
 		arg.Ancestors,
 		arg.Code,
 		arg.Name,
+		arg.Remark,
 		arg.LeaderUserID,
 		arg.Sort,
 		arg.Status,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -99,17 +103,18 @@ func (q *Queries) CreateDepartment(ctx context.Context, arg CreateDepartmentPara
 }
 
 const createPosition = `-- name: CreatePosition :one
-INSERT INTO sys_position (code, name, sort, status, remark)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO sys_position (code, name, sort, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
 RETURNING id
 `
 
 type CreatePositionParams struct {
-	Code   string `json:"code"`
-	Name   string `json:"name"`
-	Sort   int32  `json:"sort"`
-	Status int16  `json:"status"`
-	Remark string `json:"remark"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Sort      int32  `json:"sort"`
+	Status    int16  `json:"status"`
+	Remark    string `json:"remark"`
+	CreatedBy uint64 `json:"created_by"`
 }
 
 func (q *Queries) CreatePosition(ctx context.Context, arg CreatePositionParams) (int64, error) {
@@ -119,6 +124,7 @@ func (q *Queries) CreatePosition(ctx context.Context, arg CreatePositionParams) 
 		arg.Sort,
 		arg.Status,
 		arg.Remark,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -126,17 +132,18 @@ func (q *Queries) CreatePosition(ctx context.Context, arg CreatePositionParams) 
 }
 
 const disableDepartmentDescendants = `-- name: DisableDepartmentDescendants :exec
-UPDATE sys_department SET status = 0
+UPDATE sys_department SET status = 0, updated_by = $3
 WHERE deleted_at IS NULL AND (ancestors = $1 OR ancestors LIKE CONCAT($2::text, ',%'))
 `
 
 type DisableDepartmentDescendantsParams struct {
 	Ancestors string `json:"ancestors"`
 	Column2   string `json:"column_2"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) DisableDepartmentDescendants(ctx context.Context, arg DisableDepartmentDescendantsParams) error {
-	_, err := q.db.ExecContext(ctx, disableDepartmentDescendants, arg.Ancestors, arg.Column2)
+	_, err := q.db.ExecContext(ctx, disableDepartmentDescendants, arg.Ancestors, arg.Column2, arg.UpdatedBy)
 	return err
 }
 
@@ -207,7 +214,7 @@ func (q *Queries) ListDepartmentNames(ctx context.Context) ([]ListDepartmentName
 }
 
 const listDepartmentsFiltered = `-- name: ListDepartmentsFiltered :many
-SELECT d.id, d.parent_id, d.ancestors, d.code, d.name,
+SELECT d.id, d.parent_id, d.ancestors, d.code, d.name, d.remark,
   d.leader_user_id, COALESCE(u.display_name, '') AS leader_name, d.sort, d.status, d.created_at
 FROM sys_department d
 LEFT JOIN sys_user u ON u.id = d.leader_user_id AND u.deleted_at IS NULL
@@ -228,6 +235,7 @@ type ListDepartmentsFilteredRow struct {
 	Ancestors    string        `json:"ancestors"`
 	Code         string        `json:"code"`
 	Name         string        `json:"name"`
+	Remark       string        `json:"remark"`
 	LeaderUserID sql.NullInt64 `json:"leader_user_id"`
 	LeaderName   string        `json:"leader_name"`
 	Sort         int32         `json:"sort"`
@@ -250,6 +258,7 @@ func (q *Queries) ListDepartmentsFiltered(ctx context.Context, arg ListDepartmen
 			&i.Ancestors,
 			&i.Code,
 			&i.Name,
+			&i.Remark,
 			&i.LeaderUserID,
 			&i.LeaderName,
 			&i.Sort,
@@ -339,7 +348,8 @@ func (q *Queries) ListPositionsFiltered(ctx context.Context, arg ListPositionsFi
 
 const rewriteDepartmentAncestorsPrefix = `-- name: RewriteDepartmentAncestorsPrefix :exec
 UPDATE sys_department
-SET ancestors = CONCAT($1::text, SUBSTRING(ancestors, LENGTH($2::text) + 1))
+SET ancestors = CONCAT($1::text, SUBSTRING(ancestors, LENGTH($2::text) + 1)),
+    updated_by = $5
 WHERE deleted_at IS NULL AND (ancestors = $3 OR ancestors LIKE CONCAT($4::text, ',%'))
 `
 
@@ -348,25 +358,34 @@ type RewriteDepartmentAncestorsPrefixParams struct {
 	Column2   string `json:"column_2"`
 	Ancestors string `json:"ancestors"`
 	Column4   string `json:"column_4"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
+// Subtree maintenance for a move: the mover is the editor of every row whose
+// path changed.
 func (q *Queries) RewriteDepartmentAncestorsPrefix(ctx context.Context, arg RewriteDepartmentAncestorsPrefixParams) error {
 	_, err := q.db.ExecContext(ctx, rewriteDepartmentAncestorsPrefix,
 		arg.Column1,
 		arg.Column2,
 		arg.Ancestors,
 		arg.Column4,
+		arg.UpdatedBy,
 	)
 	return err
 }
 
 const softDeleteDepartment = `-- name: SoftDeleteDepartment :execrows
-UPDATE sys_department SET deleted_at = NOW(), status = 0
+UPDATE sys_department SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteDepartment(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteDepartment, id)
+type SoftDeleteDepartmentParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteDepartment(ctx context.Context, arg SoftDeleteDepartmentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteDepartment, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -374,12 +393,17 @@ func (q *Queries) SoftDeleteDepartment(ctx context.Context, id int64) (int64, er
 }
 
 const softDeletePosition = `-- name: SoftDeletePosition :execrows
-UPDATE sys_position SET deleted_at = NOW(), status = 0
+UPDATE sys_position SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeletePosition(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeletePosition, id)
+type SoftDeletePositionParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeletePosition(ctx context.Context, arg SoftDeletePositionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeletePosition, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -388,8 +412,9 @@ func (q *Queries) SoftDeletePosition(ctx context.Context, id int64) (int64, erro
 
 const updateDepartment = `-- name: UpdateDepartment :execrows
 UPDATE sys_department SET parent_id = $1, ancestors = $2, code = $3,
-  name = $4, leader_user_id = $5, sort = $6, status = $7
-WHERE id = $8 AND deleted_at IS NULL
+  name = $4, remark = $5, leader_user_id = $6, sort = $7,
+  status = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL
 `
 
 type UpdateDepartmentParams struct {
@@ -397,9 +422,11 @@ type UpdateDepartmentParams struct {
 	Ancestors    string        `json:"ancestors"`
 	Code         string        `json:"code"`
 	Name         string        `json:"name"`
+	Remark       string        `json:"remark"`
 	LeaderUserID sql.NullInt64 `json:"leader_user_id"`
 	Sort         int32         `json:"sort"`
 	Status       int16         `json:"status"`
+	UpdatedBy    uint64        `json:"updated_by"`
 	ID           int64         `json:"id"`
 }
 
@@ -409,9 +436,11 @@ func (q *Queries) UpdateDepartment(ctx context.Context, arg UpdateDepartmentPara
 		arg.Ancestors,
 		arg.Code,
 		arg.Name,
+		arg.Remark,
 		arg.LeaderUserID,
 		arg.Sort,
 		arg.Status,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -421,17 +450,18 @@ func (q *Queries) UpdateDepartment(ctx context.Context, arg UpdateDepartmentPara
 }
 
 const updateDepartmentStatus = `-- name: UpdateDepartmentStatus :execrows
-UPDATE sys_department SET status = $1
+UPDATE sys_department SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL
 `
 
 type UpdateDepartmentStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateDepartmentStatus(ctx context.Context, arg UpdateDepartmentStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateDepartmentStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updateDepartmentStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -440,17 +470,18 @@ func (q *Queries) UpdateDepartmentStatus(ctx context.Context, arg UpdateDepartme
 
 const updatePosition = `-- name: UpdatePosition :execrows
 UPDATE sys_position SET code = $1, name = $2, sort = $3,
-  status = $4, remark = $5
-WHERE id = $6 AND deleted_at IS NULL
+  status = $4, remark = $5, updated_by = $6
+WHERE id = $7 AND deleted_at IS NULL
 `
 
 type UpdatePositionParams struct {
-	Code   string `json:"code"`
-	Name   string `json:"name"`
-	Sort   int32  `json:"sort"`
-	Status int16  `json:"status"`
-	Remark string `json:"remark"`
-	ID     int64  `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Sort      int32  `json:"sort"`
+	Status    int16  `json:"status"`
+	Remark    string `json:"remark"`
+	UpdatedBy uint64 `json:"updated_by"`
+	ID        int64  `json:"id"`
 }
 
 func (q *Queries) UpdatePosition(ctx context.Context, arg UpdatePositionParams) (int64, error) {
@@ -460,6 +491,7 @@ func (q *Queries) UpdatePosition(ctx context.Context, arg UpdatePositionParams) 
 		arg.Sort,
 		arg.Status,
 		arg.Remark,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -469,17 +501,18 @@ func (q *Queries) UpdatePosition(ctx context.Context, arg UpdatePositionParams) 
 }
 
 const updatePositionStatus = `-- name: UpdatePositionStatus :execrows
-UPDATE sys_position SET status = $1
+UPDATE sys_position SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL
 `
 
 type UpdatePositionStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdatePositionStatus(ctx context.Context, arg UpdatePositionStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updatePositionStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updatePositionStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

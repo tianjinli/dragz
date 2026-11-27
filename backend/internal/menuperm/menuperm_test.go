@@ -106,9 +106,6 @@ func TestBuildDeduplicatesCodesAndAssignsSort(t *testing.T) {
 	if buttons[0].Path != "/api/system/users" {
 		t.Fatalf("first declaration should win, got %q", buttons[0].Path)
 	}
-	if !buttons[1].Sensitive || buttons[0].Sensitive {
-		t.Fatalf("sensitivity should follow the method")
-	}
 }
 
 func TestBuildReportsUnresolvedParent(t *testing.T) {

@@ -1,9 +1,10 @@
 -- name: CreateAPIToken :one
 INSERT INTO sys_api_token
-  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
+  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at, created_by)
 VALUES (
   sqlc.arg(tenant_id), sqlc.arg(user_id), sqlc.arg(name), sqlc.arg(token_prefix),
-  sqlc.arg(token_hash), sqlc.arg(scopes), sqlc.arg(ip_allowlist), sqlc.arg(expires_at)
+  sqlc.arg(token_hash), sqlc.arg(scopes), sqlc.arg(ip_allowlist), sqlc.arg(expires_at),
+  sqlc.arg(user_id)
 )
 RETURNING id;
 
@@ -30,18 +31,19 @@ UPDATE sys_api_token SET last_used_at = NOW(), last_used_ip = $1 WHERE id = $2;
 INSERT INTO sys_operation_log
   (user_id, username, module, action, permission, method, path, target_type,
    target_id, request_id, ip, user_agent, success, status_code, duration_ms,
-   error_code, error_message)
+   error_code, error_message, created_by)
 VALUES (NULLIF(sqlc.arg(user_id)::bigint, 0), sqlc.arg(username), sqlc.arg(module), sqlc.arg(action),
   sqlc.arg(permission), sqlc.arg(method), sqlc.arg(path), sqlc.arg(target_type),
   sqlc.arg(target_id), sqlc.arg(request_id), sqlc.arg(ip), sqlc.arg(user_agent),
   sqlc.arg(success), sqlc.arg(status_code), sqlc.arg(duration_ms),
-  sqlc.arg(error_code), sqlc.arg(error_message));
+  sqlc.arg(error_code), sqlc.arg(error_message), COALESCE(sqlc.arg(user_id)::bigint, 0));
 
 -- name: InsertErrorLog :exec
 INSERT INTO sys_error_log
-  (request_id, user_id, module, method, path, error_code, message, ip)
+  (request_id, user_id, module, method, path, error_code, message, ip, created_by)
 VALUES (sqlc.arg(request_id), NULLIF(sqlc.arg(user_id)::bigint, 0), sqlc.arg(module), sqlc.arg(method),
-  sqlc.arg(path), sqlc.arg(error_code), sqlc.arg(message), sqlc.arg(ip));
+  sqlc.arg(path), sqlc.arg(error_code), sqlc.arg(message), sqlc.arg(ip),
+  COALESCE(sqlc.arg(user_id)::bigint, 0));
 
 -- name: ResolveErrorLog :execrows
 UPDATE sys_error_log SET resolved = 1, resolved_by = $1, resolved_at = NOW()

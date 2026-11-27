@@ -50,6 +50,8 @@ const menus = [
   { id: 4, parentId: 0, type: 'page', name: '工作台', code: 'dashboard', icon: 'lucide:layout-dashboard', routePath: '/analytics', sort: 0, status: 1 },
   // managed: 0 = created by an administrator, fully editable.
   { id: 5, parentId: 2, type: 'button', name: '导出用户', code: 'system:user:export', icon: '', routePath: '', method: 'GET', path: '/api/system/users/export', sort: 2, status: 1, managed: 0 },
+  // An off-site target (status 0, so the status filter has something to keep).
+  { id: 6, parentId: 0, type: 'page', name: '外部文档', code: 'docs', icon: 'lucide:book', routePath: 'https://example.com/docs', sort: 9, status: 0 },
 ];
 
 function mockMenus() {
@@ -75,6 +77,18 @@ async function openTreeOptions(id: string): Promise<string[]> {
 
 function readSegmented(): string[] {
   return Array.from(document.querySelectorAll('.ant-segmented-item-label')).map((node) => node.textContent ?? '');
+}
+
+async function chooseStatus(label: string) {
+  const select = document.querySelector('.ant-select');
+  expect(select).not.toBeNull();
+  fireEvent.mouseDown(select!.querySelector('.ant-select-selector') ?? select!);
+  const option = await waitFor(() => {
+    const node = document.querySelector(`.ant-select-item-option[title="${label}"]`);
+    expect(node).not.toBeNull();
+    return node as HTMLElement;
+  });
+  fireEvent.click(option);
 }
 
 describe('MenuPage', () => {
@@ -321,5 +335,57 @@ describe('MenuPage permission buttons', () => {
 
     const manualRow = rowOf(await screen.findByText('导出用户'));
     expect(within(manualRow!).getByText('手工')).toBeInTheDocument();
+  });
+});
+
+describe('MenuPage search and path links', () => {
+  afterEach(cleanup);
+
+  it('filters the tree by menu name', async () => {
+    mockMenus();
+    render(<StrictMode><MenuPage /></StrictMode>);
+    await screen.findByText('工作台');
+
+    fireEvent.change(screen.getByPlaceholderText('菜单名称'), { target: { value: '工作台' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    await waitFor(() => expect(screen.queryByText('组织权限')).toBeNull());
+    expect(screen.getByText('工作台')).toBeInTheDocument();
+  });
+
+  it('filters the tree by status', async () => {
+    mockMenus();
+    render(<StrictMode><MenuPage /></StrictMode>);
+    await screen.findByText('外部文档');
+
+    await chooseStatus('禁用');
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    await waitFor(() => expect(screen.queryByText('工作台')).toBeNull());
+    expect(screen.getByText('外部文档')).toBeInTheDocument();
+  });
+
+  it('opens an http target in a new tab and leaves internal routes as text', async () => {
+    mockMenus();
+    render(<StrictMode><MenuPage /></StrictMode>);
+
+    const link = await screen.findByRole('link', { name: 'https://example.com/docs' });
+    expect(link).toHaveAttribute('href', 'https://example.com/docs');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.queryByRole('link', { name: '/organization' })).toBeNull();
+  });
+
+  it('explains the route path link rule behind a click-to-open hint', async () => {
+    mockMenus();
+    render(<StrictMode><MenuPage /></StrictMode>);
+    fireEvent.click(await screen.findByRole('button', { name: '新增' }));
+    await waitFor(() => expect(screen.getByText('新增菜单')).toBeInTheDocument());
+
+    // The icon sits beside 路由路径 and says nothing until it is clicked.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '字段说明' }));
+
+    await waitFor(() => expect(screen.getByRole('tooltip').textContent).toContain('https://'));
   });
 });

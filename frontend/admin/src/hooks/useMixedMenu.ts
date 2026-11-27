@@ -5,8 +5,8 @@ import { useAccessStore } from '@/stores/access';
 import { usePreferencesStore } from '@/stores/preferences';
 import type { MenuRoute } from '@/types';
 
-function visibleChildren(menu?: MenuRoute): MenuRoute[] {
-  return (menu?.children || []).filter((child) => !child.meta?.hideInMenu);
+function childrenOf(menu?: MenuRoute): MenuRoute[] {
+  return menu?.children || [];
 }
 
 export function useMixedMenu() {
@@ -30,9 +30,9 @@ export function useMixedMenu() {
   const secondaryMenu = isHeaderMixedNav ? trail[1] : undefined;
 
   /** Visible children of the active root — dual-column submenu / header-mixed rail (二级). */
-  const splitSideMenus = useMemo(() => visibleChildren(rootMenu), [rootMenu]);
+  const splitSideMenus = useMemo(() => childrenOf(rootMenu), [rootMenu]);
   /** Header-mixed second column: tertiary (三级) under the active secondary. */
-  const tertiaryMenus = useMemo(() => visibleChildren(secondaryMenu), [secondaryMenu]);
+  const tertiaryMenus = useMemo(() => childrenOf(secondaryMenu), [secondaryMenu]);
 
   const headerMenus = useMemo(() => {
     if (!needSplit) return menus;
@@ -45,7 +45,7 @@ export function useMixedMenu() {
    * - header-mixed-nav: secondary under active root (二级)
    */
   const railMenus = useMemo(() => {
-    if (isSidebarMixedNav) return menus.filter((menu) => !menu.meta?.hideInMenu);
+    if (isSidebarMixedNav) return menus;
     if (isHeaderMixedNav) return splitSideMenus;
     return [];
   }, [isHeaderMixedNav, isSidebarMixedNav, menus, splitSideMenus]);
@@ -64,9 +64,9 @@ export function useMixedMenu() {
 
   const resolveRootNavigation = (rootPath: string) => {
     const root = findMenu(menus, rootPath) || menus.find((menu) => menu.path === rootPath);
-    if (!root?.children?.some((child) => !child.meta?.hideInMenu)) return rootPath;
+    if (!root?.children?.length) return rootPath;
     if (prefs.sidebar.autoActivateChild) return firstLeafPath(root);
-    const firstChild = (root.children || []).find((child) => !child.meta?.hideInMenu);
+    const firstChild = (root.children || [])[0];
     return firstChild?.path || rootPath;
   };
 

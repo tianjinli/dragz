@@ -35,8 +35,8 @@ type menuRow struct {
 // menu that comes back is revived as the same row, keeping its id and grants.
 //
 // Fields: the structure (parent, type, route) is re-applied on every call; the
-// presentation (name, icon, sort, visible, keep_alive) is written on first
-// insert only, so an administrator's rename and reorder survive a re-enable.
+// presentation (name, icon, sort) is written on first insert only, so an
+// administrator's rename and reorder survive a re-enable.
 //
 // The whole batch runs in one transaction, so a failure halfway leaves nothing
 // behind and the caller can fail before the plugin is flipped on.
@@ -297,8 +297,8 @@ func insertPluginMenu(ctx context.Context, tx *Tx, node menuperm.MenuNode) (uint
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO sys_menu
 		   (parent_id, type, name, code, route_name, route_path, component,
-		    redirect, icon, sort, status, visible, keep_alive, plugin_id)
-		 VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $11, $12)
+		    redirect, icon, sort, status, plugin_id)
+		 VALUES (0, $1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)
 		 RETURNING id`,
 		menuperm.NormalizeType(node.Type),
 		node.Name,
@@ -309,8 +309,6 @@ func insertPluginMenu(ctx context.Context, tx *Tx, node menuperm.MenuNode) (uint
 		node.Redirect,
 		node.Icon,
 		int32(node.Sort),
-		boolSmallInt16(!node.Hidden),
-		boolSmallInt16(node.KeepAlive),
 		node.PluginID,
 	).Scan(&id)
 	if err != nil {

@@ -15,14 +15,14 @@ import (
 type saveRoleRequest struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
-	DataScope string `json:"dataScope"`
+	DataScope *int16 `json:"dataScope"`
 	Sort      int    `json:"sort"`
 	Status    int8   `json:"status"`
 	Remark    string `json:"remark"`
 }
 
 type saveRoleGrantsRequest struct {
-	DataScope     string   `json:"dataScope"`
+	DataScope     *int16   `json:"dataScope"`
 	MenuIDs       []uint64 `json:"menuIds"`
 	DepartmentIDs []uint64 `json:"departmentIds"`
 }
@@ -37,15 +37,10 @@ type saveMenuRequest struct {
 	Component   string `json:"component"`
 	Redirect    string `json:"redirect"`
 	Icon        string `json:"icon"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive bool   `json:"isSensitive"`
-	Sort        int    `json:"sort"`
-	Status      int8   `json:"status"`
-	Visible     bool   `json:"visible"`
-	KeepAlive   bool   `json:"keepAlive"`
-	AffixTab    bool   `json:"affixTab"`
-	ExternalURL string `json:"externalUrl"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Sort      int    `json:"sort"`
+	Status    int8   `json:"status"`
 }
 
 func listRolesHandler(ctx *app.Context) http.HandlerFunc {
@@ -209,14 +204,15 @@ func saveRoleGrantsHandler(ctx *app.Context) http.HandlerFunc {
 			return
 		}
 		var req saveRoleGrantsRequest
-		if !decode(w, r, &req) || !validDataScope(req.DataScope) {
-			if req.DataScope != "" {
-				fail(w, r, http.StatusBadRequest, 40001, "errors.data_scope_invalid")
-			}
+		if !decode(w, r, &req) {
+			return
+		}
+		if req.DataScope == nil || !validDataScope(*req.DataScope) {
+			fail(w, r, http.StatusBadRequest, 40001, "errors.data_scope_invalid")
 			return
 		}
 		if err := logic.NewRBACLogic(logicContext(ctx)).SaveRoleGrants(r.Context(), store.RoleGrants{
-			RoleID: id, DataScope: req.DataScope, MenuIDs: req.MenuIDs,
+			RoleID: id, DataScope: *req.DataScope, MenuIDs: req.MenuIDs,
 			DepartmentIDs: req.DepartmentIDs,
 		}); err != nil {
 			writeRBACError(w, r, err, "subjects.role")
@@ -362,7 +358,8 @@ func updateMenuStatusHandler(ctx *app.Context) http.HandlerFunc {
 }
 
 func validateRole(w http.ResponseWriter, r *http.Request, req saveRoleRequest) bool {
-	if strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.Name) == "" || !validDataScope(req.DataScope) {
+	if strings.TrimSpace(req.Code) == "" || strings.TrimSpace(req.Name) == "" ||
+		req.DataScope == nil || !validDataScope(*req.DataScope) {
 		fail(w, r, http.StatusBadRequest, 40001, "errors.role_fields_invalid")
 		return false
 	}
@@ -373,18 +370,13 @@ func validateRole(w http.ResponseWriter, r *http.Request, req saveRoleRequest) b
 	return true
 }
 
-func validDataScope(value string) bool {
-	switch value {
-	case "self", "department", "department_and_children", "custom", "all":
-		return true
-	default:
-		return false
-	}
+func validDataScope(value int16) bool {
+	return value >= store.DataScopeAll && value <= store.DataScopeCustom
 }
 
 func roleInput(req saveRoleRequest) store.SaveRoleInput {
 	return store.SaveRoleInput{
-		Code: strings.TrimSpace(req.Code), Name: strings.TrimSpace(req.Name), DataScope: req.DataScope,
+		Code: strings.TrimSpace(req.Code), Name: strings.TrimSpace(req.Name), DataScope: *req.DataScope,
 		Sort: req.Sort, Status: req.Status, Remark: strings.TrimSpace(req.Remark),
 	}
 }
@@ -422,7 +414,7 @@ func validateMenu(w http.ResponseWriter, r *http.Request, req saveMenuRequest) b
 
 func isAllowedMenuType(menuType string) bool {
 	switch menuType {
-	case "directory", "page", "button", "external":
+	case "directory", "page", "button":
 		return true
 	default:
 		return false
@@ -436,9 +428,7 @@ func menuInput(req saveMenuRequest) store.SaveMenuInput {
 		Component: strings.TrimSpace(req.Component), Redirect: strings.TrimSpace(req.Redirect),
 		Icon:   strings.TrimSpace(req.Icon),
 		Method: strings.ToUpper(strings.TrimSpace(req.Method)), Path: strings.TrimSpace(req.Path),
-		IsSensitive: req.IsSensitive, Sort: req.Sort,
-		Status: req.Status, Visible: req.Visible, KeepAlive: req.KeepAlive, AffixTab: req.AffixTab,
-		ExternalURL: strings.TrimSpace(req.ExternalURL),
+		Sort: req.Sort, Status: req.Status,
 	}
 }
 

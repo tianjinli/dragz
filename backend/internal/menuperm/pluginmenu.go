@@ -24,8 +24,6 @@ type MenuNode struct {
 	Redirect  string
 	Icon      string
 	Sort      int
-	Hidden    bool
-	KeepAlive bool
 	// PluginID owns the row. The store refuses to touch a code owned by
 	// somebody else, which is what turns a clash into an error instead of a
 	// silent skip.

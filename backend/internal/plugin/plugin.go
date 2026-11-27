@@ -56,11 +56,6 @@ type Menu struct {
 	// Sort is the first-insert ordinal within the parent. Like Name, it is an
 	// initial value; an administrator's reorder is not clobbered.
 	Sort int
-	// Hidden maps to sys_menu.visible = 0. The zero value means visible,
-	// which is what a plugin almost always wants.
-	Hidden bool
-	// KeepAlive maps to sys_menu.keep_alive.
-	KeepAlive bool
 }
 
 // Meta describes a plugin. ID doubles as directory name, table prefix and

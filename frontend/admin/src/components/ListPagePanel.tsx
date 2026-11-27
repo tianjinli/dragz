@@ -1,5 +1,5 @@
 import { useState, type ReactElement, type ReactNode } from "react";
-import { Button } from "antd";
+import { Button, Tooltip } from "antd";
 import { Maximize2, Minimize2, RotateCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -38,36 +38,43 @@ export function ListPagePanel({
               </div>
               <div className="list-table-toolbar-tools">
                 {toolbar?.search ? (
-                  <Button
-                    type="text"
-                    aria-label={searchVisible ? t("common.hideSearch") : t("common.showSearch")}
+                  <Tooltip
                     title={searchVisible ? t("common.hideSearch") : t("common.showSearch")}
-                    icon={<Search size={15} />}
-                    onClick={() => setSearchVisible((value) => !value)}
-                  />
+                  >
+                    <Button
+                      type="text"
+                      aria-label={searchVisible ? t("common.hideSearch") : t("common.showSearch")}
+                      icon={<Search size={15} />}
+                      onClick={() => setSearchVisible((value) => !value)}
+                    />
+                  </Tooltip>
                 ) : null}
                 {toolbar?.onRefresh ? (
+                  <Tooltip title={t("common.refresh")}>
+                    <Button
+                      type="text"
+                      aria-label={t("common.refresh")}
+                      icon={<RotateCw size={15} />}
+                      onClick={toolbar.onRefresh}
+                    />
+                  </Tooltip>
+                ) : null}
+                <Tooltip
+                  title={fullscreen ? t("common.exitFullscreen") : t("common.fullscreen")}
+                >
                   <Button
                     type="text"
-                    aria-label={t("common.refresh")}
-                    title={t("common.refresh")}
-                    icon={<RotateCw size={15} />}
-                    onClick={toolbar.onRefresh}
+                    aria-label={fullscreen ? t("common.exitFullscreen") : t("common.fullscreen")}
+                    icon={
+                      fullscreen ? (
+                        <Minimize2 size={15} />
+                      ) : (
+                        <Maximize2 size={15} />
+                      )
+                    }
+                    onClick={() => setFullscreen((value) => !value)}
                   />
-                ) : null}
-                <Button
-                  type="text"
-                  aria-label={fullscreen ? t("common.exitFullscreen") : t("common.fullscreen")}
-                  title={fullscreen ? t("common.exitFullscreen") : t("common.fullscreen")}
-                  icon={
-                    fullscreen ? (
-                      <Minimize2 size={15} />
-                    ) : (
-                      <Maximize2 size={15} />
-                    )
-                  }
-                  onClick={() => setFullscreen((value) => !value)}
-                />
+                </Tooltip>
               </div>
             </div>
           </div>

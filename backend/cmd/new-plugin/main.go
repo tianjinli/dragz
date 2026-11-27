@@ -90,7 +90,7 @@ func run(id, name string, withFrontend, withMigration bool) error {
 -- multitenant migration; this file does not create them.
 CREATE TABLE IF NOT EXISTS %s (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT NOT NULL DEFAULT 1,
+  tenant_id BIGINT NOT NULL,
   name TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

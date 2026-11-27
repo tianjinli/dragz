@@ -117,38 +117,38 @@ LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
 -- name: SetMenuSourceText :execrows
 -- Covers both menu.<code> and perm.<code>: sys_menu.code is unique across
 -- pages and buttons, so one key addresses exactly one row.
-UPDATE sys_menu SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_menu SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetRoleSourceText :execrows
-UPDATE sys_role SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_role SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetRoleSourceRemark :execrows
-UPDATE sys_role SET remark = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_role SET remark = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetDepartmentSourceText :execrows
-UPDATE sys_department SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_department SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetPositionSourceText :execrows
-UPDATE sys_position SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_position SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetPositionSourceRemark :execrows
-UPDATE sys_position SET remark = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_position SET remark = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetJobSourceText :execrows
-UPDATE sys_scheduled_job SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_scheduled_job SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetStorageSourceText :execrows
 -- storage_type carries no UNIQUE constraint, so the storage.<type> key
 -- addresses the oldest live row of that type; a duplicate type keeps its own
 -- name rather than being renamed behind the administrator's back.
-UPDATE sys_storage_config SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_storage_config SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE id = (
   SELECT MIN(sc.id) FROM sys_storage_config sc
   WHERE sc.storage_type = sqlc.arg(code) AND sc.deleted_at IS NULL
@@ -158,14 +158,14 @@ WHERE id = (
 -- The dicttype.<code> key addresses the dictionary type of the caller's
 -- tenant (row-level security scopes the read); renaming writes the label back
 -- into the owning column so Chinese stays the source of truth.
-UPDATE sys_dict_type SET name = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_dict_type SET name = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE code = sqlc.arg(code) AND deleted_at IS NULL;
 
 -- name: SetDictItemSourceText :execrows
 -- The dict.<type code>.<value> key addresses one item of the named type.
 -- The value half of the key is the item's business value, not a code, so the
 -- lookup goes through the owning type instead of a rekey.
-UPDATE sys_dict_item SET label = sqlc.arg(value), updated_at = NOW()
+UPDATE sys_dict_item SET label = sqlc.arg(value), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE dict_type_id = (
     SELECT id FROM sys_dict_type
     WHERE code = sqlc.arg(type_code) AND deleted_at IS NULL
@@ -178,7 +178,7 @@ WHERE dict_type_id = (
 -- whose destination is already taken are left behind, matching
 -- RekeyTranslations. The prefix compare is left() rather than LIKE so a code
 -- containing _ or % (legal since codes are snake_case) cannot over-match.
-UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_prefix) || substring(tr.entity_key from length(sqlc.arg(old_prefix))::int + 1), updated_at = NOW()
+UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_prefix) || substring(tr.entity_key from length(sqlc.arg(old_prefix))::int + 1), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE left(tr.entity_key, length(sqlc.arg(old_prefix))::int) = sqlc.arg(old_prefix)
   AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
@@ -195,7 +195,7 @@ WHERE left(tr.entity_key, length(sqlc.arg(old_prefix))::int) = sqlc.arg(old_pref
 -- already taken are left alone rather than violating the tenant-scoped unique
 -- key. The scope is part of the conflict test: the platform default and a
 -- tenant override are separate rows that happen to share a key.
-UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_key), updated_at = NOW()
+UPDATE sys_translation AS tr SET entity_key = sqlc.arg(new_key), updated_at = NOW(), updated_by = sqlc.arg(actor)
 WHERE tr.entity_key = sqlc.arg(old_key)
   AND tr.tenant_id IN (0, COALESCE(app_current_tenant_id(), 0))
   AND NOT EXISTS (
@@ -218,10 +218,11 @@ WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id);
 -- Administrator-created translation; a conflict refreshes the value so the
 -- create form is safe to retry. The row belongs to the caller's tenant
 -- (platform 0 when no tenant session is set, e.g. during bootstrap).
-INSERT INTO sys_translation (tenant_id, entity_key, lang, value)
-VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3)
+-- created_by survives the conflict: the row still belongs to its first author.
+INSERT INTO sys_translation (tenant_id, entity_key, lang, value, created_by, updated_by)
+VALUES (COALESCE(app_current_tenant_id(), 0), $1, $2, $3, $4, $4)
 ON CONFLICT (tenant_id, entity_key, lang) DO UPDATE
-SET value = EXCLUDED.value, updated_at = NOW();
+SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by;
 
 -- name: UpdateTranslation :execrows
 -- Edits write straight through to sys_translation: every reader (sidebar,
@@ -232,7 +233,7 @@ SET value = EXCLUDED.value, updated_at = NOW();
 -- store copies it into a tenant override instead, and this predicate is the
 -- second line of defence.
 UPDATE sys_translation
-SET lang = $2, value = $3, updated_at = NOW()
+SET lang = $2, value = $3, updated_at = NOW(), updated_by = $4
 WHERE id = $1
   AND tenant_id = COALESCE(app_current_tenant_id(), 0);
 

@@ -99,7 +99,7 @@
     "timezone": "Timezone",
     "dynamicTitle": "Dynamic Title",
     "watermark": "Watermark",
-    "watermarkText": "Watermark content (defaults to title)",
+    "watermarkText": "Watermark content",
     "updates": "Periodic update check",
     "copyEnable": "Show copy preferences button",
     "animation": "Animation",
@@ -223,6 +223,8 @@
     "submit": "Submit",
     "expand": "Expand",
     "collapse": "Collapse",
+    "pin": "Pin",
+    "unpin": "Unpin",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",
     "showSearch": "Show search",
@@ -334,7 +336,11 @@
     "loginExpiredDesc": "Please sign in again to continue.",
     "restoringSession": "Restoring session…",
     "logoutConfirm": "Sign out now?",
-    "lockCountdown": "{{error}} ({{countdown}})"
+    "lockCountdown": "{{error}} ({{countdown}})",
+    "firstPasswordTitle": "Change your password on first login",
+    "firstPasswordDesc": "For account security, set a new password before continuing. You will need to sign in again with the new password.",
+    "confirmChangePassword": "Change password",
+    "passwordChangedRelogin": "Password changed. Please sign in again with the new password."
   },
   "layout": {
     "checkUpdatesTitle": "New version available",
@@ -661,9 +667,9 @@
       "menuType": {
         "directory": "Directory",
         "page": "Page",
-        "button": "Button",
-        "external": "External Link"
-      }
+        "button": "Button"
+      },
+      "routePathHint": "A value starting with http:// or https:// is treated as an external link and opens in a new tab; otherwise it is an internal route."
     },
     "security": {
       "onlineUser": "Online Users",
@@ -943,6 +949,9 @@
       "title": "Users",
       "searchPlaceholder": "Account, name or mobile",
       "searchDepartment": "Search departments...",
+      "resizeDepartmentTree": "Drag to resize department tree",
+      "collapseDepartmentTree": "Collapse department tree",
+      "expandDepartmentTree": "Expand department tree",
       "department": "Department",
       "departmentField": "Department",
       "loginAccount": "Login account",
@@ -959,8 +968,8 @@
       "dataScope": "Data scope",
       "userCount": "User count",
       "dataScopeAll": "All data",
-      "dataScopeDeptChildren": "Department and sub-departments",
-      "dataScopeDept": "Department",
+      "dataScopeDeptChildren": "Department and children",
+      "dataScopeDept": "Custom department",
       "dataScopeSelf": "Self only",
       "dataScopeCustom": "Custom departments",
       "dataScopeDeptData": "Department data",
@@ -973,7 +982,11 @@
       "roleGrant": "Role permissions",
       "dataScopeRange": "Data scope",
       "grantDepartments": "Authorized departments",
-      "menusAndButtons": "Menus and buttons"
+      "menusAndButtons": "Menus and buttons",
+      "resetPassword": "Reset password",
+      "resetPasswordFor": "Reset password for {{name}}",
+      "newPassword": "New password",
+      "passwordReset": "Password reset"
     },
     "members": {
       "membersTab": "Members",
@@ -1009,6 +1022,12 @@
       "ttlHint": "The invitation expires automatically after this window, up to 30 days.",
       "ttlRange": "Validity must be between 1 and 720 hours",
       "acceptedAt": "Accepted at",
+      "delivery": "Mail",
+      "delivery.none": "—",
+      "delivery.pending": "Sending",
+      "delivery.sent": "Sent",
+      "delivery.failed": "Failed",
+      "delivery.skipped": "Mail disabled",
       "revoke": "Revoke invitation",
       "revoked": "Invitation revoked",
       "revokeConfirmTitle": "Revoke the invitation for \"{{email}}\""
@@ -1060,25 +1079,15 @@
     "purgeCancelled": "Purge cancelled",
     "purgeAfter": "Purge",
     "purgePending": "Pending delete",
-    "description": "Description",
+    "remark": "Remark",
     "entitlements": "Entitlements",
     "sort": "Sort",
-    "invoices": "Invoices",
-    "invoicesTitle": "Invoice Management",
-    "invoicesList": "Invoice list",
-    "tenantFilter": "Filter by tenant",
-    "tenantId": "Tenant",
-    "kind": "Kind",
-    "amount": "Amount",
-    "currency": "Currency",
-    "period": "Period",
-    "memo": "Memo",
     "createPlan": "Create plan",
     "editPlan": "Edit plan",
     "planCreated": "Plan created",
     "planUpdated": "Plan updated",
     "planCodeRequired": "Enter a plan code",
-    "descriptionTooLong": "Description must be 500 characters or fewer",
+    "remarkTooLong": "Remark must be 500 characters or fewer",
     "entitlementKey": "Key",
     "entitlementValue": "Value",
     "entitlementKeyRequired": "Enter an entitlement key",
@@ -1113,43 +1122,12 @@
       "revokeConfirmDesc": "The account loses the platform console. Its memberships inside tenants are unaffected.",
       "user": "User",
       "userPlaceholder": "Search by account or name",
-      "userHint": "Platform staff act across tenants: impersonation, plans, invoices. Grant this only to people who need it.",
+      "userHint": "Platform staff act across tenants: impersonation, plans. Grant this only to people who need it.",
       "userRequired": "Please select a user",
       "note": "Note",
       "notePlaceholder": "Why access is needed (optional)",
       "grantedBy": "Granted by",
       "grantedAt": "Granted at"
-    }
-  },
-  "billing": {
-    "title": "Billing",
-    "currentSubscription": "Current subscription",
-    "noSubscription": "This tenant has no subscription yet.",
-    "plan": "Plan",
-    "startedAt": "Started",
-    "endedAt": "Ended",
-    "trialEndsAt": "Trial ends",
-    "graceEndsAt": "Grace ends",
-    "quotas": "Quotas",
-    "quotaKey": "Quota",
-    "used": "Used",
-    "limit": "Limit",
-    "usage": "Usage",
-    "invoices": "Invoices",
-    "kind": "Kind",
-    "amount": "Amount",
-    "currency": "Currency",
-    "period": "Period",
-    "memo": "Memo",
-    "empty": "Nothing here yet",
-    "usageTitle": "Usage detail",
-    "periodKey": "Period",
-    "updatedAt": "Updated",
-    "quotaNames": {
-      "storage_bytes": "Storage",
-      "seats": "Seats",
-      "api_calls_per_day": "API calls per day",
-      "api_calls": "API calls"
     }
   },
   "crud": {
@@ -1164,7 +1142,8 @@
     "disabledStatus": "Disabled",
     "disabled": "Disabled",
     "query": "Search",
-    "modify": "Edit"
+    "modify": "Edit",
+    "fieldHint": "Field help"
   },
   "signup": {
     "title": "Create your workspace",

@@ -8,8 +8,7 @@ export interface PagedResult<T> { items: T[]; page: number; pageSize: number; to
 export interface ListQuery { keyword?: string; page?: number; pageSize?: number; [key: string]: unknown }
 
 export interface RouteMeta {
-  affixTab?: boolean; hideInMenu?: boolean; icon?: string;
-  keepAlive?: boolean; order?: number; title?: string;
+  icon?: string; order?: number; title?: string;
 }
 export interface MenuRoute {
   children?: MenuRoute[]; component?: string; meta?: RouteMeta; name?: string;
@@ -26,7 +25,7 @@ export interface AdminUserInfo {
   userId: string; username: string;
 }
 export interface TabDefinition {
-  affix?: boolean; icon?: string; key: string; keepAlive?: boolean;
+  icon?: string; key: string;
   path: string; title: string;
 }
 

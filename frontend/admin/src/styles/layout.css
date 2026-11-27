@@ -540,6 +540,17 @@
 .ant-menu-submenu-popup .ant-menu {
   min-width: 168px;
 }
+/* An off-site menu item is a real anchor (the browser then previews its URL in
+   the bottom status bar), but it must look like the menu label, not a link. */
+.admin-menu .ant-menu-title-content a,
+.ant-menu-submenu-popup .ant-menu .ant-menu-title-content a {
+  color: inherit;
+  text-decoration: none;
+}
+.admin-menu .ant-menu-title-content a:hover,
+.ant-menu-submenu-popup .ant-menu .ant-menu-title-content a:hover {
+  color: inherit;
+}
 /* Collapsed sidebar with titles under icons */
 .ant-layout-sider.show-title.ant-layout-sider-collapsed .ant-menu-inline-collapsed {
   width: 100%;
@@ -1289,9 +1300,10 @@ button.breadcrumb-plain-link:hover {
   height: 100%;
   min-height: 0;
   align-items: stretch;
-  gap: 10px;
+  gap: 0;
 }
 .user-list-main {
+  position: relative;
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
@@ -1301,13 +1313,116 @@ button.breadcrumb-plain-link:hover {
 }
 .department-tree-card {
   display: flex;
-  width: 242px;
-  flex: 0 0 242px;
+  /* 右侧额外延伸 20px：让树卡片右缘紧贴按钮左缘，按钮骑跨列表边框 */
+  width: calc(var(--side-panel-width, 242px) + 20px);
+  flex: 0 0 calc(var(--side-panel-width, 242px) + 20px);
   align-self: stretch;
   height: auto;
   min-height: 0;
   margin: 10px 0 10px 10px;
   overflow: hidden;
+}
+/*
+ * 部门树 ↔ 列表分隔（无中间空隙）：
+ * - 图标 15px：左缘贴树卡片右缘，右侧 10px 骑跨进列表区域
+ * - 分隔条左移 10px 覆盖树卡片右缘，保留拖动热区
+ * - 收起：按钮位置不变（仍骑跨列表边框），与左侧菜单 panel 间隙 5px
+ */
+.department-side-panel-resizer {
+  position: relative;
+  width: 15px;
+  flex: 0 0 15px;
+  margin: 10px 0 10px -10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.department-side-panel-resize-track {
+  position: absolute;
+  inset: 0;
+}
+/* 拖动提示线位于展开/收起图标中央偏左 3px（图标中心位于分隔条左缘 +17.5px） */
+.department-side-panel-resizer::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 13.5px;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--primary) 45%, transparent);
+  content: "";
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.department-side-panel-resizer:hover::before {
+  opacity: 1;
+}
+.department-side-panel-resize-grip {
+  position: absolute;
+  top: calc(50% - 26px);
+  left: 14.5px;
+  z-index: 1;
+  box-sizing: content-box;
+  padding: 3px 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.15s ease;
+}
+.department-side-panel-resizer:hover .department-side-panel-resize-grip {
+  opacity: 1;
+}
+/* 按钮盒子 = 图标本身（15x15）：左缘贴树卡片右缘，右侧 10px 骑跨列表边框，无底无描边 */
+.department-side-panel-resizer .side-panel-collapse-toggle {
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 0;
+  transform: translateY(-50%);
+}
+.department-side-panel-resizer .side-panel-collapse-toggle > svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.department-side-panel-resizer .side-panel-collapse-toggle:hover {
+  background: transparent;
+  color: var(--primary);
+}
+.department-side-panel-resizer .side-panel-collapse-toggle:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+.user-list-layout.is-side-panel-collapsed .department-tree-card {
+  display: none;
+}
+.user-list-layout.is-side-panel-collapsed .department-side-panel-resizer {
+  /* 收起：按钮位置与展开态一致（骑跨列表左边框），与左侧菜单 panel 保持 5px 间隙 */
+  cursor: default;
+  margin-left: -5px;
+}
+/* 收起后只剩展开按钮，不画拖动分割线 */
+.user-list-layout.is-side-panel-collapsed .department-side-panel-resizer::before {
+  display: none;
+}
+.user-list-layout.is-side-panel-collapsed .department-side-panel-resize-grip {
+  display: none;
 }
 .department-tree-card > .ant-card-body {
   display: flex;
@@ -1464,6 +1579,32 @@ button.breadcrumb-plain-link:hover {
   flex-direction: column;
   gap: 12px;
   overflow: hidden;
+}
+.side-panel-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.side-panel-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.side-panel-collapse-toggle:hover {
+  background: var(--border-soft, rgba(0, 0, 0, 0.04));
+  color: var(--text, inherit);
 }
 .side-panel-title {
   padding: 4px 8px 8px;
@@ -1704,11 +1845,6 @@ button.breadcrumb-plain-link:hover {
   background: transparent;
   color: inherit;
   font: inherit;
-  cursor: pointer;
-}
-.icon-picker-box:focus-visible {
-  border-color: var(--primary);
-  outline: none;
 }
 .icon-picker-name {
   flex: 1 1 auto;
@@ -1736,7 +1872,22 @@ button.breadcrumb-plain-link:hover {
   align-items: center;
   justify-content: center;
   width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--radius) * 0.6);
+  background: transparent;
   color: color-mix(in srgb, currentColor 55%, transparent);
+  font: inherit;
+  cursor: pointer;
+}
+.icon-picker-icon:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: var(--text);
+}
+.icon-picker-icon:focus-visible {
+  border-color: var(--primary);
+  outline: none;
 }
 .icon-picker-grid-button { display: inline-flex; align-items: center; }
 .icon-picker-popover .ant-popover-inner { padding: 10px; }

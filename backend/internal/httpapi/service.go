@@ -47,7 +47,7 @@ func localizedStored(r *http.Request, raw string) string {
 }
 
 func withUserContext(r *http.Request, userID uint64, username string) *http.Request {
-	requestContext := context.WithValue(r.Context(), ctxkey.UserID, userID)
+	requestContext := ctxkey.WithUserID(r.Context(), userID)
 	requestContext = context.WithValue(requestContext, ctxkey.Username, username)
 	return r.WithContext(requestContext)
 }

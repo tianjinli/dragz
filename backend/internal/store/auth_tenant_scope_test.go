@@ -31,7 +31,7 @@ func TestPermissionCodesMenusAndRolesUseTenantFromContext(t *testing.T) {
 		WithArgs(uint64(3), uint64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "parent_id", "type", "name", "code", "route_name", "route_path",
-			"component", "redirect", "icon", "sort", "visible", "keep_alive", "affix_tab", "external_url",
+			"component", "redirect", "icon", "sort",
 		}))
 
 	repo := NewAuthRepository(&DB{DB: db})

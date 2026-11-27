@@ -1,7 +1,6 @@
-# --- editors / tooling ---
-.idea/
-.vscode/
-.workbuddy*/
+# --- editors / tooling / all dot-directories ---
+.*/
+!/.github/
 
 # --- dependencies ---
 node_modules/
@@ -19,9 +18,11 @@ backend/logs/
 # --- local scratch ---
 .codex-tmp/
 .review-worktrees/
-_attic/
-_attic-*/
+_attic*/
 *.log
+.trae/
+.workbuddy/
+.workbuddy-ai/
 
 # --- local dev runtime (host-run services) ---
 .runlogs/

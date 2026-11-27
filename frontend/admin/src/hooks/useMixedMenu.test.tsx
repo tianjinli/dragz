@@ -19,14 +19,12 @@ const menus: MenuRoute[] = [
     meta: { title: '系统管理' },
     children: [
       { path: '/system/users', name: 'Users', meta: { title: '用户管理' } },
-      { path: '/system/hidden', name: 'Hidden', meta: { title: '隐藏', hideInMenu: true } },
       {
         path: '/system/org',
         name: 'Org',
         meta: { title: '组织' },
         children: [
           { path: '/system/org/depts', name: 'Depts', meta: { title: '部门' } },
-          { path: '/system/org/secret', name: 'Secret', meta: { title: '隐藏', hideInMenu: true } },
         ],
       },
     ],
@@ -94,7 +92,6 @@ describe('useMixedMenu', () => {
     ]);
     expect(result.current.activeRailPath).toBe('/system/org');
     expect(result.current.sidebarMenus.map((menu) => menu.path)).toEqual(['/system/org/depts']);
-    expect(result.current.sidebarMenus.every((menu) => !menu.meta?.hideInMenu)).toBe(true);
   });
 
   it('for header-mixed-nav: hides tertiary column when secondary has no children', () => {

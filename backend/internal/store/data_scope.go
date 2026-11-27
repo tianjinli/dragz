@@ -28,13 +28,13 @@ func (scope DataScope) AllowsDepartment(departmentID uint64) bool {
 	return false
 }
 
-// ResolveUserDataScope unions the data scopes of every enabled role the user holds. A super administrator, or any role with scope "all", short-circuits to unrestricted access; a user with no role at all falls back to "self".
+// ResolveUserDataScope unions the data scopes of every enabled role the user holds. A super administrator, or any role with scope ALL, short-circuits to unrestricted access; a user with no role at all falls back to SELF.
 func (r *AuthRepository) ResolveUserDataScope(ctx context.Context, userID uint64) (DataScope, error) {
 	basics, err := r.queries.GetUserScopeBasics(ctx, int64(userID))
 	if err != nil {
 		return DataScope{}, err
 	}
-	if smallIntBool(basics.IsSuperAdmin) {
+	if basics.IsSuperAdmin {
 		return DataScope{All: true}, nil
 	}
 
@@ -51,21 +51,21 @@ func (r *AuthRepository) ResolveUserDataScope(ctx context.Context, userID uint64
 	for _, row := range rows {
 		hasRule = true
 		switch row.DataScope {
-		case "all":
+		case DataScopeAll:
 			return DataScope{All: true}, nil
-		case "self":
+		case DataScopeSelf:
 			scope.SelfUserID = userID
-		case "department":
+		case DataScopeDept:
 			if basics.DepartmentID.Valid {
 				departments[uint64(basics.DepartmentID.Int64)] = struct{}{}
 			}
-		case "department_and_children":
+		case DataScopeDeptAndChildren:
 			if basics.DepartmentID.Valid {
 				if err := r.addDepartmentAndChildren(ctx, uint64(basics.DepartmentID.Int64), departments); err != nil {
 					return DataScope{}, err
 				}
 			}
-		case "custom":
+		case DataScopeCustom:
 			if err := r.addCustomRoleDepartments(ctx, uint64(row.ID), departments); err != nil {
 				return DataScope{}, err
 			}

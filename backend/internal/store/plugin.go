@@ -73,6 +73,136 @@ func NewPluginRepository(db *DB) *PluginRepository {
 // bootstrapStatements must stay idempotent: they run on every startup, against
 // a brand-new database and against one created months ago.
 var bootstrapStatements = []string{
+	// Column rename from migrations/026_rename_description_to_remark.sql, repeated
+	// here and placed first because bootstrap runs on every start while migrations
+	// only run against an empty volume: an existing database would otherwise still
+	// have description when the seeds below reference remark.
+	`DO $$
+DECLARE
+  target RECORD;
+BEGIN
+  FOR target IN
+    SELECT * FROM (VALUES ('sys_department'), ('sys_config'), ('sys_plan')) AS t(table_name)
+  LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema() AND table_name::text = target.table_name
+                 AND column_name = 'description') THEN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name::text = target.table_name
+                   AND column_name = 'remark') THEN
+        EXECUTE format('UPDATE %I SET remark = description WHERE remark = %L AND description <> %L',
+                       target.table_name, '', '');
+        EXECUTE format('ALTER TABLE %I DROP COLUMN description', target.table_name);
+      ELSE
+        EXECUTE format('ALTER TABLE %I RENAME COLUMN description TO remark', target.table_name);
+      END IF;
+    END IF;
+  END LOOP;
+END $$`,
+	// Boolean conversion from migrations/027_is_columns_to_boolean.sql, also
+	// repeated here for databases that never ran the file. The partial index
+	// depends on is_default in its predicate and must be dropped first; it is
+	// recreated below once every flag has become BOOLEAN.
+	`DROP INDEX IF EXISTS uk_dict_item_default`,
+	`DO $$
+DECLARE
+  target RECORD;
+  current_type TEXT;
+BEGIN
+  FOR target IN
+    SELECT *
+    FROM (VALUES
+      ('sys_user', 'is_super_admin'),
+      ('sys_role', 'is_system'),
+      ('sys_dict_type', 'is_system'),
+      ('sys_dict_item', 'is_default'),
+      ('sys_config', 'is_secret'),
+      ('sys_config', 'is_readonly'),
+      ('sys_storage_config', 'is_default'),
+      ('sys_notice', 'is_pinned'),
+      ('sys_login_log', 'is_suspicious'),
+      ('sys_tenant_domain', 'is_primary'),
+      ('sys_tenant_member', 'is_tenant_admin'),
+      ('sys_tenant_invite', 'is_tenant_admin')
+    ) AS t(table_name, column_name)
+  LOOP
+    SELECT data_type INTO current_type
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name::text = target.table_name
+      AND column_name = target.column_name;
+
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+                   target.table_name, 'ck_' || target.table_name || '_' || target.column_name);
+
+    IF current_type = 'smallint' THEN
+      -- The old DEFAULT 0 cannot be cast implicitly to boolean.
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
+                     target.table_name, target.column_name);
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE BOOLEAN USING %I <> 0',
+                     target.table_name, target.column_name, target.column_name);
+    END IF;
+
+    IF current_type IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT FALSE',
+                     target.table_name, target.column_name);
+    END IF;
+  END LOOP;
+END $$`,
+	// Data scope conversion from migrations/028_role_data_scope_smallint.sql,
+	// repeated here for existing databases that never ran the file (migrations
+	// only run on an empty volume). Without it data_scope stays VARCHAR while
+	// sqlc scans it as int16 and every role query fails with code 500.
+	`DO $$
+DECLARE
+  current_type TEXT;
+BEGIN
+  SELECT data_type INTO current_type
+  FROM information_schema.columns
+  WHERE table_schema = current_schema()
+    AND table_name = 'sys_role'
+    AND column_name = 'data_scope';
+
+  IF current_type = 'character varying' THEN
+    EXECUTE 'ALTER TABLE sys_role ALTER COLUMN data_scope DROP DEFAULT';
+    EXECUTE 'ALTER TABLE sys_role ALTER COLUMN data_scope TYPE SMALLINT USING CASE data_scope '
+         || 'WHEN ''all'' THEN 0 '
+         || 'WHEN ''self'' THEN 1 '
+         || 'WHEN ''department'' THEN 2 '
+         || 'WHEN ''department_and_children'' THEN 3 '
+         || 'WHEN ''custom'' THEN 4 '
+         || 'ELSE 1 END';
+  END IF;
+
+  IF current_type IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE sys_role ALTER COLUMN data_scope SET DEFAULT 1';
+  END IF;
+END $$`,
+	// A column default of 1 defeats app_fill_tenant_id: an INSERT that omits
+	// tenant_id lands in tenant 1 even when the session belongs elsewhere.
+	// Drop stale defaults on existing databases before the seeds below run.
+	`DO $$
+DECLARE
+  target TEXT;
+BEGIN
+  FOREACH target IN ARRAY ARRAY[
+    'sys_department', 'sys_position', 'sys_user_position', 'sys_role',
+    'sys_user_role', 'sys_role_department', 'sys_role_menu', 'sys_dict_type',
+    'sys_dict_item', 'sys_file', 'sys_file_reference', 'sys_notice',
+    'sys_notice_read', 'sys_notification', 'sys_user_notify_pref', 'sys_api_token',
+    'sys_operation_log', 'sys_error_log', 'sys_webhook', 'sys_scheduled_job',
+    'sys_job_log', 'sys_outbox'
+  ]
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = target AND column_name = 'tenant_id'
+    ) THEN
+      EXECUTE format('ALTER TABLE %I ALTER COLUMN tenant_id DROP DEFAULT', target);
+    END IF;
+  END LOOP;
+END $$`,
 	`CREATE TABLE IF NOT EXISTS sys_plugin (
   plugin_id VARCHAR(16) PRIMARY KEY,
   name VARCHAR(128) NOT NULL DEFAULT '',
@@ -104,7 +234,13 @@ var bootstrapStatements = []string{
 	// sync (see SyncPermissionMenus), never by the admin UI.
 	`ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS method VARCHAR(16) NOT NULL DEFAULT ''`,
 	`ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS path VARCHAR(255) NOT NULL DEFAULT ''`,
-	`ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS is_sensitive SMALLINT NOT NULL DEFAULT 0`,
+	// Dropped from the schema (see migrations/030): none of these was ever read
+	// back as behaviour an administrator could control.
+	`ALTER TABLE sys_menu DROP COLUMN IF EXISTS is_sensitive`,
+	`ALTER TABLE sys_menu DROP COLUMN IF EXISTS external_url`,
+	`ALTER TABLE sys_menu DROP COLUMN IF EXISTS affix_tab`,
+	`ALTER TABLE sys_menu DROP COLUMN IF EXISTS keep_alive`,
+	`ALTER TABLE sys_menu DROP COLUMN IF EXISTS visible`,
 	// 1 = the row belongs to the route-table sync. Existing rows start at 0 and
 	// are flipped by the first sync, which is harmless: the sync only refuses to
 	// retire rows it owns, and everything it owns is re-declared on every boot.
@@ -125,12 +261,12 @@ var bootstrapStatements = []string{
 	// tenant. Username and menu code stay global. tenant_id has to exist
 	// before the index is rebuilt; a database created before the multi-tenant
 	// migration does not have the column yet.
-	`ALTER TABLE sys_department ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_position ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_role ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_dict_type ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_dict_item ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_scheduled_job ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
+	`ALTER TABLE sys_department ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_position ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_role ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_dict_type ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_dict_item ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_scheduled_job ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
 	`ALTER TABLE sys_department DROP CONSTRAINT IF EXISTS uk_department_code`,
 	`DROP INDEX IF EXISTS uk_department_code`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_department_code ON sys_department (tenant_id, code) WHERE deleted_at IS NULL`,
@@ -152,28 +288,28 @@ var bootstrapStatements = []string{
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_value ON sys_dict_item (tenant_id, dict_type_id, value) WHERE deleted_at IS NULL`,
 	// A dictionary type keeps at most one default item among LIVE rows. The
 	// dedupe must run before the index: a database written by older builds may
-	// hold several is_default=1 rows in one type, and the unique index would
+	// hold several is_default=TRUE rows in one type, and the unique index would
 	// refuse to build over them. The survivor is the first row in sort order
 	// (id breaks ties), which is what the UI has always rendered as the
 	// default. Idempotent: re-runs find nothing to clear.
-	`UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
-WHERE is_default = 1 AND deleted_at IS NULL
+	`UPDATE sys_dict_item SET is_default = FALSE, updated_at = NOW()
+WHERE is_default = TRUE AND deleted_at IS NULL
   AND id <> (
     SELECT keep.id FROM sys_dict_item keep
     WHERE keep.tenant_id = sys_dict_item.tenant_id
       AND keep.dict_type_id = sys_dict_item.dict_type_id
-      AND keep.is_default = 1 AND keep.deleted_at IS NULL
+      AND keep.is_default = TRUE AND keep.deleted_at IS NULL
     ORDER BY keep.sort, keep.id
     LIMIT 1
   )`,
 	`ALTER TABLE sys_dict_item DROP CONSTRAINT IF EXISTS uk_dict_item_default`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_default ON sys_dict_item (tenant_id, dict_type_id) WHERE is_default = 1 AND deleted_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS uk_dict_item_default ON sys_dict_item (tenant_id, dict_type_id) WHERE is_default = TRUE AND deleted_at IS NULL`,
 	`ALTER TABLE sys_scheduled_job DROP CONSTRAINT IF EXISTS uk_scheduled_job_code`,
 	`DROP INDEX IF EXISTS uk_scheduled_job_code`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_scheduled_job_code ON sys_scheduled_job (tenant_id, code) WHERE deleted_at IS NULL`,
 	// Global datetime display pattern used by the admin UI.
 	`INSERT INTO sys_config
-  (config_group, config_key, name, value_type, config_value, default_value, description)
+  (config_group, config_key, name, value_type, config_value, default_value, remark)
 SELECT
   'basic', 'system.dateTimeFormat', 'config.label.system_dateTimeFormat', 'string',
   'YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD HH:mm:ss', 'config.desc.system_dateTimeFormat'
@@ -188,9 +324,9 @@ WHERE NOT EXISTS (
   ON sys_notice (publish_at)
   WHERE deleted_at IS NULL AND status = 'published' AND notified_at IS NULL`,
 	`INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
+  (tenant_id, name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
 SELECT
-  '推送到期通知公告', 'notice.notify_due', 'notice.notify_due',
+  1,   '推送到期通知公告', 'notice.notify_due', 'notice.notify_due',
   '* * * * *', '{}'::jsonb, 60, 1, 1, NOW() + INTERVAL '1 minute'
 WHERE NOT EXISTS (
   SELECT 1 FROM sys_scheduled_job
@@ -198,9 +334,9 @@ WHERE NOT EXISTS (
 )`,
 	// Outbox relay: publish pending sys_outbox rows once a minute.
 	`INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
+  (tenant_id, name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
 SELECT
-  '投递事务外盒', 'outbox.publish', 'outbox.publish',
+  1,   '投递事务外盒', 'outbox.publish', 'outbox.publish',
   '* * * * *', '{}'::jsonb, 60, 1, 1, NOW() + INTERVAL '1 minute'
 WHERE NOT EXISTS (
   SELECT 1 FROM sys_scheduled_job
@@ -209,9 +345,9 @@ WHERE NOT EXISTS (
 	// Hourly: trial/active past their end move to overdue, then overdue past
 	// grace is cancelled and the tenant is suspended.
 	`INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
+  (tenant_id, name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
 SELECT
-  '对账订阅状态', 'billing.reconcile_subscriptions', 'billing.reconcile_subscriptions',
+  1,   '对账订阅状态', 'billing.reconcile_subscriptions', 'billing.reconcile_subscriptions',
   '0 * * * *', '{}'::jsonb, 120, 1, 1, NOW() + INTERVAL '1 hour'
 WHERE NOT EXISTS (
   SELECT 1 FROM sys_scheduled_job
@@ -219,9 +355,9 @@ WHERE NOT EXISTS (
 )`,
 	// Daily: tenants whose purge_after has arrived are wiped. Tenant 1 is skipped.
 	`INSERT INTO sys_scheduled_job
-  (name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
+  (tenant_id, name, code, handler, cron_expression, payload, timeout_seconds, max_retries, status, next_run_at)
 SELECT
-  '清理到期租户', 'tenant.purge_due', 'tenant.purge_due',
+  1,   '清理到期租户', 'tenant.purge_due', 'tenant.purge_due',
   '0 3 * * *', '{}'::jsonb, 300, 1, 1, NOW() + INTERVAL '1 day'
 WHERE NOT EXISTS (
   SELECT 1 FROM sys_scheduled_job
@@ -336,7 +472,9 @@ $$`,
   remark VARCHAR(500) NOT NULL DEFAULT '',
   slug VARCHAR(64) NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0,
   deleted_at TIMESTAMPTZ NULL,
   PRIMARY KEY (id)
 )`,
@@ -348,15 +486,17 @@ $$`,
   tenant_id BIGINT NOT NULL,
   user_id BIGINT NOT NULL,
   department_id BIGINT NULL,
-  is_tenant_admin SMALLINT NOT NULL DEFAULT 0,
+  is_tenant_admin BOOLEAN NOT NULL DEFAULT FALSE,
   is_platform_operator BOOLEAN NOT NULL DEFAULT FALSE,
   status SMALLINT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (tenant_id, user_id)
 )`,
 	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS department_id BIGINT NULL`,
-	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS is_tenant_admin SMALLINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS is_tenant_admin BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS is_platform_operator BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS status SMALLINT NOT NULL DEFAULT 1`,
 	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
@@ -365,11 +505,13 @@ $$`,
   id BIGSERIAL,
   code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
-  description VARCHAR(500) NOT NULL DEFAULT '',
+  remark VARCHAR(500) NOT NULL DEFAULT '',
   status SMALLINT NOT NULL DEFAULT 1,
   sort INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id)
 )`,
 	`CREATE TABLE IF NOT EXISTS sys_plan_entitlement (
@@ -378,7 +520,9 @@ $$`,
   entitlement_key VARCHAR(128) NOT NULL,
   entitlement_value TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by BIGINT NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (id)
 )`,
 	`CREATE TABLE IF NOT EXISTS sys_tenant_subscription (
@@ -404,13 +548,6 @@ $$`,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (tenant_id, quota_key, period_key)
 )`,
-	`CREATE TABLE IF NOT EXISTS sys_tenant_entitlement (
-  tenant_id BIGINT NOT NULL,
-  feature_key VARCHAR(128) NOT NULL,
-  enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (tenant_id, feature_key)
-)`,
 	`CREATE TABLE IF NOT EXISTS sys_tenant_quota (
   tenant_id BIGINT NOT NULL,
   quota_key VARCHAR(128) NOT NULL,
@@ -421,7 +558,7 @@ $$`,
 )`,
 	`CREATE TABLE IF NOT EXISTS sys_outbox (
   id BIGSERIAL,
-  tenant_id BIGINT NOT NULL DEFAULT 1,
+  tenant_id BIGINT NOT NULL,
   event_type VARCHAR(128) NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   status SMALLINT NOT NULL DEFAULT 0,
@@ -436,7 +573,6 @@ $$`,
 	`ALTER TABLE sys_outbox ADD COLUMN IF NOT EXISTS last_error VARCHAR(1000) NOT NULL DEFAULT ''`,
 	`ALTER TABLE sys_outbox ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
 	`ALTER TABLE sys_outbox ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ NULL`,
-	`ALTER TABLE sys_outbox ALTER COLUMN tenant_id SET DEFAULT 1`,
 	`CREATE TABLE IF NOT EXISTS sys_tenant_impersonation (
   id BIGSERIAL,
   tenant_id BIGINT NOT NULL,
@@ -454,24 +590,22 @@ $$`,
 	// repair idempotent: add-if-missing, never drop (dropping here undid 017 on
 	// every boot and broke login with "column tenant_id does not exist").
 	`ALTER TABLE sys_refresh_token ADD COLUMN IF NOT EXISTS tenant_id BIGINT NULL`,
-	`ALTER TABLE sys_user_role ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_user_position ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_role_department ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_role_menu ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_file ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_file_reference ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_notice ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_notice_read ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_notification ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_user_notify_pref ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_api_token ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_api_token ALTER COLUMN tenant_id SET DEFAULT 1`,
-	`ALTER TABLE sys_operation_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_error_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_webhook ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
-	`ALTER TABLE sys_job_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 1`,
+	`ALTER TABLE sys_user_role ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_user_position ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_role_department ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_role_menu ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_file ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_file_reference ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_notice ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_notice_read ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_notification ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_user_notify_pref ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_api_token ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_operation_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_error_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_webhook ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
+	`ALTER TABLE sys_job_log ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL`,
 	`ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS tenant_id BIGINT NOT NULL DEFAULT 0`,
-	`ALTER TABLE sys_role ALTER COLUMN tenant_id SET DEFAULT 1`,
 	`DO $$
 DECLARE
   target text;
@@ -500,23 +634,7 @@ $$`,
 	`CREATE INDEX IF NOT EXISTS idx_tenant_member_user ON sys_tenant_member (user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_outbox_pending ON sys_outbox (status, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_tenant_impersonation_open ON sys_tenant_impersonation (tenant_id, actor_user_id) WHERE ended_at IS NULL`,
-	`CREATE TABLE IF NOT EXISTS sys_invoice (
-  id BIGSERIAL,
-  tenant_id BIGINT NOT NULL,
-  subscription_id BIGINT NULL,
-  kind VARCHAR(32) NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'draft',
-  amount_cents BIGINT NOT NULL DEFAULT 0,
-  currency CHAR(3) NOT NULL DEFAULT 'CNY',
-  period_start TIMESTAMPTZ NULL,
-  period_end TIMESTAMPTZ NULL,
-  memo VARCHAR(500) NOT NULL DEFAULT '',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (id)
-)`,
-	`CREATE INDEX IF NOT EXISTS idx_invoice_tenant_id ON sys_invoice (tenant_id, id DESC)`,
-	`INSERT INTO sys_plan (id, code, name, description, status, sort)
+	`INSERT INTO sys_plan (id, code, name, remark, status, sort)
 SELECT 1, 'free', '免费版', '平台内置免费套餐', 1, 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_plan WHERE id = 1 OR code = 'free')`,
 	`INSERT INTO sys_plan_entitlement (plan_id, entitlement_key, entitlement_value)
@@ -589,9 +707,11 @@ $$`,
   tenant_id BIGINT NOT NULL,
   host VARCHAR(255) NOT NULL,
   verified_at TIMESTAMPTZ NULL,
-  is_primary SMALLINT NOT NULL DEFAULT 0,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_by BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by BIGINT NOT NULL DEFAULT 0
 )`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_domain_host ON sys_tenant_domain (host)`,
 	`CREATE INDEX IF NOT EXISTS idx_tenant_domain_tenant ON sys_tenant_domain (tenant_id)`,
@@ -607,7 +727,7 @@ WHERE t.id = 1 AND p.code = 'free'
 	`INSERT INTO sys_tenant_member (
   tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator
 )
-SELECT 1, u.id, u.department_id, u.is_super_admin, (u.is_super_admin <> 0)
+SELECT 1, u.id, u.department_id, u.is_super_admin, u.is_super_admin
 FROM sys_user u
 ON CONFLICT (tenant_id, user_id) DO NOTHING`,
 	// ---------------------------------------------------------------------
@@ -631,7 +751,7 @@ ON CONFLICT (user_id) DO NOTHING`,
 	`INSERT INTO sys_platform_operator (user_id, note)
 SELECT u.id, 'migrated from sys_user.is_super_admin'
 FROM sys_user u
-WHERE u.is_super_admin <> 0 AND u.deleted_at IS NULL
+WHERE u.is_super_admin AND u.deleted_at IS NULL
 ON CONFLICT (user_id) DO NOTHING`,
 	`CREATE TABLE IF NOT EXISTS sys_tenant_invite (
   id BIGSERIAL PRIMARY KEY,
@@ -639,7 +759,7 @@ ON CONFLICT (user_id) DO NOTHING`,
   email VARCHAR(255) NOT NULL DEFAULT '',
   role_ids BIGINT[] NOT NULL DEFAULT '{}'::bigint[],
   department_id BIGINT NULL,
-  is_tenant_admin SMALLINT NOT NULL DEFAULT 0,
+  is_tenant_admin BOOLEAN NOT NULL DEFAULT FALSE,
   token_hash CHAR(64) NOT NULL,
   status VARCHAR(16) NOT NULL DEFAULT 'pending',
   invited_by BIGINT NOT NULL,
@@ -653,6 +773,32 @@ ON CONFLICT (user_id) DO NOTHING`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_tenant_invite_pending_email
   ON sys_tenant_invite (tenant_id, lower(email))
   WHERE status = 'pending' AND email <> ''`,
+	// Server-side invite email delivery (platform/mailer). Empty status means
+	// "created before mail delivery existed" or "mail disabled at creation";
+	// the frontend renders it as a dash rather than a failure.
+	`ALTER TABLE sys_tenant_invite ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(16) NOT NULL DEFAULT ''`,
+	`ALTER TABLE sys_tenant_invite ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ NULL`,
+	`ALTER TABLE sys_tenant_invite ADD COLUMN IF NOT EXISTS delivery_error VARCHAR(500) NOT NULL DEFAULT ''`,
+	// System-level mail service (SMTP engine in platform/mailer). tenant_id 0
+	// keeps the rows platform-global; the password is SecretBox-encrypted by
+	// the config update handler like every other is_secret value.
+	`INSERT INTO sys_config
+  (config_group, config_key, name, value_type, config_value, default_value, is_secret, remark)
+SELECT v.g, v.k, v.n, v.t, v.cv, v.dv, v.sec, v.rm
+FROM (VALUES
+  ('mail', 'mail.smtp.enabled',    'config.label.mail_smtp_enabled',    'boolean', 'false', 'false', FALSE, 'config.desc.mail_smtp_enabled'),
+  ('mail', 'mail.smtp.host',       'config.label.mail_smtp_host',       'string',  '',      '',      FALSE, 'config.desc.mail_smtp_host'),
+  ('mail', 'mail.smtp.port',       'config.label.mail_smtp_port',       'number',  '465',   '465',   FALSE, 'config.desc.mail_smtp_port'),
+  ('mail', 'mail.smtp.encryption', 'config.label.mail_smtp_encryption', 'string',  'tls',   'tls',   FALSE, 'config.desc.mail_smtp_encryption'),
+  ('mail', 'mail.smtp.username',   'config.label.mail_smtp_username',   'string',  '',      '',      FALSE, 'config.desc.mail_smtp_username'),
+  ('mail', 'mail.smtp.password',   'config.label.mail_smtp_password',   'string',  '',      '',      TRUE,  'config.desc.mail_smtp_password'),
+  ('mail', 'mail.smtp.from',       'config.label.mail_smtp_from',       'string',  '',      '',      FALSE, 'config.desc.mail_smtp_from'),
+  ('mail', 'mail.smtp.fromName',   'config.label.mail_smtp_fromName',   'string',  '',      '',      FALSE, 'config.desc.mail_smtp_fromName'),
+  ('mail', 'mail.invite.baseUrl',  'config.label.mail_invite_baseUrl',  'string',  '',      '',      FALSE, 'config.desc.mail_invite_baseUrl')
+) AS v(g, k, n, t, cv, dv, sec, rm)
+WHERE NOT EXISTS (
+  SELECT 1 FROM sys_config c WHERE c.config_key = v.k
+)`,
 	// The FK needs a unique key on the parent pair. Creating it here also
 	// repairs a database that predates 016 on the upgrade path.
 	`CREATE UNIQUE INDEX IF NOT EXISTS uk_department_tenant_id ON sys_department (tenant_id, id)`,
@@ -706,28 +852,14 @@ FROM sys_plan_version v
 WHERE v.plan_id = s.plan_id
   AND s.plan_snapshot = '{}'::jsonb
   AND v.version = (SELECT MAX(v2.version) FROM sys_plan_version v2 WHERE v2.plan_id = s.plan_id)`,
-	`CREATE TABLE IF NOT EXISTS sys_payment_event (
-  id BIGSERIAL PRIMARY KEY,
-  provider VARCHAR(64) NOT NULL,
-  event_id VARCHAR(128) NOT NULL,
-  event_type VARCHAR(128) NOT NULL DEFAULT '',
-  tenant_id BIGINT NOT NULL DEFAULT 0,
-  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-  status VARCHAR(16) NOT NULL DEFAULT 'received',
-  attempts INT NOT NULL DEFAULT 0,
-  last_error VARCHAR(1000) NOT NULL DEFAULT '',
-  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  processed_at TIMESTAMPTZ NULL
-)`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS uk_payment_event ON sys_payment_event (provider, event_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_payment_event_pending ON sys_payment_event (status, id)`,
-	// No app_fill_tenant_id trigger here on purpose: an event may arrive before
-	// its tenant is resolvable and has to stay tenant_id = 0.
-	`ALTER TABLE sys_payment_event ENABLE ROW LEVEL SECURITY`,
-	`ALTER TABLE sys_payment_event FORCE ROW LEVEL SECURITY`,
-	`DROP POLICY IF EXISTS tenant_isolation ON sys_payment_event`,
-	`CREATE POLICY tenant_isolation ON sys_payment_event USING (app_rls_bypass() OR tenant_id = app_current_tenant_id()) WITH CHECK (app_rls_bypass() OR tenant_id = app_current_tenant_id())`,
 	`CREATE INDEX IF NOT EXISTS idx_usage_counter_tenant ON sys_usage_counter (tenant_id, quota_key, period_key)`,
+	// Drop billing skeleton / unused override tables left from older boots.
+	`DROP TABLE IF EXISTS sys_payment_event CASCADE`,
+	`DROP TABLE IF EXISTS sys_invoice CASCADE`,
+	`DROP TABLE IF EXISTS sys_tenant_entitlement CASCADE`,
+	`UPDATE sys_menu SET deleted_at = NOW(), updated_at = NOW() WHERE code = 'platform_invoices' AND deleted_at IS NULL`,
+	`DELETE FROM sys_translation WHERE entity_key = 'menu.platform_invoices'`,
+
 	// The seat quota is the one limit that predates usage metering, so its
 	// used_value can disagree with the real member count. Align it once.
 	`UPDATE sys_tenant_quota q
@@ -752,8 +884,8 @@ BEGIN
     'sys_notification', 'sys_user_notify_pref', 'sys_api_token',
     'sys_operation_log', 'sys_error_log', 'sys_webhook', 'sys_scheduled_job', 'sys_job_log',
     'sys_tenant_member', 'sys_tenant_subscription', 'sys_usage_counter',
-    'sys_tenant_entitlement', 'sys_tenant_quota', 'sys_outbox', 'sys_tenant_impersonation',
-    'sys_invoice', 'sys_tenant_invite'
+    'sys_tenant_quota', 'sys_outbox', 'sys_tenant_impersonation',
+    'sys_tenant_invite'
   ]
   LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_fill_tenant_id ON %I', target);
@@ -786,66 +918,41 @@ $$`,
 	// (ListAllVisibleMenus). These rows are not granted in sys_role_menu, so
 	// other roles do not see them.
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT 0, 'directory', '平台管理', 'platform', 'Platform', '/platform', '', '/platform/tenants', 'lucide:building-2', 70, 1, 1, 0, 0, ''
+  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, plugin_id)
+SELECT 0, 'directory', '平台管理', 'platform', 'Platform', '/platform', '', '/platform/tenants', 'lucide:building-2', 70, 1, ''
 WHERE NOT EXISTS (
   SELECT 1 FROM sys_menu WHERE code = 'platform' AND deleted_at IS NULL
 )`,
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '租户管理', 'platform_tenants', 'PlatformTenants', '/platform/tenants', '/platform/tenants/index', '', 'lucide:building', 71, 1, 1, 1, 0, ''
+  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, plugin_id)
+SELECT p.id, 'page', '租户管理', 'platform_tenants', 'PlatformTenants', '/platform/tenants', '/platform/tenants/index', '', 'lucide:building', 71, 1, ''
 FROM sys_menu p
 WHERE p.code = 'platform' AND p.deleted_at IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM sys_menu WHERE code = 'platform_tenants' AND deleted_at IS NULL
   )`,
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '套餐管理', 'platform_plans', 'PlatformPlans', '/platform/plans', '/platform/plans/index', '', 'lucide:package', 72, 1, 1, 1, 0, ''
+  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, plugin_id)
+SELECT p.id, 'page', '套餐管理', 'platform_plans', 'PlatformPlans', '/platform/plans', '/platform/plans/index', '', 'lucide:package', 72, 1, ''
 FROM sys_menu p
 WHERE p.code = 'platform' AND p.deleted_at IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM sys_menu WHERE code = 'platform_plans' AND deleted_at IS NULL
   )`,
-	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '账单管理', 'platform_invoices', 'PlatformInvoices', '/platform/invoices', '/platform/invoices/index', '', 'lucide:receipt', 73, 1, 1, 1, 0, ''
-FROM sys_menu p
-WHERE p.code = 'platform' AND p.deleted_at IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM sys_menu WHERE code = 'platform_invoices' AND deleted_at IS NULL
-  )`,
-	// Tenant billing sits under 系统设置 (code settings). Super administrators
-	// already see every menu through ListAllVisibleMenus. The role_menu row
-	// grants it to role 1, the seeded administrator of the default tenant, so
-	// a fresh install shows the page. Other roles see it after an administrator
-	// grants the menu in the role UI. tenant_id defaults to 1.
-	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '我的账单', 'system_billing', 'SystemBilling', '/settings/billing', '/billing/index', '', 'lucide:wallet', 25, 1, 1, 1, 0, ''
-FROM sys_menu p
-WHERE p.code = 'settings' AND p.deleted_at IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM sys_menu WHERE code = 'system_billing' AND deleted_at IS NULL
-  )`,
-	`INSERT INTO sys_role_menu (role_id, menu_id)
-SELECT 1, id FROM sys_menu
-WHERE code = 'system_billing' AND deleted_at IS NULL
-ON CONFLICT DO NOTHING`,
 	// Membership management is its own page under 组织权限. It must exist as a
 	// page before the permission sync runs, because system:member:* buttons
 	// declare MenuCode=system_member: an unresolvable parent would abort the
 	// boot with ErrMenuCodeTaken-style noise for a core route.
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '成员管理', 'system_member', 'SystemMember', '/organization/members', '/system/member/index', '', 'lucide:users-round', 16, 1, 1, 1, 0, ''
+  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, plugin_id)
+SELECT p.id, 'page', '成员管理', 'system_member', 'SystemMember', '/organization/members', '/system/member/index', '', 'lucide:users-round', 16, 1, ''
 FROM sys_menu p
 WHERE p.code = 'organization' AND p.deleted_at IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM sys_menu WHERE code = 'system_member' AND deleted_at IS NULL
   )`,
-	`INSERT INTO sys_role_menu (role_id, menu_id)
-SELECT 1, id FROM sys_menu
+	`INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
+SELECT 1, 1, id FROM sys_menu
 WHERE code = 'system_member' AND deleted_at IS NULL
 ON CONFLICT DO NOTHING`,
 	// Workspace entry point is members, not users: tenant admins land on the
@@ -858,8 +965,8 @@ WHERE code = 'organization'
 	// Platform staff directory. Not granted in sys_role_menu: the platform
 	// console is gated by the platform operator flag, not by a role grant.
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, visible, keep_alive, affix_tab, plugin_id)
-SELECT p.id, 'page', '平台人员', 'platform_operators', 'PlatformOperators', '/platform/operators', '/platform/operators/index', '', 'lucide:user-shield', 74, 1, 1, 1, 0, ''
+  (parent_id, type, name, code, route_name, route_path, component, redirect, icon, sort, status, plugin_id)
+SELECT p.id, 'page', '平台人员', 'platform_operators', 'PlatformOperators', '/platform/operators', '/platform/operators/index', '', 'lucide:user-shield', 74, 1, ''
 FROM sys_menu p
 WHERE p.code = 'platform' AND p.deleted_at IS NULL
   AND NOT EXISTS (
@@ -871,9 +978,7 @@ FROM (VALUES
   ('menu.platform', 'Platform'),
   ('menu.platform_tenants', 'Tenants'),
   ('menu.platform_plans', 'Plans'),
-  ('menu.platform_invoices', 'Invoice Management'),
   ('menu.platform_operators', 'Platform Staff'),
-  ('menu.system_billing', 'Billing'),
   ('menu.system_member', 'Members')
 ) AS v(entity_key, value)
 WHERE NOT EXISTS (
@@ -957,24 +1062,21 @@ DECLARE
 BEGIN
   FOR r IN SELECT * FROM (VALUES
     ('sys_department','status'), ('sys_position','status'), ('sys_user','status'),
-    ('sys_user','is_super_admin'), ('sys_user','must_change_password'),
-    ('sys_role','status'), ('sys_role','is_system'),
-    ('sys_menu','status'), ('sys_menu','visible'), ('sys_menu','keep_alive'),
-    ('sys_menu','affix_tab'), ('sys_menu','is_sensitive'), ('sys_menu','managed'),
-    ('sys_dict_type','status'), ('sys_dict_type','is_system'),
-    ('sys_dict_item','status'), ('sys_dict_item','is_default'),
-    ('sys_config','is_secret'), ('sys_config','is_readonly'),
+    ('sys_user','must_change_password'),
+    ('sys_role','status'),
+    ('sys_menu','status'), ('sys_menu','managed'),
+    ('sys_dict_type','status'),
+    ('sys_dict_item','status'),
     ('sys_auth_provider','auto_register'), ('sys_auth_provider','status'),
     ('sys_storage_config','use_https'), ('sys_storage_config','private_access'),
-    ('sys_storage_config','is_default'), ('sys_storage_config','status'),
-    ('sys_notice','is_pinned'), ('sys_user_notify_pref','enabled'),
+    ('sys_storage_config','status'),
+    ('sys_user_notify_pref','enabled'),
     ('sys_api_token','status'), ('sys_login_log','success'),
     ('sys_operation_log','success'), ('sys_error_log','resolved'),
     ('sys_webhook','allow_private_network'), ('sys_webhook','status'),
     ('sys_scheduled_job','status'), ('sys_tenant','status'),
-    ('sys_tenant_member','is_tenant_admin'), ('sys_tenant_member','status'),
-    ('sys_tenant_invite','is_tenant_admin'), ('sys_plan','status'),
-    ('sys_tenant_domain','is_primary')
+    ('sys_tenant_member','status'),
+    ('sys_plan','status')
   ) AS v(tbl, col)
   LOOP
     IF NOT EXISTS (
@@ -998,10 +1100,6 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
 	`DO $$
 BEGIN
   ALTER TABLE sys_outbox ADD CONSTRAINT ck_sys_outbox_status CHECK (status IN (0,1,2,3));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
-	`DO $$
-BEGIN
-  ALTER TABLE sys_invoice ADD CONSTRAINT ck_sys_invoice_amount CHECK (amount_cents >= 0);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
 	`DO $$
 BEGIN
@@ -1095,6 +1193,113 @@ END $$`,
 	`CREATE POLICY translation_write ON sys_translation FOR ALL
   USING (app_rls_bypass() OR tenant_id = app_current_tenant_id())
   WITH CHECK (app_rls_bypass() OR tenant_id = app_current_tenant_id())`,
+
+	// ---- actor audit columns (migrations/023_actor_audit_columns.sql) ----
+	// created_by/updated_by for tables a person maintains. 0 = no user
+	// context (bootstrap, seed, plugin migration, scheduled job). No FK: 0 is
+	// a sentinel, users are soft-deleted and platform operators act across
+	// tenants. No trigger: system writes such as last_login_at, token_version
+	// and quota counters must not overwrite the last human editor, so every
+	// statement a person triggers sets updated_by itself.
+	`ALTER TABLE sys_department ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_department ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_position ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_position ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_user ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_role ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_role ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_dict_type ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_dict_type ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_dict_item ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_dict_item ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_config ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_auth_provider ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_auth_provider ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_storage_config ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_storage_config ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_webhook ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_webhook ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_scheduled_job ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_scheduled_job ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_translation ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_translation ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	// Editor only: menu rows are mostly written by the route sync, and quota
+	// counters by the request path, so there is no meaningful creator.
+	`ALTER TABLE sys_menu ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_quota ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	// sys_notice already had created_by. revoked_by keeps "who revoked it"
+	// separate from "who edited it last".
+	`ALTER TABLE sys_notice ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_notice ADD COLUMN IF NOT EXISTS revoked_by BIGINT NOT NULL DEFAULT 0`,
+	`UPDATE sys_notice SET updated_by = created_by WHERE updated_by = 0 AND created_by > 0`,
+
+	// ---- tenant, billing and membership audit columns
+	// (migrations/024_tenant_billing_audit.sql) ----
+	// The same convention as 023. Signup, provisioning, the free-plan seeds
+	// and subscription transitions leave 0: no user is behind them.
+	`ALTER TABLE sys_tenant ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_domain ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_domain ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_tenant_member ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_plan ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_plan ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_plan_entitlement ADD COLUMN IF NOT EXISTS created_by BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE sys_plan_entitlement ADD COLUMN IF NOT EXISTS updated_by BIGINT NOT NULL DEFAULT 0`,
+
+	// ---- department note field (migrations/025_department_remark.sql) ----
+	// Display-only: no logic branches on it, so an empty string is a valid value
+	// for every existing department. The column used to be named description;
+	// migrations/026_rename_description_to_remark.sql renames it on existing
+	// databases and merges the value when both columns are present.
+	`ALTER TABLE sys_department ADD COLUMN IF NOT EXISTS remark VARCHAR(500) NOT NULL DEFAULT ''`,
+
+	// ---- audit column on every table (migrations/031_actor_audit_all_tables.sql) ----
+	// 023/024 enumerated the business tables. The rule is now uniform: any table
+	// with created_at gets created_by and any table with updated_at gets
+	// updated_by, including logs, queues, relation tables and counters. Those
+	// keep 0 (no user context), which the column contract already defines. The
+	// loop also covers plugin tables and tables added later; it is a no-op once
+	// both columns exist.
+	`DO $$
+DECLARE
+  target text;
+BEGIN
+  FOR target IN
+    SELECT c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+      AND a.attname = 'created_at' AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE n.nspname = current_schema() AND c.relkind = 'r'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_attribute b
+        WHERE b.attrelid = c.oid
+          AND b.attname = 'created_by' AND b.attnum > 0 AND NOT b.attisdropped
+      )
+  LOOP
+    EXECUTE format('ALTER TABLE %I ADD COLUMN created_by BIGINT NOT NULL DEFAULT 0', target);
+  END LOOP;
+
+  FOR target IN
+    SELECT c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+      AND a.attname = 'updated_at' AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE n.nspname = current_schema() AND c.relkind = 'r'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_attribute b
+        WHERE b.attrelid = c.oid
+          AND b.attname = 'updated_by' AND b.attnum > 0 AND NOT b.attisdropped
+      )
+  LOOP
+    EXECUTE format('ALTER TABLE %I ADD COLUMN updated_by BIGINT NOT NULL DEFAULT 0', target);
+  END LOOP;
+END $$`,
 }
 
 // retiredModuleStatements delete rows belonging to product modules that were
@@ -1125,6 +1330,14 @@ var retiredModuleStatements = []string{
 )`,
 	`DELETE FROM sys_menu
   WHERE code = 'system_api_permission' OR code LIKE 'system:api-permission:%'`,
+	// 我的账单 (removed 2026-11-27). Tenant-side billing page under 系统设置.
+	// platform_invoices was retired earlier in this same block; subscription
+	// and quota tables stay because plans/lifecycle still use them.
+	`DELETE FROM sys_role_menu WHERE menu_id IN (
+  SELECT id FROM sys_menu WHERE code = 'system_billing'
+)`,
+	`DELETE FROM sys_menu WHERE code = 'system_billing'`,
+	`DELETE FROM sys_translation WHERE entity_key = 'menu.system_billing'`,
 }
 
 // seedStatements are idempotent DML. They run after bootstrap, under the same
@@ -1138,7 +1351,7 @@ var seedStatements = []string{
 	// added tenant_id by now, so the rows land in tenant 1, the template tenant
 	// every new tenant copies its system dictionaries from (see provisionTenant).
 	`INSERT INTO sys_dict_type (tenant_id, code, name, display_type, status, is_system, remark)
-SELECT 1, v.code, v.name, v.display_type, 1, 1, v.remark
+SELECT 1, v.code, v.name, v.display_type, 1, TRUE, v.remark
 FROM (VALUES
   ('normal_disable', '系统状态', 'segmented', '通用启用/停用状态'),
   ('yes_no', '是否', 'segmented', '通用是/否选项'),
@@ -1152,16 +1365,16 @@ WHERE NOT EXISTS (
 	`INSERT INTO sys_dict_item (tenant_id, dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
 SELECT 1, t.id, v.label, v.value, v.color, v.css_class, v.sort, 1, v.is_default, ''
 FROM (VALUES
-  ('normal_disable', '正常', '1', 'green', '', 1, 1),
-  ('normal_disable', '停用', '0', 'red', '', 2, 0),
-  ('yes_no', '是', 'Y', 'green', '', 1, 1),
-  ('yes_no', '否', 'N', '', '', 2, 0),
-  ('user_sex', '男', 'male', 'blue', '', 1, 1),
-  ('user_sex', '女', 'female', 'pink', '', 2, 0),
-  ('user_sex', '未知', 'unknown', '', '', 3, 0),
-  ('priority', '低', 'low', '', '', 1, 0),
-  ('priority', '中', 'middle', 'blue', '', 2, 1),
-  ('priority', '高', 'high', 'red', '', 3, 0)
+  ('normal_disable', '正常', '1', 'green', '', 1, TRUE),
+  ('normal_disable', '停用', '0', 'red', '', 2, FALSE),
+  ('yes_no', '是', 'Y', 'green', '', 1, TRUE),
+  ('yes_no', '否', 'N', '', '', 2, FALSE),
+  ('user_sex', '男', 'male', 'blue', '', 1, TRUE),
+  ('user_sex', '女', 'female', 'pink', '', 2, FALSE),
+  ('user_sex', '未知', 'unknown', '', '', 3, FALSE),
+  ('priority', '低', 'low', '', '', 1, FALSE),
+  ('priority', '中', 'middle', 'blue', '', 2, TRUE),
+  ('priority', '高', 'high', 'red', '', 3, FALSE)
 ) AS v(type_code, label, value, color, css_class, sort, is_default)
 JOIN sys_dict_type t ON t.tenant_id = 1 AND t.code = v.type_code AND t.deleted_at IS NULL
 WHERE NOT EXISTS (
@@ -1345,12 +1558,12 @@ WHERE connamespace = 'public'::regnamespace AND contype = 'f'`)
 // runs after every plugin migration has created its pages.
 var legacyAPIMigrationStatements = []string{
 	`INSERT INTO sys_menu
-  (parent_id, type, name, code, method, path, is_sensitive, sort, status, visible, plugin_id)
-SELECT 0, 'button', p.name, p.code, p.method, p.path, p.is_sensitive, 100, 1, 0, ''
+  (parent_id, type, name, code, method, path, sort, status, plugin_id)
+SELECT 0, 'button', p.name, p.code, p.method, p.path, 100, 1, ''
 FROM sys_api_permission p
 ON CONFLICT DO NOTHING`,
-	`INSERT INTO sys_role_menu (role_id, menu_id)
-SELECT rp.role_id, m.id
+	`INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
+SELECT 1, rp.role_id, m.id
 FROM sys_role_api_permission rp
 INNER JOIN sys_api_permission p ON p.id = rp.permission_id
 INNER JOIN sys_menu m ON m.code = p.code AND m.type = 'button'
@@ -1472,7 +1685,9 @@ func (r *PluginRepository) ListPlugins(ctx context.Context) ([]PluginRecord, err
 
 // MarkPluginInstalled stamps installed_at without flipping enabled.
 func (r *PluginRepository) MarkPluginInstalled(ctx context.Context, pluginID string) (bool, error) {
-	affected, err := r.queries.MarkPluginInstalled(ctx, pluginID)
+	affected, err := r.queries.MarkPluginInstalled(ctx, sqlcstore.MarkPluginInstalledParams{
+		PluginID: pluginID, UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return false, err
 	}
@@ -1488,9 +1703,13 @@ func (r *PluginRepository) SetPluginEnabled(ctx context.Context, pluginID string
 		err      error
 	)
 	if enabled {
-		affected, err = r.queries.EnablePlugin(ctx, pluginID)
+		affected, err = r.queries.EnablePlugin(ctx, sqlcstore.EnablePluginParams{
+			PluginID: pluginID, UpdatedBy: actorID(ctx),
+		})
 	} else {
-		affected, err = r.queries.DisablePlugin(ctx, pluginID)
+		affected, err = r.queries.DisablePlugin(ctx, sqlcstore.DisablePluginParams{
+			PluginID: pluginID, UpdatedBy: actorID(ctx),
+		})
 	}
 	if err != nil {
 		return false, err

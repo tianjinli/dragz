@@ -97,8 +97,9 @@ func (q *Queries) CountFilesFiltered(ctx context.Context, arg CountFilesFiltered
 
 const createPendingFile = `-- name: CreatePendingFile :one
 INSERT INTO sys_file
-  (storage_id, original_name, object_key, extension, mime_type, size, access_type, status, uploader_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
+  (storage_id, original_name, object_key, extension, mime_type, size, access_type, status, uploader_id,
+   created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $8)
 RETURNING id
 `
 

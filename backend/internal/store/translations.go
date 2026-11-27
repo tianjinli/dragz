@@ -89,25 +89,25 @@ func splitTranslationKey(entityKey string) (namespace, code string, remark bool,
 func (r *AuthRepository) writeSourceText(ctx context.Context, namespace, code, value string, remark bool) (int64, error) {
 	switch namespace {
 	case "menu", "perm":
-		return r.queries.SetMenuSourceText(ctx, sqlcstore.SetMenuSourceTextParams{Value: value, Code: code})
+		return r.queries.SetMenuSourceText(ctx, sqlcstore.SetMenuSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "role":
 		if remark {
-			return r.queries.SetRoleSourceRemark(ctx, sqlcstore.SetRoleSourceRemarkParams{Value: value, Code: code})
+			return r.queries.SetRoleSourceRemark(ctx, sqlcstore.SetRoleSourceRemarkParams{Value: value, Code: code, Actor: actorID(ctx)})
 		}
-		return r.queries.SetRoleSourceText(ctx, sqlcstore.SetRoleSourceTextParams{Value: value, Code: code})
+		return r.queries.SetRoleSourceText(ctx, sqlcstore.SetRoleSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "dept":
-		return r.queries.SetDepartmentSourceText(ctx, sqlcstore.SetDepartmentSourceTextParams{Value: value, Code: code})
+		return r.queries.SetDepartmentSourceText(ctx, sqlcstore.SetDepartmentSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "post":
 		if remark {
-			return r.queries.SetPositionSourceRemark(ctx, sqlcstore.SetPositionSourceRemarkParams{Value: value, Code: code})
+			return r.queries.SetPositionSourceRemark(ctx, sqlcstore.SetPositionSourceRemarkParams{Value: value, Code: code, Actor: actorID(ctx)})
 		}
-		return r.queries.SetPositionSourceText(ctx, sqlcstore.SetPositionSourceTextParams{Value: value, Code: code})
+		return r.queries.SetPositionSourceText(ctx, sqlcstore.SetPositionSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "job":
-		return r.queries.SetJobSourceText(ctx, sqlcstore.SetJobSourceTextParams{Value: value, Code: code})
+		return r.queries.SetJobSourceText(ctx, sqlcstore.SetJobSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "storage":
-		return r.queries.SetStorageSourceText(ctx, sqlcstore.SetStorageSourceTextParams{Value: value, Code: code})
+		return r.queries.SetStorageSourceText(ctx, sqlcstore.SetStorageSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "dicttype":
-		return r.queries.SetDictTypeSourceText(ctx, sqlcstore.SetDictTypeSourceTextParams{Value: value, Code: code})
+		return r.queries.SetDictTypeSourceText(ctx, sqlcstore.SetDictTypeSourceTextParams{Value: value, Code: code, Actor: actorID(ctx)})
 	case "dict":
 		// The key is dict.<type code>.<value>; the type code was validated to
 		// be dot-free at save time, so the first dot separates it from the
@@ -117,7 +117,7 @@ func (r *AuthRepository) writeSourceText(ctx context.Context, namespace, code, v
 			return 0, ErrUnknownEntityKey
 		}
 		return r.queries.SetDictItemSourceText(ctx, sqlcstore.SetDictItemSourceTextParams{
-			Value: value, TypeCode: code[:dot], ItemValue: code[dot+1:],
+			Value: value, TypeCode: code[:dot], ItemValue: code[dot+1:], Actor: actorID(ctx),
 		})
 	}
 	return 0, ErrUnknownEntityKey
@@ -174,7 +174,9 @@ func (r *AuthRepository) RekeyEntityTranslations(ctx context.Context, oldKey, ne
 	if oldKey == newKey {
 		return nil
 	}
-	_, err := r.queries.RekeyTranslations(ctx, sqlcstore.RekeyTranslationsParams{OldKey: oldKey, NewKey: newKey})
+	_, err := r.queries.RekeyTranslations(ctx, sqlcstore.RekeyTranslationsParams{
+		OldKey: oldKey, NewKey: newKey, Actor: actorID(ctx),
+	})
 	return err
 }
 
@@ -354,6 +356,7 @@ func (r *AuthRepository) CreateTranslation(ctx context.Context, entityKey, lang,
 		EntityKey: entityKey,
 		Lang:      lang,
 		Value:     value,
+		CreatedBy: actorID(ctx),
 	})
 }
 
@@ -425,6 +428,7 @@ func (r *AuthRepository) UpdateTranslation(ctx context.Context, id int64, lang, 
 			EntityKey: current.EntityKey,
 			Lang:      lang,
 			Value:     value,
+			CreatedBy: actorID(ctx),
 		}); err != nil {
 			return wrapDuplicate(err)
 		}
@@ -445,9 +449,10 @@ func (r *AuthRepository) UpdateTranslation(ctx context.Context, id int64, lang, 
 		}
 	}
 	affected, err := r.queries.UpdateTranslation(ctx, sqlcstore.UpdateTranslationParams{
-		ID:    id,
-		Lang:  lang,
-		Value: value,
+		ID:        id,
+		Lang:      lang,
+		Value:     value,
+		UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		// A racing insert can still win the unique constraint.

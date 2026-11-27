@@ -22,7 +22,7 @@ type TenantDomain struct {
 	TenantID   uint64     `json:"tenantId"`
 	Host       string     `json:"host"`
 	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
-	IsPrimary  int16      `json:"isPrimary"`
+	IsPrimary  bool       `json:"isPrimary"`
 	CreatedAt  time.Time  `json:"createdAt"`
 }
 
@@ -199,8 +199,8 @@ func (r *TenantRepository) SetSlug(ctx context.Context, tenantID uint64, slug st
 	var affected int64
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		result, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant SET slug = $2, updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL`, tenantID, slug)
+UPDATE sys_tenant SET slug = $2, updated_at = NOW(), updated_by = $3
+WHERE id = $1 AND deleted_at IS NULL`, tenantID, slug, actorID(ctx))
 		if err != nil {
 			return wrapDuplicate(err)
 		}
@@ -270,9 +270,9 @@ func (r *TenantRepository) AddDomain(ctx context.Context, tenantID uint64, host 
 			return ErrNotFound
 		}
 		row := tx.QueryRowContext(ctx, `
-INSERT INTO sys_tenant_domain (tenant_id, host)
-VALUES ($1, $2)
-RETURNING id, tenant_id, host, verified_at, is_primary, created_at`, tenantID, host)
+INSERT INTO sys_tenant_domain (tenant_id, host, created_by, updated_by)
+VALUES ($1, $2, $3, $3)
+RETURNING id, tenant_id, host, verified_at, is_primary, created_at`, tenantID, host, actorID(ctx))
 		scanned, scanErr := scanTenantDomain(row)
 		if scanErr != nil {
 			return wrapDuplicate(scanErr)
@@ -289,8 +289,8 @@ func (r *TenantRepository) MarkDomainVerified(ctx context.Context, tenantID, dom
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		result, err := tx.ExecContext(ctx, `
 UPDATE sys_tenant_domain
-SET verified_at = NOW(), updated_at = NOW()
-WHERE id = $1 AND tenant_id = $2`, domainID, tenantID)
+SET verified_at = NOW(), updated_at = NOW(), updated_by = $3
+WHERE id = $1 AND tenant_id = $2`, domainID, tenantID, actorID(ctx))
 		if err != nil {
 			return err
 		}

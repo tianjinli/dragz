@@ -7,6 +7,8 @@ package sqlcstore
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
 
 const countPluginMigrations = `-- name: CountPluginMigrations :one
@@ -22,12 +24,17 @@ func (q *Queries) CountPluginMigrations(ctx context.Context) (int64, error) {
 
 const disablePlugin = `-- name: DisablePlugin :execrows
 UPDATE sys_plugin
-SET enabled = FALSE, updated_at = NOW()
+SET enabled = FALSE, updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE
 `
 
-func (q *Queries) DisablePlugin(ctx context.Context, pluginID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, disablePlugin, pluginID)
+type DisablePluginParams struct {
+	PluginID  string `json:"plugin_id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) DisablePlugin(ctx context.Context, arg DisablePluginParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, disablePlugin, arg.PluginID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -37,15 +44,20 @@ func (q *Queries) DisablePlugin(ctx context.Context, pluginID string) (int64, er
 const enablePlugin = `-- name: EnablePlugin :execrows
 UPDATE sys_plugin
 SET enabled = TRUE, last_error = '', enabled_at = NOW(),
-    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+    installed_at = COALESCE(installed_at, NOW()), updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE
 `
+
+type EnablePluginParams struct {
+	PluginID  string `json:"plugin_id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
 
 // Builtins are excluded in SQL as well as in Go: defense in depth, so a bug in
 // the service cannot brick the platform plugin. Enabling also marks installed
 // so the enable-without-prior-install path stays consistent with Install.
-func (q *Queries) EnablePlugin(ctx context.Context, pluginID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, enablePlugin, pluginID)
+func (q *Queries) EnablePlugin(ctx context.Context, arg EnablePluginParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, enablePlugin, arg.PluginID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -59,9 +71,23 @@ FROM sys_plugin
 WHERE plugin_id = $1
 `
 
-func (q *Queries) GetPlugin(ctx context.Context, pluginID string) (SysPlugin, error) {
+type GetPluginRow struct {
+	PluginID    string       `json:"plugin_id"`
+	Name        string       `json:"name"`
+	Version     string       `json:"version"`
+	Description string       `json:"description"`
+	IsBuiltin   bool         `json:"is_builtin"`
+	Enabled     bool         `json:"enabled"`
+	LastError   string       `json:"last_error"`
+	EnabledAt   sql.NullTime `json:"enabled_at"`
+	InstalledAt sql.NullTime `json:"installed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+func (q *Queries) GetPlugin(ctx context.Context, pluginID string) (GetPluginRow, error) {
 	row := q.db.QueryRowContext(ctx, getPlugin, pluginID)
-	var i SysPlugin
+	var i GetPluginRow
 	err := row.Scan(
 		&i.PluginID,
 		&i.Name,
@@ -119,15 +145,29 @@ FROM sys_plugin
 ORDER BY plugin_id
 `
 
-func (q *Queries) ListPlugins(ctx context.Context) ([]SysPlugin, error) {
+type ListPluginsRow struct {
+	PluginID    string       `json:"plugin_id"`
+	Name        string       `json:"name"`
+	Version     string       `json:"version"`
+	Description string       `json:"description"`
+	IsBuiltin   bool         `json:"is_builtin"`
+	Enabled     bool         `json:"enabled"`
+	LastError   string       `json:"last_error"`
+	EnabledAt   sql.NullTime `json:"enabled_at"`
+	InstalledAt sql.NullTime `json:"installed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+func (q *Queries) ListPlugins(ctx context.Context) ([]ListPluginsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPlugins)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []SysPlugin{}
+	items := []ListPluginsRow{}
 	for rows.Next() {
-		var i SysPlugin
+		var i ListPluginsRow
 		if err := rows.Scan(
 			&i.PluginID,
 			&i.Name,
@@ -156,14 +196,19 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]SysPlugin, error) {
 
 const markPluginInstalled = `-- name: MarkPluginInstalled :execrows
 UPDATE sys_plugin
-SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW()
+SET installed_at = COALESCE(installed_at, NOW()), updated_at = NOW(), updated_by = $2
 WHERE plugin_id = $1 AND is_builtin = FALSE
 `
 
+type MarkPluginInstalledParams struct {
+	PluginID  string `json:"plugin_id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
 // Install without enabling: migrations have run (or there were none), data is
 // ready, but the plugin stays dark until an administrator flips the switch.
-func (q *Queries) MarkPluginInstalled(ctx context.Context, pluginID string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markPluginInstalled, pluginID)
+func (q *Queries) MarkPluginInstalled(ctx context.Context, arg MarkPluginInstalledParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markPluginInstalled, arg.PluginID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -196,10 +241,10 @@ const seedPluginMenu = `-- name: SeedPluginMenu :exec
 
 INSERT INTO sys_menu
   (id, parent_id, type, name, code, route_name, route_path, component, redirect, icon,
-   sort, status, visible, keep_alive, affix_tab, external_url)
+   sort, status)
 VALUES
   (87, 20, 'page', '插件中心', 'system_plugin', 'SystemPlugin', '/settings/plugins',
-   '/system/plugin/index', '', 'lucide:puzzle', 24, 1, 1, 1, 0, '')
+   '/system/plugin/index', '', 'lucide:puzzle', 24, 1)
 ON CONFLICT DO NOTHING
 `
 
@@ -214,11 +259,14 @@ func (q *Queries) SeedPluginMenu(ctx context.Context) error {
 }
 
 const seedPluginRoleMenu = `-- name: SeedPluginRoleMenu :exec
-INSERT INTO sys_role_menu (role_id, menu_id)
-SELECT 1, id FROM sys_menu WHERE code = 'system_plugin' AND deleted_at IS NULL
+INSERT INTO sys_role_menu (tenant_id, role_id, menu_id)
+SELECT 1, 1, id FROM sys_menu WHERE code = 'system_plugin' AND deleted_at IS NULL
 ON CONFLICT DO NOTHING
 `
 
+// The plugin center is a core menu granted to the built-in tenant-1 role.
+// Name the tenant explicitly: Seed runs with RLS bypass and no tenant session,
+// and sys_role_menu no longer has a DEFAULT 1 to fall back to.
 func (q *Queries) SeedPluginRoleMenu(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, seedPluginRoleMenu)
 	return err

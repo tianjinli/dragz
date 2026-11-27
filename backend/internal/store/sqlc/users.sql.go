@@ -95,11 +95,13 @@ WHERE u.deleted_at IS NULL
     OR u.mobile LIKE $2))
   AND ($3::bigint IS NULL OR u.department_id = $3)
   AND ($4::smallint IS NULL OR u.status = $4)
+  AND ($5::timestamptz IS NULL OR u.created_at >= $5)
+  AND ($6::timestamptz IS NULL OR u.created_at <= $6)
   AND (
-    $5::boolean
-    OR ($6::bigint IS NOT NULL AND u.id = $6)
-    OR (cardinality(COALESCE($7::bigint[], '{}'::bigint[])) > 0
-        AND u.department_id = ANY(COALESCE($7::bigint[], '{}'::bigint[])))
+    $7::boolean
+    OR ($8::bigint IS NOT NULL AND u.id = $8)
+    OR (cardinality(COALESCE($9::bigint[], '{}'::bigint[])) > 0
+        AND u.department_id = ANY(COALESCE($9::bigint[], '{}'::bigint[])))
   )
 `
 
@@ -108,6 +110,8 @@ type CountUsersFilteredParams struct {
 	KeywordPattern sql.NullString `json:"keyword_pattern"`
 	DepartmentID   sql.NullInt64  `json:"department_id"`
 	Status         sql.NullInt16  `json:"status"`
+	CreatedFrom    sql.NullTime   `json:"created_from"`
+	CreatedTo      sql.NullTime   `json:"created_to"`
 	ScopeAll       bool           `json:"scope_all"`
 	SelfUserID     sql.NullInt64  `json:"self_user_id"`
 	DepartmentIds  []uint64       `json:"department_ids"`
@@ -122,6 +126,8 @@ func (q *Queries) CountUsersFiltered(ctx context.Context, arg CountUsersFiltered
 		arg.KeywordPattern,
 		arg.DepartmentID,
 		arg.Status,
+		arg.CreatedFrom,
+		arg.CreatedTo,
 		arg.ScopeAll,
 		arg.SelfUserID,
 		pq.Array(arg.DepartmentIds),
@@ -182,8 +188,8 @@ func (q *Queries) CreateOAuthUser(ctx context.Context, arg CreateOAuthUserParams
 const createUser = `-- name: CreateUser :one
 INSERT INTO sys_user
   (department_id, username, password_hash, display_name, email, mobile, gender, status,
-   must_change_password, remark)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+   must_change_password, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
 RETURNING id
 `
 
@@ -198,6 +204,7 @@ type CreateUserParams struct {
 	Status             int16         `json:"status"`
 	MustChangePassword int16         `json:"must_change_password"`
 	Remark             string        `json:"remark"`
+	CreatedBy          uint64        `json:"created_by"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
@@ -212,6 +219,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 		arg.Status,
 		arg.MustChangePassword,
 		arg.Remark,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -282,7 +290,7 @@ type GetUserByIDRow struct {
 	Email              string        `json:"email"`
 	Mobile             string        `json:"mobile"`
 	Status             int16         `json:"status"`
-	IsSuperAdmin       int16         `json:"is_super_admin"`
+	IsSuperAdmin       bool          `json:"is_super_admin"`
 	MustChangePassword int16         `json:"must_change_password"`
 	FailedLoginCount   int32         `json:"failed_login_count"`
 	LockedUntil        sql.NullTime  `json:"locked_until"`
@@ -329,7 +337,7 @@ type GetUserByUsernameRow struct {
 	Email              string        `json:"email"`
 	Mobile             string        `json:"mobile"`
 	Status             int16         `json:"status"`
-	IsSuperAdmin       int16         `json:"is_super_admin"`
+	IsSuperAdmin       bool          `json:"is_super_admin"`
 	MustChangePassword int16         `json:"must_change_password"`
 	FailedLoginCount   int32         `json:"failed_login_count"`
 	LockedUntil        sql.NullTime  `json:"locked_until"`
@@ -401,7 +409,7 @@ type GetUserDetailRow struct {
 	Mobile             string        `json:"mobile"`
 	Gender             int16         `json:"gender"`
 	Status             int16         `json:"status"`
-	IsSuperAdmin       int16         `json:"is_super_admin"`
+	IsSuperAdmin       bool          `json:"is_super_admin"`
 	MustChangePassword int16         `json:"must_change_password"`
 	LastLoginAt        sql.NullTime  `json:"last_login_at"`
 	LastLoginIp        string        `json:"last_login_ip"`
@@ -443,7 +451,7 @@ WHERE id = $1 AND status = 1 AND deleted_at IS NULL
 
 type GetUserScopeBasicsRow struct {
 	DepartmentID sql.NullInt64 `json:"department_id"`
-	IsSuperAdmin int16         `json:"is_super_admin"`
+	IsSuperAdmin bool          `json:"is_super_admin"`
 }
 
 func (q *Queries) GetUserScopeBasics(ctx context.Context, id int64) (GetUserScopeBasicsRow, error) {
@@ -501,8 +509,8 @@ func (q *Queries) InsertLoginLogFailure(ctx context.Context, arg InsertLoginLogF
 }
 
 const insertLoginLogOAuth = `-- name: InsertLoginLogOAuth :exec
-INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent)
-VALUES ($1, $2, $3, 1, $4, $5)
+INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent, created_by)
+VALUES ($1, $2, $3, 1, $4, $5, $1)
 `
 
 type InsertLoginLogOAuthParams struct {
@@ -525,8 +533,8 @@ func (q *Queries) InsertLoginLogOAuth(ctx context.Context, arg InsertLoginLogOAu
 }
 
 const insertLoginLogSuccess = `-- name: InsertLoginLogSuccess :exec
-INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent)
-VALUES ($1, $2, 'password', 1, $3, $4)
+INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent, created_by)
+VALUES ($1, $2, 'password', 1, $3, $4, $1)
 `
 
 type InsertLoginLogSuccessParams struct {
@@ -547,36 +555,38 @@ func (q *Queries) InsertLoginLogSuccess(ctx context.Context, arg InsertLoginLogS
 }
 
 const insertUserPosition = `-- name: InsertUserPosition :exec
-INSERT INTO sys_user_position (user_id, position_id) VALUES ($1, $2)
+INSERT INTO sys_user_position (user_id, position_id, created_by) VALUES ($1, $2, $3)
 `
 
 type InsertUserPositionParams struct {
 	UserID     uint64 `json:"user_id"`
 	PositionID uint64 `json:"position_id"`
+	CreatedBy  uint64 `json:"created_by"`
 }
 
 func (q *Queries) InsertUserPosition(ctx context.Context, arg InsertUserPositionParams) error {
-	_, err := q.db.ExecContext(ctx, insertUserPosition, arg.UserID, arg.PositionID)
+	_, err := q.db.ExecContext(ctx, insertUserPosition, arg.UserID, arg.PositionID, arg.CreatedBy)
 	return err
 }
 
 const insertUserRole = `-- name: InsertUserRole :exec
-INSERT INTO sys_user_role (user_id, role_id) VALUES ($1, $2)
+INSERT INTO sys_user_role (user_id, role_id, created_by) VALUES ($1, $2, $3)
 `
 
 type InsertUserRoleParams struct {
-	UserID uint64 `json:"user_id"`
-	RoleID uint64 `json:"role_id"`
+	UserID    uint64 `json:"user_id"`
+	RoleID    uint64 `json:"role_id"`
+	CreatedBy uint64 `json:"created_by"`
 }
 
 func (q *Queries) InsertUserRole(ctx context.Context, arg InsertUserRoleParams) error {
-	_, err := q.db.ExecContext(ctx, insertUserRole, arg.UserID, arg.RoleID)
+	_, err := q.db.ExecContext(ctx, insertUserRole, arg.UserID, arg.RoleID, arg.CreatedBy)
 	return err
 }
 
 const insertUserRoleIfActive = `-- name: InsertUserRoleIfActive :exec
-INSERT INTO sys_user_role (user_id, role_id)
-SELECT $1, id FROM sys_role WHERE id = $2 AND status = 1 AND deleted_at IS NULL
+INSERT INTO sys_user_role (user_id, role_id, created_by)
+SELECT $1, id, $1 FROM sys_role WHERE id = $2 AND status = 1 AND deleted_at IS NULL
 `
 
 type InsertUserRoleIfActiveParams struct {
@@ -676,11 +686,13 @@ WHERE u.deleted_at IS NULL
     OR u.mobile LIKE $4))
   AND ($5::bigint IS NULL OR u.department_id = $5)
   AND ($6::smallint IS NULL OR u.status = $6)
+  AND ($7::timestamptz IS NULL OR u.created_at >= $7)
+  AND ($8::timestamptz IS NULL OR u.created_at <= $8)
   AND (
-    $7::boolean
-    OR ($8::bigint IS NOT NULL AND u.id = $8)
-    OR (cardinality(COALESCE($9::bigint[], '{}'::bigint[])) > 0
-        AND u.department_id = ANY(COALESCE($9::bigint[], '{}'::bigint[])))
+    $9::boolean
+    OR ($10::bigint IS NOT NULL AND u.id = $10)
+    OR (cardinality(COALESCE($11::bigint[], '{}'::bigint[])) > 0
+        AND u.department_id = ANY(COALESCE($11::bigint[], '{}'::bigint[])))
   )
 ORDER BY u.id DESC
 LIMIT $1 OFFSET $2
@@ -693,6 +705,8 @@ type ListUsersFilteredParams struct {
 	KeywordPattern sql.NullString `json:"keyword_pattern"`
 	DepartmentID   sql.NullInt64  `json:"department_id"`
 	Status         sql.NullInt16  `json:"status"`
+	CreatedFrom    sql.NullTime   `json:"created_from"`
+	CreatedTo      sql.NullTime   `json:"created_to"`
 	ScopeAll       bool           `json:"scope_all"`
 	SelfUserID     sql.NullInt64  `json:"self_user_id"`
 	DepartmentIds  []uint64       `json:"department_ids"`
@@ -709,7 +723,7 @@ type ListUsersFilteredRow struct {
 	Mobile             string        `json:"mobile"`
 	Gender             int16         `json:"gender"`
 	Status             int16         `json:"status"`
-	IsSuperAdmin       int16         `json:"is_super_admin"`
+	IsSuperAdmin       bool          `json:"is_super_admin"`
 	MustChangePassword int16         `json:"must_change_password"`
 	RoleNames          string        `json:"role_names"`
 	PositionNames      string        `json:"position_names"`
@@ -734,6 +748,8 @@ func (q *Queries) ListUsersFiltered(ctx context.Context, arg ListUsersFilteredPa
 		arg.KeywordPattern,
 		arg.DepartmentID,
 		arg.Status,
+		arg.CreatedFrom,
+		arg.CreatedTo,
 		arg.ScopeAll,
 		arg.SelfUserID,
 		pq.Array(arg.DepartmentIds),
@@ -798,7 +814,7 @@ const resetUserPassword = `-- name: ResetUserPassword :execrows
 UPDATE sys_user SET password_hash = $1, must_change_password = 1,
   password_changed_at = NOW(), failed_login_count = 0, locked_until = NULL,
   token_version = token_version + 1
-WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = 0
+WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = FALSE
 `
 
 type ResetUserPasswordParams struct {
@@ -815,12 +831,17 @@ func (q *Queries) ResetUserPassword(ctx context.Context, arg ResetUserPasswordPa
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :execrows
-UPDATE sys_user SET deleted_at = NOW(), status = 0
-WHERE id = $1 AND deleted_at IS NULL AND is_super_admin = 0
+UPDATE sys_user SET deleted_at = NOW(), status = 0, updated_by = $2
+WHERE id = $1 AND deleted_at IS NULL AND is_super_admin = FALSE
 `
 
-func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteUser, id)
+type SoftDeleteUserParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteUser, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -829,8 +850,9 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id int64) (int64, error) {
 
 const updateSelfProfile = `-- name: UpdateSelfProfile :execrows
 UPDATE sys_user
-SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW()
-WHERE id = $5 AND deleted_at IS NULL
+SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW(),
+  updated_by = $5
+WHERE id = $6 AND deleted_at IS NULL
 `
 
 type UpdateSelfProfileParams struct {
@@ -838,6 +860,7 @@ type UpdateSelfProfileParams struct {
 	Email        string        `json:"email"`
 	Mobile       string        `json:"mobile"`
 	AvatarFileID sql.NullInt64 `json:"avatar_file_id"`
+	UpdatedBy    uint64        `json:"updated_by"`
 	ID           int64         `json:"id"`
 }
 
@@ -847,6 +870,7 @@ func (q *Queries) UpdateSelfProfile(ctx context.Context, arg UpdateSelfProfilePa
 		arg.Email,
 		arg.Mobile,
 		arg.AvatarFileID,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -857,8 +881,9 @@ func (q *Queries) UpdateSelfProfile(ctx context.Context, arg UpdateSelfProfilePa
 
 const updateUser = `-- name: UpdateUser :execrows
 UPDATE sys_user SET department_id = $1, display_name = $2,
-  email = $3, mobile = $4, gender = $5, status = $6, must_change_password = $7, remark = $8
-WHERE id = $9 AND deleted_at IS NULL AND is_super_admin = 0
+  email = $3, mobile = $4, gender = $5, status = $6, must_change_password = $7, remark = $8,
+  updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL AND is_super_admin = FALSE
 `
 
 type UpdateUserParams struct {
@@ -870,9 +895,13 @@ type UpdateUserParams struct {
 	Status             int16         `json:"status"`
 	MustChangePassword int16         `json:"must_change_password"`
 	Remark             string        `json:"remark"`
+	UpdatedBy          uint64        `json:"updated_by"`
 	ID                 int64         `json:"id"`
 }
 
+// updated_by is the editor. Credential operations (password reset, token
+// version, login state) deliberately leave it alone: they are recorded in the
+// operation log, and stamping them here would replace the last real editor.
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateUser,
 		arg.DepartmentID,
@@ -883,6 +912,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, 
 		arg.Status,
 		arg.MustChangePassword,
 		arg.Remark,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -892,17 +922,18 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, 
 }
 
 const updateUserStatus = `-- name: UpdateUserStatus :execrows
-UPDATE sys_user SET status = $1, updated_at = NOW()
-WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = 0
+UPDATE sys_user SET status = $1, updated_at = NOW(), updated_by = $3
+WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = FALSE
 `
 
 type UpdateUserStatusParams struct {
-	Status int16 `json:"status"`
-	ID     int64 `json:"id"`
+	Status    int16  `json:"status"`
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
 }
 
 func (q *Queries) UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateUserStatus, arg.Status, arg.ID)
+	result, err := q.db.ExecContext(ctx, updateUserStatus, arg.Status, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

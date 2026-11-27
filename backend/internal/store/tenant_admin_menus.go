@@ -20,7 +20,6 @@ func tenantAdminPageCodes() []string {
 		"system_department",
 		"system_position",
 		"system_role",
-		"system_billing",
 		"system_config",
 		"system_notice",
 		"my_messages",

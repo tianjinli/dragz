@@ -67,7 +67,7 @@ func (r *AuthRepository) ListNotices(ctx context.Context, keyword, status string
 		items = append(items, Notice{
 			ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
 			TargetType: row.TargetType, TargetIDs: nullRawArray(row.TargetIds), Status: row.Status,
-			IsPinned: smallIntBool(row.IsPinned), PublishAt: nullTimePtr(row.PublishAt),
+			IsPinned: row.IsPinned, PublishAt: nullTimePtr(row.PublishAt),
 			PublishedBy: nullInt64Ptr(row.PublishedBy), CreatedBy: row.CreatedBy, CreatorName: row.CreatorName,
 			ReadCount: row.ReadCount, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		})
@@ -86,7 +86,7 @@ func (r *AuthRepository) NoticeDetail(ctx context.Context, noticeID, readerID ui
 	return Notice{
 		ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
 		Content: row.Content, TargetType: row.TargetType, TargetIDs: nullRawArray(row.TargetIds),
-		Status: row.Status, IsPinned: smallIntBool(row.IsPinned), PublishAt: nullTimePtr(row.PublishAt),
+		Status: row.Status, IsPinned: row.IsPinned, PublishAt: nullTimePtr(row.PublishAt),
 		PublishedBy: nullInt64Ptr(row.PublishedBy), CreatedBy: row.CreatedBy, CreatorName: row.CreatorName,
 		Read: row.IsRead, ReadCount: row.ReadCount, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}, nil
@@ -96,7 +96,7 @@ func (r *AuthRepository) NoticeDetail(ctx context.Context, noticeID, readerID ui
 func (r *AuthRepository) CreateNotice(ctx context.Context, input SaveNoticeInput, creatorID uint64) (uint64, error) {
 	id, err := r.queries.CreateNotice(ctx, sqlcstore.CreateNoticeParams{
 		Title: input.Title, NoticeType: input.NoticeType, Priority: input.Priority, Content: input.Content,
-		TargetType: input.TargetType, TargetIds: jsonNullRaw(input.TargetIDs), IsPinned: boolSmallInt16(input.IsPinned),
+		TargetType: input.TargetType, TargetIds: jsonNullRaw(input.TargetIDs), IsPinned: input.IsPinned,
 		PublishAt: nullTimeFromPtr(input.PublishAt), CreatedBy: creatorID,
 	})
 	return uint64(id), err
@@ -106,8 +106,8 @@ func (r *AuthRepository) CreateNotice(ctx context.Context, input SaveNoticeInput
 func (r *AuthRepository) UpdateNotice(ctx context.Context, noticeID uint64, input SaveNoticeInput) error {
 	affected, err := r.queries.UpdateNoticeDraft(ctx, sqlcstore.UpdateNoticeDraftParams{
 		Title: input.Title, NoticeType: input.NoticeType, Priority: input.Priority, Content: input.Content,
-		TargetType: input.TargetType, TargetIds: jsonNullRaw(input.TargetIDs), IsPinned: boolSmallInt16(input.IsPinned),
-		PublishAt: nullTimeFromPtr(input.PublishAt), ID: int64(noticeID),
+		TargetType: input.TargetType, TargetIds: jsonNullRaw(input.TargetIDs), IsPinned: input.IsPinned,
+		PublishAt: nullTimeFromPtr(input.PublishAt), UpdatedBy: actorID(ctx), ID: int64(noticeID),
 	})
 	if err != nil {
 		return err
@@ -199,7 +199,9 @@ func (r *AuthRepository) BackfillLegacyNoticeNotified(ctx context.Context) error
 
 // RevokeNotice moves a published notice back to draft.
 func (r *AuthRepository) RevokeNotice(ctx context.Context, noticeID uint64) error {
-	affected, err := r.queries.RevokeNotice(ctx, int64(noticeID))
+	affected, err := r.queries.RevokeNotice(ctx, sqlcstore.RevokeNoticeParams{
+		ID: int64(noticeID), RevokedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -211,7 +213,9 @@ func (r *AuthRepository) RevokeNotice(ctx context.Context, noticeID uint64) erro
 
 // DeleteNotice soft deletes a notice. A notice that is still published is refused with ErrCannotRevoke.
 func (r *AuthRepository) DeleteNotice(ctx context.Context, noticeID uint64) error {
-	affected, err := r.queries.SoftDeleteNotice(ctx, int64(noticeID))
+	affected, err := r.queries.SoftDeleteNotice(ctx, sqlcstore.SoftDeleteNoticeParams{
+		ID: int64(noticeID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -242,7 +246,7 @@ func (r *AuthRepository) ListMyNotices(ctx context.Context, userID uint64, unrea
 		items = append(items, Notice{
 			ID: uint64(row.ID), Title: row.Title, NoticeType: row.NoticeType, Priority: row.Priority,
 			Content: row.Content, TargetType: row.TargetType, TargetIDs: nullRawArray(row.TargetIds), Status: row.Status,
-			IsPinned: smallIntBool(row.IsPinned), PublishAt: nullTimePtr(row.PublishAt),
+			IsPinned: row.IsPinned, PublishAt: nullTimePtr(row.PublishAt),
 			PublishedBy: nullInt64Ptr(row.PublishedBy), CreatedBy: row.CreatedBy, CreatorName: row.CreatorName,
 			Read: row.IsRead, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		})

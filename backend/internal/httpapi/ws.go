@@ -8,6 +8,7 @@ import (
 
 	"dragz-admin/backend/internal/app"
 	"dragz-admin/backend/internal/pkg/ctxkey"
+	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/store"
 )
 
@@ -50,6 +51,12 @@ func wsHandler(ctx *app.Context) http.HandlerFunc {
 		}
 		if user.Status != 1 || user.TokenVersion != claims.TokenVersion {
 			fail(w, r, http.StatusUnauthorized, 40100, "errors.unauthorized")
+			return
+		}
+		// The websocket handshake is a public route, so the HTTP guard never
+		// sees it. Keep it inside the same first-login restriction.
+		if user.MustChangePassword {
+			fail(w, r, http.StatusForbidden, apierrors.CodePasswordChangeRequired, "errors.password_change_required")
 			return
 		}
 		if _, err := ctx.Tenants.Membership(wsCtx, claims.UserID, claims.TenantID); err != nil {

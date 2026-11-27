@@ -1,11 +1,12 @@
 -- name: CreateDictionaryType :one
-INSERT INTO sys_dict_type (code, name, display_type, status, remark)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO sys_dict_type (code, name, display_type, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
 RETURNING id;
 
 -- name: UpdateDictionaryType :execrows
-UPDATE sys_dict_type SET code = $1, name = $2, display_type = $3, status = $4, remark = $5
-WHERE id = $6 AND deleted_at IS NULL;
+UPDATE sys_dict_type SET code = $1, name = $2, display_type = $3, status = $4, remark = $5,
+  updated_by = $6
+WHERE id = $7 AND deleted_at IS NULL;
 
 -- name: GetDictionaryTypeDeleteChecks :one
 SELECT d.is_system,
@@ -14,7 +15,7 @@ FROM sys_dict_type d
 WHERE d.id = $1 AND d.deleted_at IS NULL;
 
 -- name: SoftDeleteDictionaryType :execrows
-UPDATE sys_dict_type SET deleted_at = NOW(), status = 0
+UPDATE sys_dict_type SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: ListDictionaryItems :many
@@ -37,25 +38,26 @@ WHERE code = $1 AND status = 1 AND deleted_at IS NULL;
 
 -- name: CreateDictionaryItem :one
 INSERT INTO sys_dict_item
-  (dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (dict_type_id, label, value, color, css_class, sort, status, is_default, remark,
+   created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 RETURNING id;
 
 -- name: UpdateDictionaryItem :execrows
 UPDATE sys_dict_item SET label = $1, value = $2, color = $3,
-  css_class = $4, sort = $5, status = $6, is_default = $7, remark = $8
-WHERE id = $9 AND deleted_at IS NULL;
+  css_class = $4, sort = $5, status = $6, is_default = $7, remark = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL;
 
 -- name: ClearDictionaryDefault :execrows
 -- Step one of the two-step default switch (see uk_dict_item_default): drop
 -- every default flag in the type before the new one is written, so the
 -- immediate partial unique index is never tripped mid-statement. Runs in the
 -- caller's transaction; row-level security scopes it to the caller's tenant.
-UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
-WHERE dict_type_id = $1 AND is_default = 1 AND deleted_at IS NULL;
+UPDATE sys_dict_item SET is_default = FALSE, updated_at = NOW()
+WHERE dict_type_id = $1 AND is_default = TRUE AND deleted_at IS NULL;
 
 -- name: SoftDeleteDictionaryItem :execrows
-UPDATE sys_dict_item SET deleted_at = NOW(), status = 0
+UPDATE sys_dict_item SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: GetDictionaryTypeByID :one

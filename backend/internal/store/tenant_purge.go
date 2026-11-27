@@ -25,7 +25,7 @@ type TenantMemberSnapshot struct {
 	Username      string  `json:"username"`
 	DisplayName   string  `json:"displayName"`
 	DepartmentID  *uint64 `json:"departmentId,omitempty"`
-	IsTenantAdmin int16   `json:"isTenantAdmin"`
+	IsTenantAdmin bool    `json:"isTenantAdmin"`
 	Status        int16   `json:"status"`
 }
 
@@ -196,8 +196,9 @@ UPDATE sys_tenant
 SET purge_status = 'pending_delete',
     purge_after = NOW() + make_interval(days => $2),
     status = 0,
-    updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL AND purge_status <> 'purged'`, tenantID, days)
+    updated_at = NOW(),
+    updated_by = $3
+WHERE id = $1 AND deleted_at IS NULL AND purge_status <> 'purged'`, tenantID, days, actorID(ctx))
 		if err != nil {
 			return err
 		}
@@ -223,12 +224,13 @@ func (r *TenantRepository) CancelTenantPurge(ctx context.Context, tenantID uint6
 UPDATE sys_tenant
 SET purge_status = '',
     purge_after = NULL,
-    updated_at = NOW()
+    updated_at = NOW(),
+    updated_by = $2
 WHERE id = $1
   AND deleted_at IS NULL
   AND purge_status = 'pending_delete'
   AND purge_after IS NOT NULL
-  AND purge_after > NOW()`, tenantID)
+  AND purge_after > NOW()`, tenantID, actorID(ctx))
 		if err != nil {
 			return err
 		}
@@ -312,8 +314,6 @@ var purgeTenantStatements = []string{
 	`DELETE FROM sys_tenant_member WHERE tenant_id = $1`,
 	`DELETE FROM sys_tenant_subscription WHERE tenant_id = $1`,
 	`DELETE FROM sys_tenant_quota WHERE tenant_id = $1`,
-	`DELETE FROM sys_tenant_entitlement WHERE tenant_id = $1`,
-	`DELETE FROM sys_invoice WHERE tenant_id = $1`,
 	`DELETE FROM sys_tenant_domain WHERE tenant_id = $1`,
 }
 

@@ -103,7 +103,7 @@ describe('normalizeListColumns', () => {
     const columns = normalizeListColumns([{ title: '时间', dataIndex: 'createdAt' }]);
     const render = columns[0].render as (value: unknown) => string;
     expect(render('2026-09-01T10:00:00+08:00')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-    expect(render(null)).toBe('—');
+    expect(render(null)).toBe('');
   });
 
   it('leaves non-timestamp columns without a default render', () => {

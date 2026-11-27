@@ -54,6 +54,9 @@ export interface Invite {
   acceptedBy?: number | null;
   acceptedAt?: string | null;
   createdAt: string;
+  deliveryStatus?: string;
+  deliveredAt?: string | null;
+  deliveryError?: string;
 }
 
 export interface CreateInviteInput {

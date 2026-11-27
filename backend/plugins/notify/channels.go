@@ -11,16 +11,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
-	"net/smtp"
-	"net/textproto"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"dragz-admin/backend/platform/mailer"
 )
 
 // Message is the channel-agnostic input to a delivery. Templates already
@@ -96,12 +94,14 @@ func (smtpChannel) Validate(cfg map[string]any) error {
 	return require(cfg, "host", "port", "from", "username", "password")
 }
 
+// Send delegates to the platform SMTP engine: one implementation, two config
+// sources (this channel's stored config and the system mail.* settings).
 func (c smtpChannel) Send(ctx context.Context, cfg map[string]any, msg Message) error {
 	if err := c.Validate(cfg); err != nil {
 		return err
 	}
-	port := str(cfg, "port")
-	if _, err := strconv.Atoi(port); err != nil {
+	port, err := strconv.Atoi(str(cfg, "port"))
+	if err != nil {
 		return fmt.Errorf("smtp port must be numeric: %w", err)
 	}
 	to := msg.Recipient
@@ -111,48 +111,39 @@ func (c smtpChannel) Send(ctx context.Context, cfg map[string]any, msg Message) 
 	if to == "" {
 		return fmt.Errorf("smtp recipient is empty")
 	}
-	from := str(cfg, "from")
-	addr := str(cfg, "host") + ":" + port
+	body := msg.Content
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("smtp body is empty")
+	}
+	engineCfg := mailer.Config{
+		Host:        str(cfg, "host"),
+		Port:        port,
+		Username:    str(cfg, "username"),
+		Password:    str(cfg, "password"),
+		From:        str(cfg, "from"),
+		Encryption:  str(cfg, "encryption"),
+		ContentType: str(cfg, "content_type"),
+	}
+	// Channels created before the engine existed never stored an encryption
+	// mode; a username implies an authenticated relay, so starttls is the
+	// only sane default that keeps credentials off the wire.
+	if engineCfg.Encryption == "" && engineCfg.Username != "" {
+		engineCfg.Encryption = mailer.EncryptionStartTLS
+	}
+	msg2 := mailer.Message{To: to, Subject: subjectOr(msg.Subject, "通知")}
+	if strings.Contains(strings.ToLower(engineCfg.ContentType), "html") {
+		msg2.HTMLBody = body
+	} else {
+		msg2.TextBody = body
+	}
+	return mailer.Send(ctx, engineCfg, msg2)
+}
 
-	var body bytes.Buffer
-	subject := msg.Subject
-	if subject == "" {
-		subject = "通知"
+func subjectOr(subject, fallback string) string {
+	if strings.TrimSpace(subject) == "" {
+		return fallback
 	}
-	mimeType := "text/plain"
-	if strings.Contains(strings.ToLower(str(cfg, "content_type")), "html") {
-		mimeType = "text/html"
-	}
-	header := textproto.MIMEHeader{}
-	header.Set("From", mime.QEncoding.Encode("utf-8", from))
-	header.Set("To", to)
-	header.Set("Subject", mime.QEncoding.Encode("utf-8", subject))
-	header.Set("Content-Type", mimeType+`; charset="utf-8"`)
-	header.Set("MIME-Version", "1.0")
-	w := multipart.NewWriter(&body)
-	part, err := w.CreatePart(header)
-	if err != nil {
-		return err
-	}
-	if _, err := io.WriteString(part, msg.Content); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-
-	auth := smtp.PlainAuth("", str(cfg, "username"), str(cfg, "password"), str(cfg, "host"))
-	// smtp.SendMail has no context support; run it in a goroutine and honor ctx.
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- smtp.SendMail(addr, auth, from, []string{to}, body.Bytes())
-	}()
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return subject
 }
 
 // ---------------------------------------------------------------------------

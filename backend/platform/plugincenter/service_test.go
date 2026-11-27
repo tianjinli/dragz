@@ -675,8 +675,6 @@ func TestEnableSyncsDeclaredMenus(t *testing.T) {
 				RoutePath:  "/demo",
 				Component:  "/demo/index",
 				ParentCode: "",
-				KeepAlive:  true,
-				Hidden:     false,
 				Icon:       "lucide:box",
 				Sort:       10,
 				Type:       "",
@@ -700,9 +698,6 @@ func TestEnableSyncsDeclaredMenus(t *testing.T) {
 	node := repo.syncedMenus[0]
 	if node.Code != "demo_page" || node.PluginID != "demo" || node.RoutePath != "/demo" {
 		t.Fatalf("node = %+v", node)
-	}
-	if !node.KeepAlive || node.Hidden {
-		t.Fatalf("flags not carried over: %+v", node)
 	}
 	scoped := false
 	for _, id := range repo.syncedMenuPlugins {

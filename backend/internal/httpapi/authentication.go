@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dragz-admin/backend/internal/app"
+	"dragz-admin/backend/internal/pkg/ctxkey"
 	apierrors "dragz-admin/backend/internal/pkg/errors"
 	"dragz-admin/backend/internal/security"
 )
@@ -64,7 +65,9 @@ func authenticate(ctx *app.Context, next http.HandlerFunc) http.HandlerFunc {
 			fail(w, r, http.StatusUnauthorized, 40100, "errors.unauthorized")
 			return
 		}
-		next(w, withClaimedTenant(r, claims.UserID, claims.Username, claims.TenantID))
+		request := withClaimedTenant(r, claims.UserID, claims.Username, claims.TenantID)
+		request = request.WithContext(ctxkey.WithMustChangePassword(request.Context(), user.MustChangePassword))
+		next(w, request)
 	}
 }
 

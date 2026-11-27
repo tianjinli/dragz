@@ -39,21 +39,27 @@ INNER JOIN sys_user u ON u.id = m.user_id AND u.deleted_at IS NULL
 WHERE m.tenant_id = sqlc.arg(tenant_id) AND m.user_id = sqlc.arg(user_id);
 
 -- name: UpsertTenantMember :exec
-INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status)
-VALUES (sqlc.arg(tenant_id), sqlc.arg(user_id), sqlc.narg(department_id), sqlc.arg(is_tenant_admin), sqlc.arg(is_platform_operator), sqlc.arg(status))
+INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status,
+  created_by, updated_by)
+VALUES (sqlc.arg(tenant_id), sqlc.arg(user_id), sqlc.narg(department_id), sqlc.arg(is_tenant_admin),
+  sqlc.arg(is_platform_operator), sqlc.arg(status), sqlc.arg(actor), sqlc.arg(actor))
 ON CONFLICT (tenant_id, user_id) DO UPDATE
 SET department_id = EXCLUDED.department_id,
     is_tenant_admin = EXCLUDED.is_tenant_admin,
     is_platform_operator = EXCLUDED.is_platform_operator,
     status = EXCLUDED.status,
-    updated_at = NOW();
+    updated_at = NOW(),
+    -- created_by keeps the first writer: an upsert is an edit, not a creation.
+    updated_by = EXCLUDED.updated_by;
 
 -- name: SetTenantMemberStatus :execrows
-UPDATE sys_tenant_member SET status = sqlc.arg(status), updated_at = NOW()
+UPDATE sys_tenant_member SET status = sqlc.arg(status), updated_at = NOW(),
+  updated_by = sqlc.arg(actor)
 WHERE tenant_id = sqlc.arg(tenant_id) AND user_id = sqlc.arg(user_id);
 
 -- name: UpdateTenantMemberDepartment :exec
-UPDATE sys_tenant_member SET department_id = sqlc.narg(department_id), updated_at = NOW()
+UPDATE sys_tenant_member SET department_id = sqlc.narg(department_id), updated_at = NOW(),
+  updated_by = sqlc.arg(actor)
 WHERE tenant_id = sqlc.arg(tenant_id) AND user_id = sqlc.arg(user_id);
 
 -- name: CountMembershipsForUser :one
@@ -74,7 +80,7 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND user_id = sqlc.arg(user_id);
 
 -- name: CountTenantAdmins :one
 SELECT COUNT(*) FROM sys_tenant_member
-WHERE tenant_id = sqlc.arg(tenant_id) AND status = 1 AND is_tenant_admin = 1;
+WHERE tenant_id = sqlc.arg(tenant_id) AND status = 1 AND is_tenant_admin = TRUE;
 
 -- name: ListTenantsForUser :many
 SELECT t.id, t.code, t.name,
@@ -105,15 +111,9 @@ SELECT id, code, name, status
 FROM sys_tenant
 WHERE id = $1 AND deleted_at IS NULL;
 
--- name: GetTenantEntitlement :one
-SELECT enabled
-FROM sys_tenant_entitlement
-WHERE tenant_id = $1 AND feature_key = $2;
-
 -- name: GetPlanEntitlementForTenant :one
 -- Active, trial, or overdue (grace) subscription → plan catalog value.
--- Cancelled rows are excluded. EntitlementEnabled denies those unless a
--- per-tenant override is enabled.
+-- Cancelled rows are excluded; EntitlementEnabled denies those.
 SELECT pe.entitlement_value
 FROM sys_tenant_subscription s
 INNER JOIN sys_plan_entitlement pe ON pe.plan_id = s.plan_id

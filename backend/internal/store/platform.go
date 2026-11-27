@@ -36,7 +36,7 @@ type PlatformPlan struct {
 	ID           uint64            `json:"id"`
 	Code         string            `json:"code"`
 	Name         string            `json:"name"`
-	Description  string            `json:"description"`
+	Remark       string            `json:"remark"`
 	Status       int16             `json:"status"`
 	Sort         int               `json:"sort"`
 	Entitlements []PlanEntitlement `json:"entitlements"`
@@ -156,9 +156,10 @@ func (r *TenantRepository) CreatePlatformTenant(ctx context.Context, code, name,
 	var item PlatformTenant
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		row := tx.QueryRowContext(ctx, `
-INSERT INTO sys_tenant (code, name, status, slug)
-VALUES ($1, $2, 1, $3)
-RETURNING id, code, name, status, remark, created_at, purge_after, purge_status, slug`, code, name, slug)
+INSERT INTO sys_tenant (code, name, status, slug, created_by, updated_by)
+VALUES ($1, $2, 1, $3, $4, $4)
+RETURNING id, code, name, status, remark, created_at, purge_after, purge_status, slug`,
+			code, name, slug, actorID(ctx))
 		scanned, scanErr := scanPlatformTenant(row)
 		if scanErr != nil {
 			return wrapDuplicate(scanErr)
@@ -179,8 +180,8 @@ func (r *TenantRepository) UpdatePlatformTenantStatus(ctx context.Context, tenan
 	var affected int64
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		result, err := tx.ExecContext(ctx, `
-UPDATE sys_tenant SET status = $2, updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL`, tenantID, status)
+UPDATE sys_tenant SET status = $2, updated_at = NOW(), updated_by = $3
+WHERE id = $1 AND deleted_at IS NULL`, tenantID, status, actorID(ctx))
 		if err != nil {
 			return err
 		}
@@ -201,7 +202,7 @@ func (r *TenantRepository) ListPlatformPlans(ctx context.Context) ([]PlatformPla
 	var items []PlatformPlan
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		rows, err := tx.QueryContext(ctx, `
-SELECT p.id, p.code, p.name, p.description, p.status, p.sort,
+SELECT p.id, p.code, p.name, p.remark, p.status, p.sort,
        COALESCE(e.entitlement_key, ''), COALESCE(e.entitlement_value, '')
 FROM sys_plan p
 LEFT JOIN sys_plan_entitlement e ON e.plan_id = p.id
@@ -214,22 +215,22 @@ ORDER BY p.sort, p.id, e.entitlement_key`)
 		index := map[uint64]int{}
 		for rows.Next() {
 			var (
-				id          uint64
-				code        string
-				name        string
-				description string
-				status      int16
-				sort        int
-				key         string
-				value       string
+				id     uint64
+				code   string
+				name   string
+				remark string
+				status int16
+				sort   int
+				key    string
+				value  string
 			)
-			if err := rows.Scan(&id, &code, &name, &description, &status, &sort, &key, &value); err != nil {
+			if err := rows.Scan(&id, &code, &name, &remark, &status, &sort, &key, &value); err != nil {
 				return err
 			}
 			at, ok := index[id]
 			if !ok {
 				items = append(items, PlatformPlan{
-					ID: id, Code: code, Name: name, Description: description,
+					ID: id, Code: code, Name: name, Remark: remark,
 					Status: status, Sort: sort, Entitlements: []PlanEntitlement{},
 				})
 				at = len(items) - 1
@@ -245,13 +246,13 @@ ORDER BY p.sort, p.id, e.entitlement_key`)
 }
 
 // PlanWrite is a create or update of one sys_plan row.
-// Nil Description, Status, or Sort means "leave the stored value" on update.
+// Nil Remark, Status, or Sort means "leave the stored value" on update.
 // On create the caller should set them. ReplaceEntitlements rewrites the
 // entitlement rows; otherwise they stay as they are.
 type PlanWrite struct {
 	Code                string
 	Name                string
-	Description         *string
+	Remark              *string
 	Status              *int16
 	Sort                *int
 	Entitlements        []PlanEntitlement
@@ -261,9 +262,9 @@ type PlanWrite struct {
 // CreatePlatformPlan inserts a plan and its entitlements.
 // A live code collision is ErrDuplicateEntry.
 func (r *TenantRepository) CreatePlatformPlan(ctx context.Context, in PlanWrite) (PlatformPlan, error) {
-	description := ""
-	if in.Description != nil {
-		description = *in.Description
+	remark := ""
+	if in.Remark != nil {
+		remark = *in.Remark
 	}
 	status := int16(1)
 	if in.Status != nil {
@@ -277,9 +278,9 @@ func (r *TenantRepository) CreatePlatformPlan(ctx context.Context, in PlanWrite)
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		var id uint64
 		err := tx.QueryRowContext(ctx, `
-INSERT INTO sys_plan (code, name, description, status, sort)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id`, in.Code, in.Name, description, status, sort).Scan(&id)
+INSERT INTO sys_plan (code, name, remark, status, sort, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
+RETURNING id`, in.Code, in.Name, remark, status, sort, actorID(ctx)).Scan(&id)
 		if err != nil {
 			return wrapDuplicate(err)
 		}
@@ -296,9 +297,9 @@ RETURNING id`, in.Code, in.Name, description, status, sort).Scan(&id)
 // A missing plan is ErrNotFound. A code collision is ErrDuplicateEntry.
 // Entitlements are replaced only when ReplaceEntitlements is set.
 func (r *TenantRepository) UpdatePlatformPlan(ctx context.Context, planID uint64, in PlanWrite) (PlatformPlan, error) {
-	var description sql.NullString
-	if in.Description != nil {
-		description = sql.NullString{String: *in.Description, Valid: true}
+	var remark sql.NullString
+	if in.Remark != nil {
+		remark = sql.NullString{String: *in.Remark, Valid: true}
 	}
 	var status sql.NullInt16
 	if in.Status != nil {
@@ -314,11 +315,12 @@ func (r *TenantRepository) UpdatePlatformPlan(ctx context.Context, planID uint64
 UPDATE sys_plan
 SET code = $2,
     name = $3,
-    description = COALESCE($4::varchar, description),
+    remark = COALESCE($4::varchar, remark),
     status = COALESCE($5::smallint, status),
     sort = COALESCE($6::int, sort),
-    updated_at = NOW()
-WHERE id = $1`, planID, in.Code, in.Name, description, status, sort)
+    updated_at = NOW(),
+    updated_by = $7
+WHERE id = $1`, planID, in.Code, in.Name, remark, status, sort, actorID(ctx))
 		if err != nil {
 			return wrapDuplicate(err)
 		}
@@ -356,9 +358,9 @@ func bumpPlanVersion(ctx context.Context, tx *Tx, planID uint64) error {
 		name    string
 	)
 	if err := tx.QueryRowContext(ctx, `
-UPDATE sys_plan SET version = version + 1, updated_at = NOW()
+UPDATE sys_plan SET version = version + 1, updated_at = NOW(), updated_by = $2
 WHERE id = $1
-RETURNING version, code, name`, planID).Scan(&version, &code, &name); err != nil {
+RETURNING version, code, name`, planID, actorID(ctx)).Scan(&version, &code, &name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -369,9 +371,9 @@ RETURNING version, code, name`, planID).Scan(&version, &code, &name); err != nil
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO sys_plan_version (plan_id, version, snapshot)
-VALUES ($1, $2, $3::jsonb)
-ON CONFLICT (plan_id, version) DO NOTHING`, planID, version, string(snapshot))
+INSERT INTO sys_plan_version (plan_id, version, snapshot, created_by)
+VALUES ($1, $2, $3::jsonb, $4)
+ON CONFLICT (plan_id, version) DO NOTHING`, planID, version, string(snapshot), actorID(ctx))
 	return err
 }
 
@@ -380,8 +382,8 @@ func (r *TenantRepository) UpdatePlatformPlanStatus(ctx context.Context, planID 
 	var affected int64
 	err := r.platformTx(ctx, func(ctx context.Context, tx *Tx) error {
 		result, err := tx.ExecContext(ctx, `
-UPDATE sys_plan SET status = $2, updated_at = NOW()
-WHERE id = $1`, planID, status)
+UPDATE sys_plan SET status = $2, updated_at = NOW(), updated_by = $3
+WHERE id = $1`, planID, status, actorID(ctx))
 		if err != nil {
 			return err
 		}
@@ -409,11 +411,12 @@ func replacePlanEntitlements(ctx context.Context, tx *Tx, planID uint64, items [
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO sys_plan_entitlement (plan_id, entitlement_key, entitlement_value)
-VALUES ($1, $2, $3)
+INSERT INTO sys_plan_entitlement (plan_id, entitlement_key, entitlement_value, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $4)
 ON CONFLICT (plan_id, entitlement_key) DO UPDATE
-SET entitlement_value = EXCLUDED.entitlement_value, updated_at = NOW()`,
-			planID, item.Key, item.Value); err != nil {
+SET entitlement_value = EXCLUDED.entitlement_value, updated_at = NOW(),
+  updated_by = EXCLUDED.updated_by`,
+			planID, item.Key, item.Value, actorID(ctx)); err != nil {
 			return err
 		}
 	}
@@ -422,7 +425,7 @@ SET entitlement_value = EXCLUDED.entitlement_value, updated_at = NOW()`,
 
 func loadPlatformPlan(ctx context.Context, tx *Tx, planID uint64) (PlatformPlan, error) {
 	rows, err := tx.QueryContext(ctx, `
-SELECT p.id, p.code, p.name, p.description, p.status, p.sort,
+SELECT p.id, p.code, p.name, p.remark, p.status, p.sort,
        COALESCE(e.entitlement_key, ''), COALESCE(e.entitlement_value, '')
 FROM sys_plan p
 LEFT JOIN sys_plan_entitlement e ON e.plan_id = p.id
@@ -438,7 +441,7 @@ ORDER BY e.entitlement_key`, planID)
 	)
 	for rows.Next() {
 		var key, value string
-		if err := rows.Scan(&item.ID, &item.Code, &item.Name, &item.Description, &item.Status, &item.Sort, &key, &value); err != nil {
+		if err := rows.Scan(&item.ID, &item.Code, &item.Name, &item.Remark, &item.Status, &item.Sort, &key, &value); err != nil {
 			return PlatformPlan{}, err
 		}
 		if !found {
@@ -536,8 +539,8 @@ func (r *TenantRepository) InsertImpersonation(ctx context.Context, tenantID, ac
 		}
 		return tx.QueryRowContext(ctx, `
 INSERT INTO sys_tenant_impersonation
-  (tenant_id, actor_user_id, target_user_id, reason, expires_at)
-VALUES ($1, $2, $2, $3, $4)
+  (tenant_id, actor_user_id, target_user_id, reason, expires_at, created_by)
+VALUES ($1, $2, $2, $3, $4, $2)
 RETURNING id`, tenantID, actorUserID, reason, expiresAt).Scan(&id)
 	})
 	return id, err

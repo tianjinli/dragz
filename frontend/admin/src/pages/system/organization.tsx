@@ -1,4 +1,4 @@
-import { type ComponentProps, useMemo } from "react";
+import { type ComponentProps, type ReactNode, useMemo } from "react";
 import { Plus } from "lucide-react";
 import {
   ResourceCrudPage,
@@ -12,6 +12,7 @@ import {
 import { listDepartmentsApi, listMenusApi, listUsersApi } from "@/api/system";
 import i18n from "@/i18n";
 import { iconNode } from "@/router/menu-utils";
+import { formatDateTime } from "@/utils/format-time";
 import type { ResourceRecord } from "@/api/system";
 
 const status = (): FieldConfig => ({
@@ -25,6 +26,13 @@ const sort = (): FieldConfig => ({
   label: i18n.t("common.sort"),
   numeric: true,
   type: "number",
+});
+/** Created-at columns use the configured `system.dateTimeFormat`. */
+const createdAtColumn = (): ColumnConfig => ({
+  title: i18n.t("common.createdAt"),
+  dataIndex: "createdAt",
+  width: 180,
+  render: (value) => formatDateTime(value as string | null | undefined),
 });
 function departmentPathIds(department: ResourceRecord | null): number[] {
   if (!department) return [];
@@ -66,7 +74,10 @@ interface ResourceOptions {
   manage?: boolean;
   paged?: boolean;
   rowActions?: RowAction[];
-  searchMode?: "auto" | "local" | "none" | "submit";
+  searchMode?: "auto" | "local" | "local-submit" | "none" | "submit";
+  /** Fields the keyword box matches (local search modes only). */
+  searchKeys?: readonly string[];
+  searchPlaceholder?: string;
   sidePanel?: ComponentProps<typeof ResourceCrudPage>["sidePanel"];
   statusFilterAfterExtra?: boolean;
   statusSwitchDisabled?: (row: ResourceRecord) => boolean;
@@ -109,6 +120,8 @@ function resource(config: () => ResourceConfig) {
         paged={options?.paged}
         rowActions={options?.rowActions}
         searchMode={options?.searchMode}
+        searchKeys={options?.searchKeys}
+        searchPlaceholder={options?.searchPlaceholder}
         sidePanel={options?.sidePanel}
         statusFilterAfterExtra={options?.statusFilterAfterExtra}
         statusSwitchDisabled={options?.statusSwitchDisabled}
@@ -135,14 +148,15 @@ export const DepartmentPage = resource(() => ({
       dataIndex: "code",
       width: 120,
     },
-    {
-      title: i18n.t("system.org.ancestorPath"),
-      dataIndex: "ancestorPath",
-      width: 280,
-    },
     { title: i18n.t("system.org.leader"), dataIndex: "leaderName", width: 140 },
     { title: i18n.t("common.sort"), dataIndex: "sort", width: 90 },
     { title: i18n.t("common.status"), dataIndex: "status", width: 90 },
+    {
+      title: i18n.t("common.remark"),
+      dataIndex: "remark",
+      width: 220,
+    },
+    createdAtColumn(),
   ],
   fields: [
     {
@@ -228,6 +242,11 @@ export const DepartmentPage = resource(() => ({
     },
     sort(),
     status(),
+    {
+      key: "remark",
+      label: i18n.t("common.remark"),
+      type: "textarea",
+    },
   ],
   options: {
     tree: true,
@@ -239,7 +258,7 @@ export const DepartmentPage = resource(() => ({
         createValues: (row: ResourceRecord) => ({ parentId: row.id }),
       },
     ],
-    searchMode: "local",
+    searchMode: "local-submit",
   },
 }));
 export const PositionPage = resource(() => ({
@@ -253,6 +272,7 @@ export const PositionPage = resource(() => ({
     { title: i18n.t("common.sort"), dataIndex: "sort", width: 90 },
     { title: i18n.t("common.status"), dataIndex: "status", width: 90 },
     { title: i18n.t("common.remark"), dataIndex: "remark", width: 260 },
+    createdAtColumn(),
   ],
   fields: [
     { key: "name", label: i18n.t("system.org.positionName"), required: true },
@@ -267,8 +287,23 @@ const menuTypeLabels = (): Record<string, string> => ({
   directory: i18n.t("system.org.menuType.directory"),
   page: i18n.t("system.org.menuType.page"),
   button: i18n.t("system.org.menuType.button"),
-  external: i18n.t("system.org.menuType.external"),
 });
+/** The keyword box on the menu list searches names only (not permission codes). */
+const MENU_SEARCH_KEYS = ["name"] as const;
+/**
+ * A menu target may be an off-site URL (e.g. routePath = `https://…`). Those
+ * open in a new tab so the console stays where it was; internal routes and API
+ * paths stay plain text.
+ */
+function pathCell(value: unknown): ReactNode {
+  const text = String(value ?? "");
+  if (!/^https?:\/\//i.test(text)) return text;
+  return (
+    <a href={text} rel="noopener noreferrer" target="_blank">
+      {text}
+    </a>
+  );
+}
 function menuChildrenOf(menus: ResourceRecord[], id: number): ResourceRecord[] {
   return menus.filter((menu) => Number(menu.parentId) === id);
 }
@@ -298,7 +333,7 @@ function menuAllowedTypes(
   )?.type;
   // Children may only be added below a directory or a page, and a page's
   // children are permission buttons.
-  if (parentType === "button" || parentType === "external") return [];
+  if (parentType === "button") return [];
   if (editing && menuChildrenOf(menus, Number(editing.id)).length)
     return [String(editing.type)];
   if (parentType === "page") return ["button"];
@@ -389,14 +424,24 @@ export const MenuPage = resource(() => ({
         );
       },
     },
-    { title: i18n.t("system.org.route"), dataIndex: "routePath", width: 200 },
+    {
+      title: i18n.t("system.org.route"),
+      dataIndex: "routePath",
+      width: 200,
+      render: (value) => pathCell(value),
+    },
     {
       title: i18n.t("system.org.permissionCode"),
       dataIndex: "code",
       width: 220,
     },
     { title: i18n.t("system.org.method"), dataIndex: "method", width: 90 },
-    { title: i18n.t("system.org.path"), dataIndex: "path", width: 240 },
+    {
+      title: i18n.t("system.org.path"),
+      dataIndex: "path",
+      width: 240,
+      render: (value) => pathCell(value),
+    },
     { title: i18n.t("common.sort"), dataIndex: "sort", width: 80 },
     { title: i18n.t("common.status"), dataIndex: "status", width: 100 },
   ],
@@ -435,6 +480,7 @@ export const MenuPage = resource(() => ({
     {
       key: "routePath",
       label: i18n.t("system.org.routePath"),
+      hint: i18n.t("system.org.routePathHint"),
       dependencies: ["type"],
       visibleWhen: routeOnly,
     },
@@ -467,7 +513,11 @@ export const MenuPage = resource(() => ({
         createValues: (row: ResourceRecord) => ({ parentId: row.id }),
       },
     ],
-    searchMode: "none",
+    // The list is loaded whole (it is a tree), so filtering stays local and
+    // keeps the matched nodes' ancestors on screen.
+    searchMode: "local-submit",
+    searchKeys: MENU_SEARCH_KEYS,
+    searchPlaceholder: i18n.t("system.org.menuName"),
     statusSwitchDisabled: isManagedButton,
   },
 }));

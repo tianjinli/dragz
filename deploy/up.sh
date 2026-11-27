@@ -83,5 +83,5 @@ if [ "$API_ONLY" != "1" ]; then
   ok "admin web  -> http://127.0.0.1:$WEB_PORT"
 fi
 ok "admin api  -> http://127.0.0.1:$API_PORT/api/health"
-note "login: admin / Dragz!7xZ  (password seeded by 001_system_init.sql, change on first login)"
+note "login: admin / Dragz123  (password seeded by 001_system_init.sql, change on first login)"
 note "logs: bash deploy/logs.sh   stop: bash deploy/down.sh"

@@ -129,8 +129,11 @@ export function normalizeListColumns<T>(columns: TableColumnsType<T>): TableColu
           column.ellipsis = { showTitle: true };
         }
         if (column.render == null && isDateTimeField(column.dataIndex)) {
-          // Uniform time display: yyyy-MM-dd HH:mm:ss.
-          column.render = (value: unknown) => formatDateTime(value as string | null | undefined);
+          // Uniform time display via system.dateTimeFormat (default: yyyy-MM-dd HH:mm:ss).
+          column.render = (value: unknown) =>
+            value == null || value === ""
+              ? ""
+              : formatDateTime(value as string | number | Date);
         }
       }
       return column as AnyColumn<T>;

@@ -16,6 +16,8 @@ type UserListFilter struct {
 	Keyword      string
 	DepartmentID uint64
 	Status       *int8
+	CreatedFrom  *time.Time
+	CreatedTo    *time.Time
 	Page         int
 	PageSize     int
 	Scope        *DataScope
@@ -109,6 +111,8 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 		KeywordPattern: optionalPattern(filter.Keyword),
 		DepartmentID:   optionalUint64Null(filter.DepartmentID),
 		Status:         optionalInt16(filter.Status),
+		CreatedFrom:    nullTimeFromPtr(filter.CreatedFrom),
+		CreatedTo:      nullTimeFromPtr(filter.CreatedTo),
 		ScopeAll:       scopeAll,
 		SelfUserID:     selfUserID,
 		DepartmentIds:  departmentIDs,
@@ -121,6 +125,7 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 		Limit: int32(filter.PageSize), Offset: int32((filter.Page - 1) * filter.PageSize),
 		TenantID:       params.TenantID,
 		KeywordPattern: params.KeywordPattern, DepartmentID: params.DepartmentID, Status: params.Status,
+		CreatedFrom: params.CreatedFrom, CreatedTo: params.CreatedTo,
 		ScopeAll: params.ScopeAll, SelfUserID: params.SelfUserID, DepartmentIds: params.DepartmentIds,
 	})
 	if err != nil {
@@ -132,7 +137,7 @@ func (r *AuthRepository) ListUsers(ctx context.Context, filter UserListFilter) (
 			ID: uint64(row.ID), DepartmentID: nullInt64Ptr(row.DepartmentID),
 			DepartmentName: row.DepartmentName, Username: row.Username, DisplayName: row.DisplayName,
 			Email: row.Email, Mobile: row.Mobile, Gender: int8(row.Gender), Status: int8(row.Status),
-			IsSuperAdmin: smallIntBool(row.IsSuperAdmin), MustChangePassword: smallIntBool(row.MustChangePassword),
+			IsSuperAdmin: row.IsSuperAdmin, MustChangePassword: smallIntBool(row.MustChangePassword),
 			RoleNames: row.RoleNames, PositionNames: row.PositionNames,
 			DepartmentCode: row.DepartmentCode,
 			Roles:          parseNamedRefs(row.Roles),
@@ -157,7 +162,7 @@ func (r *AuthRepository) UserDetail(ctx context.Context, userID uint64) (UserDet
 			DepartmentName: row.DepartmentName, DepartmentCode: row.DepartmentCode,
 			Username: row.Username, DisplayName: row.DisplayName,
 			Email: row.Email, Mobile: row.Mobile, Gender: int8(row.Gender), Status: int8(row.Status),
-			IsSuperAdmin: smallIntBool(row.IsSuperAdmin), MustChangePassword: smallIntBool(row.MustChangePassword),
+			IsSuperAdmin: row.IsSuperAdmin, MustChangePassword: smallIntBool(row.MustChangePassword),
 			LastLoginAt: nullTimePtr(row.LastLoginAt), LastLoginIP: row.LastLoginIp, CreatedAt: row.CreatedAt,
 		},
 		Remark: row.Remark,
@@ -205,6 +210,7 @@ func (r *AuthRepository) CreateUser(ctx context.Context, input SaveUserInput) (u
 		PasswordHash: input.PasswordHash, DisplayName: input.DisplayName, Email: input.Email,
 		Mobile: input.Mobile, Gender: int16(input.Gender), Status: int16(input.Status),
 		MustChangePassword: boolSmallInt16(input.MustChangePassword), Remark: input.Remark,
+		CreatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return 0, wrapDuplicate(err)
@@ -228,14 +234,16 @@ func (r *AuthRepository) CreateUser(ctx context.Context, input SaveUserInput) (u
 // retried create cannot fail on the (tenant_id, user_id) primary key.
 func addTenantMember(ctx context.Context, tx *Tx, tenantID, userID uint64, departmentID *uint64, platformOperator bool) error {
 	_, err := tx.ExecContext(ctx, `
-INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status)
-VALUES ($1, $2, $3, 0, $4, 1)
+INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status,
+  created_by, updated_by)
+VALUES ($1, $2, $3, FALSE, $4, 1, $5, $5)
 ON CONFLICT (tenant_id, user_id) DO UPDATE
 SET department_id = EXCLUDED.department_id,
     is_platform_operator = EXCLUDED.is_platform_operator,
     status = 1,
-    updated_at = NOW()`,
-		tenantID, userID, ptrUint64Null(departmentID), platformOperator)
+    updated_at = NOW(),
+    updated_by = EXCLUDED.updated_by`,
+		tenantID, userID, ptrUint64Null(departmentID), platformOperator, actorID(ctx))
 	return err
 }
 
@@ -279,7 +287,7 @@ func (r *AuthRepository) UpdateUser(ctx context.Context, userID uint64, input Sa
 		DepartmentID: ptrUint64Null(input.DepartmentID), DisplayName: input.DisplayName,
 		Email: input.Email, Mobile: input.Mobile, Gender: int16(input.Gender),
 		Status: int16(input.Status), MustChangePassword: boolSmallInt16(input.MustChangePassword),
-		Remark: input.Remark, ID: int64(userID),
+		Remark: input.Remark, ID: int64(userID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -312,6 +320,7 @@ func (r *AuthRepository) syncMemberDepartment(ctx context.Context, q *sqlcstore.
 	}
 	err := q.UpdateTenantMemberDepartment(ctx, sqlcstore.UpdateTenantMemberDepartmentParams{
 		TenantID: tenantID, UserID: userID, DepartmentID: ptrUint64Null(departmentID),
+		Actor: actorID(ctx),
 	})
 	return err
 }
@@ -328,7 +337,7 @@ func (r *AuthRepository) UpdateUserStatus(ctx context.Context, userID uint64, st
 		return err
 	}
 	affected, err := q.UpdateUserStatus(ctx, sqlcstore.UpdateUserStatusParams{
-		Status: int16(status), ID: int64(userID),
+		Status: int16(status), ID: int64(userID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -386,7 +395,9 @@ func (r *AuthRepository) DeleteUser(ctx context.Context, userID uint64) error {
 			return tx.Commit()
 		}
 	}
-	affected, err := q.SoftDeleteUser(ctx, int64(userID))
+	affected, err := q.SoftDeleteUser(ctx, sqlcstore.SoftDeleteUserParams{
+		ID: int64(userID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -447,6 +458,7 @@ func (r *AuthRepository) ForceLogoutUser(ctx context.Context, userID uint64) err
 }
 
 func replaceUserRelations(ctx context.Context, q *sqlcstore.Queries, userID uint64, roleIDs, positionIDs []uint64) error {
+	actor := actorID(ctx)
 	if err := q.DeleteUserRoles(ctx, userID); err != nil {
 		return err
 	}
@@ -454,12 +466,16 @@ func replaceUserRelations(ctx context.Context, q *sqlcstore.Queries, userID uint
 		return err
 	}
 	for _, roleID := range distinctIDs(roleIDs) {
-		if err := q.InsertUserRole(ctx, sqlcstore.InsertUserRoleParams{UserID: userID, RoleID: roleID}); err != nil {
+		if err := q.InsertUserRole(ctx, sqlcstore.InsertUserRoleParams{
+			UserID: userID, RoleID: roleID, CreatedBy: actor,
+		}); err != nil {
 			return fmt.Errorf("assign role %d: %w", roleID, err)
 		}
 	}
 	for _, positionID := range distinctIDs(positionIDs) {
-		if err := q.InsertUserPosition(ctx, sqlcstore.InsertUserPositionParams{UserID: userID, PositionID: positionID}); err != nil {
+		if err := q.InsertUserPosition(ctx, sqlcstore.InsertUserPositionParams{
+			UserID: userID, PositionID: positionID, CreatedBy: actor,
+		}); err != nil {
 			return fmt.Errorf("assign position %d: %w", positionID, err)
 		}
 	}

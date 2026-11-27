@@ -92,7 +92,7 @@ func (q *Queries) CountMembershipsForUser(ctx context.Context, userID uint64) (i
 
 const countTenantAdmins = `-- name: CountTenantAdmins :one
 SELECT COUNT(*) FROM sys_tenant_member
-WHERE tenant_id = $1 AND status = 1 AND is_tenant_admin = 1
+WHERE tenant_id = $1 AND status = 1 AND is_tenant_admin = TRUE
 `
 
 func (q *Queries) CountTenantAdmins(ctx context.Context, tenantID uint64) (int64, error) {
@@ -224,8 +224,7 @@ type GetPlanEntitlementForTenantParams struct {
 }
 
 // Active, trial, or overdue (grace) subscription → plan catalog value.
-// Cancelled rows are excluded. EntitlementEnabled denies those unless a
-// per-tenant override is enabled.
+// Cancelled rows are excluded; EntitlementEnabled denies those.
 func (q *Queries) GetPlanEntitlementForTenant(ctx context.Context, arg GetPlanEntitlementForTenantParams) (string, error) {
 	row := q.db.QueryRowContext(ctx, getPlanEntitlementForTenant, arg.TenantID, arg.FeatureKey)
 	var entitlement_value string
@@ -244,24 +243,6 @@ func (q *Queries) GetPlanIDByCode(ctx context.Context, code string) (int64, erro
 	return id, err
 }
 
-const getTenantEntitlement = `-- name: GetTenantEntitlement :one
-SELECT enabled
-FROM sys_tenant_entitlement
-WHERE tenant_id = $1 AND feature_key = $2
-`
-
-type GetTenantEntitlementParams struct {
-	TenantID   uint64 `json:"tenant_id"`
-	FeatureKey string `json:"feature_key"`
-}
-
-func (q *Queries) GetTenantEntitlement(ctx context.Context, arg GetTenantEntitlementParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, getTenantEntitlement, arg.TenantID, arg.FeatureKey)
-	var enabled bool
-	err := row.Scan(&enabled)
-	return enabled, err
-}
-
 const getTenantMember = `-- name: GetTenantMember :one
 SELECT m.user_id, m.department_id, m.is_tenant_admin, m.is_platform_operator,
        m.status, m.created_at, u.username, u.display_name, u.email, u.mobile
@@ -278,7 +259,7 @@ type GetTenantMemberParams struct {
 type GetTenantMemberRow struct {
 	UserID             uint64        `json:"user_id"`
 	DepartmentID       sql.NullInt64 `json:"department_id"`
-	IsTenantAdmin      int16         `json:"is_tenant_admin"`
+	IsTenantAdmin      bool          `json:"is_tenant_admin"`
 	IsPlatformOperator bool          `json:"is_platform_operator"`
 	Status             int16         `json:"status"`
 	CreatedAt          time.Time     `json:"created_at"`
@@ -495,7 +476,7 @@ ORDER BY m.created_at, m.user_id
 type ListTenantMembersRow struct {
 	UserID             uint64        `json:"user_id"`
 	DepartmentID       sql.NullInt64 `json:"department_id"`
-	IsTenantAdmin      int16         `json:"is_tenant_admin"`
+	IsTenantAdmin      bool          `json:"is_tenant_admin"`
 	IsPlatformOperator bool          `json:"is_platform_operator"`
 	Status             int16         `json:"status"`
 	CreatedAt          time.Time     `json:"created_at"`
@@ -664,18 +645,25 @@ func (q *Queries) ReleaseQuota(ctx context.Context, arg ReleaseQuotaParams) erro
 }
 
 const setTenantMemberStatus = `-- name: SetTenantMemberStatus :execrows
-UPDATE sys_tenant_member SET status = $1, updated_at = NOW()
-WHERE tenant_id = $2 AND user_id = $3
+UPDATE sys_tenant_member SET status = $1, updated_at = NOW(),
+  updated_by = $2
+WHERE tenant_id = $3 AND user_id = $4
 `
 
 type SetTenantMemberStatusParams struct {
 	Status   int16  `json:"status"`
+	Actor    uint64 `json:"actor"`
 	TenantID uint64 `json:"tenant_id"`
 	UserID   uint64 `json:"user_id"`
 }
 
 func (q *Queries) SetTenantMemberStatus(ctx context.Context, arg SetTenantMemberStatusParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setTenantMemberStatus, arg.Status, arg.TenantID, arg.UserID)
+	result, err := q.db.ExecContext(ctx, setTenantMemberStatus,
+		arg.Status,
+		arg.Actor,
+		arg.TenantID,
+		arg.UserID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -711,39 +699,51 @@ func (q *Queries) TryConsumeQuota(ctx context.Context, arg TryConsumeQuotaParams
 }
 
 const updateTenantMemberDepartment = `-- name: UpdateTenantMemberDepartment :exec
-UPDATE sys_tenant_member SET department_id = $1, updated_at = NOW()
-WHERE tenant_id = $2 AND user_id = $3
+UPDATE sys_tenant_member SET department_id = $1, updated_at = NOW(),
+  updated_by = $2
+WHERE tenant_id = $3 AND user_id = $4
 `
 
 type UpdateTenantMemberDepartmentParams struct {
 	DepartmentID sql.NullInt64 `json:"department_id"`
+	Actor        uint64        `json:"actor"`
 	TenantID     uint64        `json:"tenant_id"`
 	UserID       uint64        `json:"user_id"`
 }
 
 func (q *Queries) UpdateTenantMemberDepartment(ctx context.Context, arg UpdateTenantMemberDepartmentParams) error {
-	_, err := q.db.ExecContext(ctx, updateTenantMemberDepartment, arg.DepartmentID, arg.TenantID, arg.UserID)
+	_, err := q.db.ExecContext(ctx, updateTenantMemberDepartment,
+		arg.DepartmentID,
+		arg.Actor,
+		arg.TenantID,
+		arg.UserID,
+	)
 	return err
 }
 
 const upsertTenantMember = `-- name: UpsertTenantMember :exec
-INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sys_tenant_member (tenant_id, user_id, department_id, is_tenant_admin, is_platform_operator, status,
+  created_by, updated_by)
+VALUES ($1, $2, $3, $4,
+  $5, $6, $7, $7)
 ON CONFLICT (tenant_id, user_id) DO UPDATE
 SET department_id = EXCLUDED.department_id,
     is_tenant_admin = EXCLUDED.is_tenant_admin,
     is_platform_operator = EXCLUDED.is_platform_operator,
     status = EXCLUDED.status,
-    updated_at = NOW()
+    updated_at = NOW(),
+    -- created_by keeps the first writer: an upsert is an edit, not a creation.
+    updated_by = EXCLUDED.updated_by
 `
 
 type UpsertTenantMemberParams struct {
 	TenantID           uint64        `json:"tenant_id"`
 	UserID             uint64        `json:"user_id"`
 	DepartmentID       sql.NullInt64 `json:"department_id"`
-	IsTenantAdmin      int16         `json:"is_tenant_admin"`
+	IsTenantAdmin      bool          `json:"is_tenant_admin"`
 	IsPlatformOperator bool          `json:"is_platform_operator"`
 	Status             int16         `json:"status"`
+	Actor              uint64        `json:"actor"`
 }
 
 func (q *Queries) UpsertTenantMember(ctx context.Context, arg UpsertTenantMemberParams) error {
@@ -754,6 +754,7 @@ func (q *Queries) UpsertTenantMember(ctx context.Context, arg UpsertTenantMember
 		arg.IsTenantAdmin,
 		arg.IsPlatformOperator,
 		arg.Status,
+		arg.Actor,
 	)
 	return err
 }

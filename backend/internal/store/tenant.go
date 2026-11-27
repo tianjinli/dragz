@@ -135,26 +135,15 @@ func (r *TenantRepository) GetOpenTenant(ctx context.Context, tenantID uint64) (
 }
 
 // EntitlementEnabled reports whether the tenant may use featureKey.
-// Order: per-tenant override → subscription status → plan catalog → deny.
+// Order: subscription status → plan snapshot/catalog → deny.
 //
-// A cancelled subscription denies every feature that is not explicitly turned
-// on by a sys_tenant_entitlement override. Those features are the tenant-scoped
-// ones; the global feature switch is checked before this method runs.
-// Overdue is a grace period: the plan catalog still applies, the same as
-// trial and active.
+// A cancelled subscription denies every feature. Overdue is a grace period:
+// the plan catalog still applies, the same as trial and active. The global
+// feature switch is checked before this method runs.
 //
 // A feature the plan does not list is denied. See the no-row branch below for
 // why the default is deny rather than allow.
 func (r *TenantRepository) EntitlementEnabled(ctx context.Context, tenantID uint64, featureKey string) (bool, error) {
-	enabled, err := r.q(ctx).GetTenantEntitlement(ctx, sqlcstore.GetTenantEntitlementParams{
-		TenantID: tenantID, FeatureKey: featureKey,
-	})
-	if err == nil {
-		return enabled, nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return false, err
-	}
 	status, err := r.SubscriptionStatus(ctx, tenantID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err

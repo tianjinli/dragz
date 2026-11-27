@@ -318,7 +318,7 @@ func (r *AuthRepository) ListLoginLogs(ctx context.Context, keyword string, succ
 			ID: uint64(row.ID), UserID: nullInt64Ptr(row.UserID), Username: row.Username,
 			LoginMethod: row.LoginMethod, Success: smallIntBool(row.Success), FailureReason: row.FailureReason,
 			IP: row.Ip, Location: row.Location, UserAgent: row.UserAgent,
-			IsSuspicious: smallIntBool(row.IsSuspicious), CreatedAt: row.CreatedAt,
+			IsSuspicious: row.IsSuspicious, CreatedAt: row.CreatedAt,
 		})
 	}
 	return items, total, nil

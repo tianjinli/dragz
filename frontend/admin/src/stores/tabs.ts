@@ -81,8 +81,6 @@ export const useTabsStore = create<TabsStore>()(
             existing.title === tab.title &&
             existing.path === tab.path &&
             existing.icon === tab.icon &&
-            existing.affix === tab.affix &&
-            existing.keepAlive === tab.keepAlive &&
             !(maxCount > 0 && state.tabs.length > maxCount)
           ) {
             // Avoid churning tabs/visitHistory on every AdminLayout effect re-run

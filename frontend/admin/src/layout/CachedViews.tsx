@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo } from 'react';
+import { Suspense, useEffect } from 'react';
 import { KeepAlive, useKeepAliveRef } from 'keepalive-for-react';
 import { useTranslation } from 'react-i18next';
 import { dropPendingGetDedupes } from '@/api/request';
@@ -72,14 +72,8 @@ export function CachedViews({
   const refreshKeys = useTabsStore((state) => state.refreshKeys);
   const aliveRef = useKeepAliveRef();
   const activeTab = tabs.find((tab) => tab.key === activePath) || tabs.find((tab) => tab.path === activePath);
-  const globalKeepAlive = prefs.tabbar.keepAlive;
-  const tabKeepAlive = activeTab?.keepAlive !== false;
-  const shouldCache = globalKeepAlive && tabKeepAlive;
+  const shouldCache = prefs.tabbar.keepAlive;
   const max = prefs.tabbar.maxCount > 0 ? prefs.tabbar.maxCount : 20;
-  const exclude = useMemo(
-    () => tabs.filter((tab) => tab.keepAlive === false).map((tab) => tab.key),
-    [tabs],
-  );
 
   useEffect(() => {
     const unsubscribe = useTabsStore.subscribe((state, prev) => {
@@ -143,7 +137,6 @@ export function CachedViews({
       aliveRef={aliveRef}
       cacheNodeClassName="cached-view"
       containerClassName="keepalive-container"
-      exclude={exclude}
       max={max}
       transition={prefs.transition.enable}
     >

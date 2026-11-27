@@ -30,11 +30,10 @@ interface UserOption {
 /**
  * The platform staff directory.
  *
- * Platform staff can act across tenants (impersonate, edit plans, read every
- * invoice), so the roster is explicit data rather than a flag on a membership
- * row: removing someone from a tenant must not silently remove their platform
- * access, and granting platform access must not require a tenant in the first
- * place.
+ * Platform staff can act across tenants (impersonate, edit plans), so the
+ * roster is explicit data rather than a flag on a membership row: removing
+ * someone from a tenant must not silently remove their platform access, and
+ * granting platform access must not require a tenant in the first place.
  */
 export function PlatformOperatorsPage() {
   const { t } = useTranslation();

@@ -36,15 +36,14 @@ UPDATE sys_menu
 SET parent_id = $1,
     method = $2,
     path = $3,
-    is_sensitive = $4,
-    plugin_id = $5,
+    plugin_id = $4,
     managed = 1,
     status = 1,
     deleted_at = NULL,
     updated_at = NOW()
 WHERE id = (
   SELECT m.id FROM sys_menu m
-  WHERE m.code = $6 AND m.type = 'button'
+  WHERE m.code = $5 AND m.type = 'button'
   ORDER BY (m.deleted_at IS NULL) DESC, m.id DESC
   LIMIT 1
 )
@@ -53,8 +52,8 @@ RETURNING id;
 -- name: InsertPermissionButton :exec
 -- First sight of a code: no button row exists at all, not even a retired one.
 INSERT INTO sys_menu
-  (parent_id, type, name, code, method, path, is_sensitive, sort, status, visible, plugin_id, managed)
-VALUES ($1, 'button', $2, $3, $4, $5, $6, $7, 1, 0, $8, 1);
+  (parent_id, type, name, code, method, path, sort, status, plugin_id, managed)
+VALUES ($1, 'button', $2, $3, $4, $5, $6, 1, $7, 1);
 
 -- name: SoftDeleteStaleButton :exec
 -- Grants are intentionally left in place so a re-added route inherits them.
@@ -75,7 +74,7 @@ SELECT type FROM sys_menu WHERE id = $1 AND deleted_at IS NULL;
 -- name: GetMenuManagedFields :one
 -- Everything the sync owns, locked for the duration of the update transaction
 -- so a concurrent sync cannot interleave with an administrator's edit.
-SELECT parent_id, type, code, method, path, is_sensitive, plugin_id, status, managed
+SELECT parent_id, type, code, method, path, plugin_id, status, managed
 FROM sys_menu
 WHERE id = $1 AND deleted_at IS NULL
 FOR UPDATE;

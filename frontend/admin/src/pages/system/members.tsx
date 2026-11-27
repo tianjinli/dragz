@@ -360,6 +360,25 @@ export function MemberPage() {
                   width: 110,
                   render: (value: boolean) => (value ? t('common.yes') : t('common.no')),
                 },
+                {
+                  title: t('system.members.delivery'),
+                  dataIndex: 'deliveryStatus',
+                  width: 120,
+                  render: (value?: string, row?: Invite) => {
+                    const status = value || 'none';
+                    const label = t(`system.members.delivery.${status}`);
+                    if (status === 'failed' && row?.deliveryError) {
+                      return (
+                        <Tooltip title={row.deliveryError}>
+                          <Tag color="error">{label}</Tag>
+                        </Tooltip>
+                      );
+                    }
+                    const color =
+                      status === 'sent' ? 'success' : status === 'pending' ? 'processing' : status === 'failed' ? 'error' : 'default';
+                    return <Tag color={color}>{label}</Tag>;
+                  },
+                },
                 { title: t('invite.expiresAt'), dataIndex: 'expiresAt', width: 180, render: (value: string) => formatDateTime(value) },
                 {
                   title: t('system.members.acceptedAt'),

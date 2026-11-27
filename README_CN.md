@@ -71,7 +71,7 @@ bash deploy/reset.sh         # 清库重建
 - 管理后台 <http://127.0.0.1:5279>
 - 健康检查 <http://127.0.0.1:5280/api/health>
 - 指标（Prometheus 文本格式）<http://127.0.0.1:5280/api/metrics>，需在配置里打开 `Metrics.Enabled`
-- 默认账号 `admin` / `Dragz!7xZ`（首次登录强制改密）
+- 默认账号 `admin` / `Dragz123`（首次登录强制改密）
 
 端口被占用时用 `deploy/ports.override.yml` 改映射，不要改仓库里的 compose。细节见 [deploy/README_CN.md](deploy/README_CN.md)。
 
@@ -122,7 +122,6 @@ pnpm typecheck && pnpm lint && pnpm check:i18n && pnpm test && pnpm build
 - **邀请与成员**：邀请令牌只存 SHA-256，链接只在创建时展示一次；接受时校验邮箱、占用席位，重复接受幂等。成员与用户分离：`sys_user` 是全局账号，`sys_tenant_member` 是租户内身份。
 - **套餐快照**：`sys_plan.version` + `sys_plan_version.snapshot`，订阅落库时写 `plan_snapshot`。之后改目录不会追溯改变已售套餐。
 - **配额与计量**：`sys_tenant_quota` / `sys_usage_counter`。存储按字节、接口按天计量，超限分别返回 409 / 429。
-- **支付回调**：`POST /api/billing/webhook/:provider`，HMAC 验签（时间戳防重放）+ `(provider, event_id)` 幂等；覆盖付款成功、失败进入宽限、退款终止、续费恢复、取消。
 - **跨租户公平调度**：任务按租户分配并发槽位，超限延迟重排（有重排上限），单租户占不满队列。
 - **代码生成**：`go run ./cmd/gen-module` 产出的迁移与 store 自带 `tenant_id`、填充触发器与 FORCE RLS，新模块默认就是租户安全的。
 

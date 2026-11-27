@@ -38,44 +38,57 @@ export function IconPicker({ disabled, id, onChange, value }: IconPickerProps) {
   const select = (next: string | undefined) => { onChange?.(next); setOpen(false); };
   const changePage = (next: number) => setPage(Math.min(Math.max(next, 1), totalPages));
 
-  return (
-    <Popover
-      placement="bottomLeft"
-      arrow={false}
-      open={open}
-      onOpenChange={setOpen}
-      content={
-        <div className="icon-picker-popover">
-          <Input allowClear prefix={<Search size={14} />} placeholder={t('common.searchIcon')} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <div className="icon-picker-grid">
-            {pageItems.map((item) => (
-              <Tooltip key={item.value} title={iconName(item.value)} mouseEnterDelay={0.2}>
-                <button aria-label={iconName(item.value)} className={`icon-picker-item${value === item.value ? ' is-active' : ''}`} onClick={() => select(item.value)} type="button">
-                  <item.Component size={18} />
-                  <span className="icon-picker-item-name">{iconName(item.value)}</span>
-                </button>
-              </Tooltip>
-            ))}
-          </div>
-          <div className="icon-picker-pagination">
-            <div className="icon-picker-pagination-pages">
-              <button aria-label={t('common.firstPage')} disabled={currentPage <= 1} type="button" onClick={() => changePage(1)}>|&lt;</button>
-              <button aria-label={t('common.prev5')} disabled={currentPage <= 1} type="button" onClick={() => changePage(currentPage - 5)}>&lt;&lt;</button>
-              {pageWindow.map((pageNumber) => <button aria-current={pageNumber === currentPage ? 'page' : undefined} className={pageNumber === currentPage ? 'active' : undefined} key={pageNumber} type="button" onClick={() => changePage(pageNumber)}>{pageNumber}</button>)}
-              <button aria-label={t('common.next5')} disabled={currentPage >= totalPages} type="button" onClick={() => changePage(currentPage + 5)}>&gt;&gt;</button>
-              <button aria-label={t('common.lastPage')} disabled={currentPage >= totalPages} type="button" onClick={() => changePage(totalPages)}>&gt;|</button>
-            </div>
-          </div>
-        </div>
-      }
+  // Only the image button is the Popover trigger; clicking the name never opens it.
+  const trigger = (
+    <button
+      aria-label={t('common.selectIcon')}
+      className="icon-picker-icon"
+      disabled={disabled}
+      type="button"
+      onClick={() => setOpen((prev) => !prev)}
     >
-      <div className={`icon-picker${disabled ? ' is-disabled' : ''}`}>
-        <button aria-label={t('common.selectIcon')} className="icon-picker-box" disabled={disabled} id={id} type="button" onClick={() => setOpen((prev) => !prev)}>
-          <span className="icon-picker-name">{value ? iconName(value) : <span className="icon-picker-placeholder">{t('common.select')}</span>}</span>
-          {value ? <span className="icon-picker-clear" role="button" tabIndex={-1} onClick={(event) => { event.stopPropagation(); select(undefined); }}><X size={14} /></span> : null}
-          <span className="icon-picker-icon">{value ? iconNode(value) : <span className="icon-picker-grid-button"><Grid3X3 size={16} /></span>}</span>
-        </button>
+      {value ? iconNode(value) : <span className="icon-picker-grid-button"><Grid3X3 size={16} /></span>}
+    </button>
+  );
+
+  return (
+    <div className={`icon-picker${disabled ? ' is-disabled' : ''}`}>
+      <div className="icon-picker-box" id={id}>
+        <span className="icon-picker-name">{value ? iconName(value) : <span className="icon-picker-placeholder">{t('common.select')}</span>}</span>
+        {value ? <span className="icon-picker-clear" role="button" tabIndex={-1} onClick={() => select(undefined)}><X size={14} /></span> : null}
+        <Popover
+          placement="bottomLeft"
+          arrow={false}
+          open={open}
+          onOpenChange={setOpen}
+          content={
+            <div className="icon-picker-popover">
+              <Input allowClear prefix={<Search size={14} />} placeholder={t('common.searchIcon')} value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+              <div className="icon-picker-grid">
+                {pageItems.map((item) => (
+                  <Tooltip key={item.value} title={iconName(item.value)} mouseEnterDelay={0.2}>
+                    <button aria-label={iconName(item.value)} className={`icon-picker-item${value === item.value ? ' is-active' : ''}`} onClick={() => select(item.value)} type="button">
+                      <item.Component size={18} />
+                      <span className="icon-picker-item-name">{iconName(item.value)}</span>
+                    </button>
+                  </Tooltip>
+                ))}
+              </div>
+              <div className="icon-picker-pagination">
+                <div className="icon-picker-pagination-pages">
+                  <button aria-label={t('common.firstPage')} disabled={currentPage <= 1} type="button" onClick={() => changePage(1)}>|&lt;</button>
+                  <button aria-label={t('common.prev5')} disabled={currentPage <= 1} type="button" onClick={() => changePage(currentPage - 5)}>&lt;&lt;</button>
+                  {pageWindow.map((pageNumber) => <button aria-current={pageNumber === currentPage ? 'page' : undefined} className={pageNumber === currentPage ? 'active' : undefined} key={pageNumber} type="button" onClick={() => changePage(pageNumber)}>{pageNumber}</button>)}
+                  <button aria-label={t('common.next5')} disabled={currentPage >= totalPages} type="button" onClick={() => changePage(currentPage + 5)}>&gt;&gt;</button>
+                  <button aria-label={t('common.lastPage')} disabled={currentPage >= totalPages} type="button" onClick={() => changePage(totalPages)}>&gt;|</button>
+                </div>
+              </div>
+            </div>
+          }
+        >
+          {trigger}
+        </Popover>
       </div>
-    </Popover>
+    </div>
   );
 }

@@ -10,12 +10,22 @@ import (
 	sqlcstore "dragz-admin/backend/internal/store/sqlc"
 )
 
+// Data scope values of sys_role.data_scope. The numbers are the single wire and
+// database encoding; keep them stable.
+const (
+	DataScopeAll             int16 = 0 // 全部数据
+	DataScopeSelf            int16 = 1 // 仅本人数据
+	DataScopeDept            int16 = 2 // 本部门数据
+	DataScopeDeptAndChildren int16 = 3 // 本部门及以下数据
+	DataScopeCustom          int16 = 4 // 自定义部门数据
+)
+
 // Role is one sys_role row together with its user count.
 type Role struct {
 	ID        uint64    `json:"id"`
 	Code      string    `json:"code"`
 	Name      string    `json:"name"`
-	DataScope string    `json:"dataScope"`
+	DataScope int16     `json:"dataScope"`
 	Sort      int       `json:"sort"`
 	Status    int8      `json:"status"`
 	IsSystem  bool      `json:"isSystem"`
@@ -28,7 +38,7 @@ type Role struct {
 type SaveRoleInput struct {
 	Code      string
 	Name      string
-	DataScope string
+	DataScope int16
 	Sort      int
 	Status    int8
 	Remark    string
@@ -38,7 +48,7 @@ type SaveRoleInput struct {
 // both rows of sys_menu, so there is no separate permission id list.
 type RoleGrants struct {
 	RoleID        uint64   `json:"roleId"`
-	DataScope     string   `json:"dataScope"`
+	DataScope     int16    `json:"dataScope"`
 	MenuIDs       []uint64 `json:"menuIds"`
 	DepartmentIDs []uint64 `json:"departmentIds"`
 }
@@ -55,19 +65,14 @@ type MenuResource struct {
 	Component   string `json:"component"`
 	Redirect    string `json:"redirect"`
 	Icon        string `json:"icon"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	IsSensitive bool   `json:"isSensitive"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
 	// Managed marks a row the route-table sync owns (a declared permission
 	// code). The admin UI uses it to lock the fields the sync overwrites.
-	Managed     bool      `json:"managed"`
-	Sort        int       `json:"sort"`
-	Status      int8      `json:"status"`
-	Visible     bool      `json:"visible"`
-	KeepAlive   bool      `json:"keepAlive"`
-	AffixTab    bool      `json:"affixTab"`
-	ExternalURL string    `json:"externalUrl"`
-	CreatedAt   time.Time `json:"createdAt"`
+	Managed   bool      `json:"managed"`
+	Sort      int       `json:"sort"`
+	Status    int8      `json:"status"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // SaveMenuInput is the payload shared by create and update.
@@ -81,15 +86,10 @@ type SaveMenuInput struct {
 	Component   string
 	Redirect    string
 	Icon        string
-	Method      string
-	Path        string
-	IsSensitive bool
-	Sort        int
-	Status      int8
-	Visible     bool
-	KeepAlive   bool
-	AffixTab    bool
-	ExternalURL string
+	Method    string
+	Path      string
+	Sort      int
+	Status    int8
 }
 
 // ListRoles returns every role filtered by keyword and status. A nil status means "any status".
@@ -104,7 +104,7 @@ func (r *AuthRepository) ListRoles(ctx context.Context, keyword string, status *
 	for _, row := range rows {
 		items = append(items, Role{
 			ID: uint64(row.ID), Code: row.Code, Name: row.Name, DataScope: row.DataScope,
-			Sort: int(row.Sort), Status: int8(row.Status), IsSystem: smallIntBool(row.IsSystem),
+			Sort: int(row.Sort), Status: int8(row.Status), IsSystem: row.IsSystem,
 			Remark: row.Remark, UserCount: row.UserCount, CreatedAt: row.CreatedAt,
 		})
 	}
@@ -116,6 +116,7 @@ func (r *AuthRepository) CreateRole(ctx context.Context, input SaveRoleInput) (u
 	id, err := r.queries.CreateRole(ctx, sqlcstore.CreateRoleParams{
 		Code: input.Code, Name: input.Name, DataScope: input.DataScope,
 		Sort: int32(input.Sort), Status: int16(input.Status), Remark: input.Remark,
+		CreatedBy: actorID(ctx),
 	})
 	return uint64(id), wrapDuplicate(err)
 }
@@ -125,6 +126,7 @@ func (r *AuthRepository) UpdateRole(ctx context.Context, roleID uint64, input Sa
 	affected, err := r.queries.UpdateRole(ctx, sqlcstore.UpdateRoleParams{
 		Code: input.Code, Name: input.Name, DataScope: input.DataScope,
 		Sort: int32(input.Sort), Status: int16(input.Status), Remark: input.Remark, ID: int64(roleID),
+		UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return wrapDuplicate(err)
@@ -138,7 +140,7 @@ func (r *AuthRepository) UpdateRole(ctx context.Context, roleID uint64, input Sa
 // UpdateRoleStatus enables or disables a role.
 func (r *AuthRepository) UpdateRoleStatus(ctx context.Context, roleID uint64, status int8) error {
 	affected, err := r.queries.UpdateRoleStatus(ctx, sqlcstore.UpdateRoleStatusParams{
-		Status: int16(status), ID: int64(roleID),
+		Status: int16(status), ID: int64(roleID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -155,10 +157,12 @@ func (r *AuthRepository) DeleteRole(ctx context.Context, roleID uint64) error {
 	if err != nil {
 		return err
 	}
-	if smallIntBool(checks.IsSystem) || checks.UserCount > 0 {
+	if checks.IsSystem || checks.UserCount > 0 {
 		return ErrProtected
 	}
-	affected, err := r.queries.SoftDeleteRole(ctx, int64(roleID))
+	affected, err := r.queries.SoftDeleteRole(ctx, sqlcstore.SoftDeleteRoleParams{
+		ID: int64(roleID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}
@@ -190,7 +194,7 @@ func (r *AuthRepository) SaveRoleGrants(ctx context.Context, grants RoleGrants) 
 	if err != nil {
 		return err
 	}
-	if smallIntBool(isSystem) {
+	if isSystem {
 		return ErrProtected
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -200,7 +204,7 @@ func (r *AuthRepository) SaveRoleGrants(ctx context.Context, grants RoleGrants) 
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
 	if err := q.UpdateRoleDataScope(ctx, sqlcstore.UpdateRoleDataScopeParams{
-		DataScope: grants.DataScope, ID: int64(grants.RoleID),
+		DataScope: grants.DataScope, ID: int64(grants.RoleID), UpdatedBy: actorID(ctx),
 	}); err != nil {
 		return err
 	}
@@ -235,10 +239,8 @@ func (r *AuthRepository) ListMenuResources(ctx context.Context) ([]MenuResource,
 			ID: uint64(row.ID), ParentID: row.ParentID, Type: row.Type, Name: row.Name, Code: row.Code,
 			RouteName: row.RouteName, RoutePath: row.RoutePath, Component: row.Component, Redirect: row.Redirect,
 			Icon: row.Icon, Sort: int(row.Sort), Status: int8(row.Status),
-			Method: row.Method, Path: row.Path, IsSensitive: smallIntBool(row.IsSensitive),
-			Managed: smallIntBool(row.Managed),
-			Visible: smallIntBool(row.Visible), KeepAlive: smallIntBool(row.KeepAlive),
-			AffixTab: smallIntBool(row.AffixTab), ExternalURL: row.ExternalUrl, CreatedAt: row.CreatedAt,
+			Method: row.Method, Path: row.Path,
+			Managed: smallIntBool(row.Managed), CreatedAt: row.CreatedAt,
 		})
 	}
 	return items, nil
@@ -271,15 +273,14 @@ func (r *AuthRepository) lockManagedMenuFields(ctx context.Context, menuID uint6
 		return input, nil
 	}
 	return SaveMenuInput{
-		ParentID:    uint64(owned.ParentID),
-		Type:        owned.Type,
-		Name:        input.Name,
-		Code:        owned.Code,
-		Method:      owned.Method,
-		Path:        owned.Path,
-		IsSensitive: smallIntBool(owned.IsSensitive),
-		Sort:        input.Sort,
-		Status:      int8(owned.Status),
+		ParentID: uint64(owned.ParentID),
+		Type:     owned.Type,
+		Name:     input.Name,
+		Code:     owned.Code,
+		Method:   owned.Method,
+		Path:     owned.Path,
+		Sort:     input.Sort,
+		Status:   int8(owned.Status),
 	}, nil
 }
 
@@ -322,10 +323,9 @@ func (r *AuthRepository) CreateMenu(ctx context.Context, input SaveMenuInput) (u
 		ParentID: input.ParentID, Type: input.Type, Name: input.Name, Code: input.Code,
 		RouteName: input.RouteName, RoutePath: input.RoutePath, Component: input.Component,
 		Redirect: input.Redirect, Icon: input.Icon,
-		Method: input.Method, Path: input.Path, IsSensitive: boolSmallInt16(input.IsSensitive),
-		Sort: int32(input.Sort), Status: int16(input.Status), Visible: boolSmallInt16(input.Visible),
-		KeepAlive: boolSmallInt16(input.KeepAlive), AffixTab: boolSmallInt16(input.AffixTab),
-		ExternalUrl: input.ExternalURL,
+		Method: input.Method, Path: input.Path,
+		Sort: int32(input.Sort), Status: int16(input.Status),
+		CreatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return 0, wrapDuplicate(err)
@@ -364,10 +364,9 @@ func (r *AuthRepository) UpdateMenu(ctx context.Context, menuID uint64, input Sa
 		ParentID: input.ParentID, Type: input.Type, Name: input.Name, Code: input.Code,
 		RouteName: input.RouteName, RoutePath: input.RoutePath, Component: input.Component,
 		Redirect: input.Redirect, Icon: input.Icon,
-		Method: input.Method, Path: input.Path, IsSensitive: boolSmallInt16(input.IsSensitive),
-		Sort: int32(input.Sort), Status: int16(input.Status), Visible: boolSmallInt16(input.Visible),
-		KeepAlive: boolSmallInt16(input.KeepAlive), AffixTab: boolSmallInt16(input.AffixTab),
-		ExternalUrl: input.ExternalURL, ID: int64(menuID),
+		Method: input.Method, Path: input.Path,
+		Sort: int32(input.Sort), Status: int16(input.Status),
+		ID: int64(menuID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return wrapDuplicate(err)
@@ -404,7 +403,7 @@ func (r *AuthRepository) UpdateMenuStatus(ctx context.Context, menuID uint64, st
 		return ErrMenuButtonManaged
 	}
 	affected, err := r.queries.UpdateMenuStatus(ctx, sqlcstore.UpdateMenuStatusParams{
-		Status: int16(status), ID: int64(menuID),
+		Status: int16(status), ID: int64(menuID), UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return err
@@ -437,7 +436,9 @@ func (r *AuthRepository) DeleteMenu(ctx context.Context, menuID uint64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := r.qtx(tx)
-	affected, err := q.SoftDeleteMenu(ctx, int64(menuID))
+	affected, err := q.SoftDeleteMenu(ctx, sqlcstore.SoftDeleteMenuParams{
+		ID: int64(menuID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return err
 	}

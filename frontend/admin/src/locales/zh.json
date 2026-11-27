@@ -99,7 +99,7 @@
     "timezone": "时区",
     "dynamicTitle": "动态标题",
     "watermark": "水印",
-    "watermarkText": "水印内容（默认标题）",
+    "watermarkText": "水印内容",
     "updates": "定时检查更新",
     "copyEnable": "显示复制偏好设置按钮",
     "animation": "动画",
@@ -223,6 +223,8 @@
     "submit": "提交",
     "expand": "展开",
     "collapse": "收起",
+    "pin": "钉住",
+    "unpin": "取消钉住",
     "fullscreen": "全屏",
     "exitFullscreen": "退出全屏",
     "showSearch": "显示搜索",
@@ -334,7 +336,11 @@
     "loginExpiredDesc": "请重新登录后继续操作。",
     "restoringSession": "正在恢复会话…",
     "logoutConfirm": "确定退出登录吗？",
-    "lockCountdown": "{{error}}（{{countdown}}）"
+    "lockCountdown": "{{error}}（{{countdown}}）",
+    "firstPasswordTitle": "首次登录需要修改密码",
+    "firstPasswordDesc": "为保障账号安全，请先设置新密码后再进入系统。修改完成后需要使用新密码重新登录。",
+    "confirmChangePassword": "确认修改",
+    "passwordChangedRelogin": "密码修改成功，请使用新密码重新登录"
   },
   "layout": {
     "checkUpdatesTitle": "发现新版本",
@@ -661,9 +667,9 @@
       "menuType": {
         "directory": "目录",
         "page": "页面",
-        "button": "按钮",
-        "external": "外链"
-      }
+        "button": "按钮"
+      },
+      "routePathHint": "以 http:// 或 https:// 开头时按外部链接处理在新标签页打开；否则按站内路由跳转。"
     },
     "security": {
       "onlineUser": "在线用户",
@@ -943,6 +949,9 @@
       "title": "用户",
       "searchPlaceholder": "账号、姓名或手机号",
       "searchDepartment": "搜索部门...",
+      "resizeDepartmentTree": "拖动调整部门树宽度",
+      "collapseDepartmentTree": "收起部门树",
+      "expandDepartmentTree": "展开部门树",
       "department": "部门",
       "departmentField": "所属部门",
       "loginAccount": "登录账号",
@@ -973,7 +982,11 @@
       "roleGrant": "角色授权",
       "dataScopeRange": "数据范围",
       "grantDepartments": "授权部门",
-      "menusAndButtons": "菜单与按钮"
+      "menusAndButtons": "菜单与按钮",
+      "resetPassword": "重置密码",
+      "resetPasswordFor": "重置 {{name}} 的密码",
+      "newPassword": "新密码",
+      "passwordReset": "密码已重置"
     },
     "members": {
       "membersTab": "成员",
@@ -1009,6 +1022,12 @@
       "ttlHint": "超过有效期后邀请自动失效，最长 30 天。",
       "ttlRange": "有效期需在 1 到 720 小时之间",
       "acceptedAt": "接受时间",
+      "delivery": "邮件",
+      "delivery.none": "—",
+      "delivery.pending": "发送中",
+      "delivery.sent": "已发送",
+      "delivery.failed": "发送失败",
+      "delivery.skipped": "未启用邮件",
       "revoke": "撤销邀请",
       "revoked": "邀请已撤销",
       "revokeConfirmTitle": "撤销对「{{email}}」的邀请"
@@ -1060,25 +1079,15 @@
     "purgeCancelled": "已取消清除",
     "purgeAfter": "清除",
     "purgePending": "待清除",
-    "description": "说明",
+    "remark": "备注",
     "entitlements": "权益",
     "sort": "排序",
-    "invoices": "账单",
-    "invoicesTitle": "账单管理",
-    "invoicesList": "账单列表",
-    "tenantFilter": "按租户筛选",
-    "tenantId": "租户",
-    "kind": "类型",
-    "amount": "金额",
-    "currency": "币种",
-    "period": "账期",
-    "memo": "备注",
     "createPlan": "新增套餐",
     "editPlan": "编辑套餐",
     "planCreated": "套餐已创建",
     "planUpdated": "套餐已更新",
     "planCodeRequired": "请填写套餐编码",
-    "descriptionTooLong": "说明不能超过 500 个字符",
+    "remarkTooLong": "备注不能超过 500 个字符",
     "entitlementKey": "键",
     "entitlementValue": "值",
     "entitlementKeyRequired": "请填写权益键",
@@ -1113,43 +1122,12 @@
       "revokeConfirmDesc": "该账号将无法再访问平台控制台，其租户内的身份不受影响。",
       "user": "用户",
       "userPlaceholder": "搜索账号或姓名",
-      "userHint": "平台人员可以跨租户操作：模拟登录、管理套餐与账单。请只授予确实需要的人。",
+      "userHint": "平台人员可以跨租户操作：模拟登录、管理套餐。请只授予确实需要的人。",
       "userRequired": "请选择要授权的用户",
       "note": "备注",
       "notePlaceholder": "授予原因（选填）",
       "grantedBy": "授予人",
       "grantedAt": "授予时间"
-    }
-  },
-  "billing": {
-    "title": "我的账单",
-    "currentSubscription": "当前订阅",
-    "noSubscription": "当前租户还没有订阅。",
-    "plan": "套餐",
-    "startedAt": "开始时间",
-    "endedAt": "结束时间",
-    "trialEndsAt": "试用结束",
-    "graceEndsAt": "宽限结束",
-    "quotas": "配额",
-    "quotaKey": "配额项",
-    "used": "已用",
-    "limit": "上限",
-    "usage": "用量",
-    "invoices": "账单",
-    "kind": "类型",
-    "amount": "金额",
-    "currency": "币种",
-    "period": "账期",
-    "memo": "备注",
-    "empty": "暂无数据",
-    "usageTitle": "用量明细",
-    "periodKey": "统计周期",
-    "updatedAt": "更新时间",
-    "quotaNames": {
-      "storage_bytes": "存储空间",
-      "seats": "成员席位",
-      "api_calls_per_day": "每日接口调用",
-      "api_calls": "接口调用"
     }
   },
   "crud": {
@@ -1164,7 +1142,8 @@
     "disabledStatus": "已停用",
     "disabled": "禁用",
     "query": "查询",
-    "modify": "修改"
+    "modify": "修改",
+    "fieldHint": "字段说明"
   },
   "signup": {
     "title": "创建你的工作空间",

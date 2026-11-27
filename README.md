@@ -71,7 +71,7 @@ After startup:
 - Admin: <http://127.0.0.1:5279>
 - Health: <http://127.0.0.1:5280/api/health>
 - Metrics (Prometheus text): <http://127.0.0.1:5280/api/metrics>, after turning on `Metrics.Enabled`
-- Default account `admin` / `Dragz!7xZ` (password change is forced on first login)
+- Default account `admin` / `Dragz123` (password change is forced on first login)
 
 If a port is taken, remap it in `deploy/ports.override.yml` instead of editing the compose files in the repo. Details: [deploy/README.md](deploy/README.md).
 
@@ -123,7 +123,6 @@ Shared database, row-level isolation on `tenant_id`, enforced by PostgreSQL RLS 
 - **Invitations and members**: the invite token is only stored as SHA-256 and the link is shown once; accepting checks the mailbox and consumes a seat, and accepting twice is idempotent. Accounts and memberships are separate: `sys_user` is global, `sys_tenant_member` is the in-tenant identity.
 - **Plan snapshots**: `sys_plan.version` + `sys_plan_version.snapshot`, with `plan_snapshot` written onto the subscription. Editing the catalogue later does not retroactively change what a subscriber bought.
 - **Quotas and metering**: `sys_tenant_quota` / `sys_usage_counter`. Storage is metered in bytes, API calls per day; exceeding them answers 409 / 429 respectively.
-- **Payment callbacks**: `POST /api/billing/webhook/:provider` verifies an HMAC signature (timestamp-bounded against replay) and is idempotent on `(provider, event_id)`. It covers payment success, failure starting the grace window, refunds terminating the subscription, renewals resuming it, and cancellation.
 - **Fair scheduling across tenants**: jobs take a per-tenant concurrency slot and are re-queued with a delay when over the limit, so one tenant cannot fill the queue.
 - **Code generation**: `go run ./cmd/gen-module` emits migrations and stores that already carry `tenant_id`, the fill trigger and FORCE RLS — a new module is tenant-safe by default.
 

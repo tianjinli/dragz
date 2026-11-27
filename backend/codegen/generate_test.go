@@ -47,6 +47,10 @@ func TestGenerateKeepsTenantBoundary(t *testing.T) {
 		"FORCE ROW LEVEL SECURITY",
 		"app_fill_tenant_id",
 		"CREATE POLICY tenant_isolation",
+		// Audit columns travel with every generated module: the insert fills
+		// both from the actor, the update and soft delete stamp the editor.
+		"created_by BIGINT NOT NULL DEFAULT 0",
+		"updated_by BIGINT NOT NULL DEFAULT 0",
 	} {
 		if !strings.Contains(migration, marker) {
 			t.Errorf("migration is missing %q", marker)
@@ -57,6 +61,9 @@ func TestGenerateKeepsTenantBoundary(t *testing.T) {
 		"tenant_id = app_current_tenant_id()",
 		"func NewArticleRepository",
 		"func scanArticle",
+		"updated_by = $7",
+		"actorID(ctx)",
+		"VALUES ($1, $2, $3, $4, $5, $6, $6)",
 	} {
 		if !strings.Contains(store, marker) {
 			t.Errorf("store is missing %q", marker)

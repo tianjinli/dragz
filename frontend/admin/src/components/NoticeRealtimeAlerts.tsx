@@ -1,4 +1,4 @@
-import { Button } from 'antd';
+import { Button, Tooltip } from 'antd';
 import { Bell, Megaphone, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -85,15 +85,16 @@ export function NoticeRealtimeAlerts() {
           );
         })}
       </div>
-      <Button
-        aria-label={t('common.close')}
-        className="notice-marquee-close"
-        icon={<X size={14} />}
-        onClick={() => marqueeItems.forEach((item) => dismissMarquee(item.id))}
-        size="small"
-        title={t('common.close')}
-        type="text"
-      />
+      <Tooltip title={t('common.close')}>
+        <Button
+          aria-label={t('common.close')}
+          className="notice-marquee-close"
+          icon={<X size={14} />}
+          onClick={() => marqueeItems.forEach((item) => dismissMarquee(item.id))}
+          size="small"
+          type="text"
+        />
+      </Tooltip>
     </div>
   );
 }

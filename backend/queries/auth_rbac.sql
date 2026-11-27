@@ -74,7 +74,7 @@ WITH RECURSIVE visible_menu AS (
     AND (c.plugin_id = '' OR COALESCE(p.enabled, FALSE))
 )
 SELECT m.id, m.parent_id, m.type, m.name, m.code, m.route_name, m.route_path, m.component, m.redirect,
-  m.icon, m.sort, m.visible, m.keep_alive, m.affix_tab, m.external_url
+  m.icon, m.sort
 FROM sys_menu m
 INNER JOIN visible_menu v ON v.id = m.id
 ORDER BY m.sort, m.id;
@@ -131,7 +131,7 @@ visible_menu AS (
     AND (c.plugin_id = '' OR COALESCE(p.enabled, FALSE))
 )
 SELECT DISTINCT m.id, m.parent_id, m.type, m.name, m.code, m.route_name, m.route_path,
-  m.component, m.redirect, m.icon, m.sort, m.visible, m.keep_alive, m.affix_tab, m.external_url
+  m.component, m.redirect, m.icon, m.sort
 FROM sys_menu m
 INNER JOIN granted_menus gm ON gm.id = m.id
 INNER JOIN visible_menu vm ON vm.id = m.id

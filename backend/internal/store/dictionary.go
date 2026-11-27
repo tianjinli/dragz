@@ -113,7 +113,7 @@ func (r *AuthRepository) ListDictionaryTypes(ctx context.Context, keyword string
 	for _, row := range rows {
 		items = append(items, DictionaryType{
 			ID: uint64(row.ID), Code: row.Code, Name: row.Name, DisplayType: row.DisplayType, Status: int8(row.Status),
-			IsSystem: smallIntBool(row.IsSystem), Remark: row.Remark, ItemCount: row.ItemCount, CreatedAt: row.CreatedAt,
+			IsSystem: row.IsSystem, Remark: row.Remark, ItemCount: row.ItemCount, CreatedAt: row.CreatedAt,
 		})
 	}
 	return items, nil
@@ -129,7 +129,7 @@ func (r *AuthRepository) DictionaryTypeByID(ctx context.Context, dictTypeID uint
 	}
 	return DictionaryType{
 		ID: uint64(row.ID), Code: row.Code, Name: row.Name, DisplayType: row.DisplayType,
-		Status: int8(row.Status), IsSystem: smallIntBool(row.IsSystem), Remark: row.Remark,
+		Status: int8(row.Status), IsSystem: row.IsSystem, Remark: row.Remark,
 	}, nil
 }
 
@@ -137,6 +137,7 @@ func (r *AuthRepository) DictionaryTypeByID(ctx context.Context, dictTypeID uint
 func (r *AuthRepository) CreateDictionaryType(ctx context.Context, input SaveDictionaryTypeInput) (uint64, error) {
 	id, err := r.queries.CreateDictionaryType(ctx, sqlcstore.CreateDictionaryTypeParams{
 		Code: input.Code, Name: input.Name, DisplayType: input.DisplayType, Status: int16(input.Status), Remark: input.Remark,
+		CreatedBy: actorID(ctx),
 	})
 	r.invalidateDictCache()
 	return uint64(id), wrapDuplicate(err)
@@ -159,6 +160,7 @@ func (r *AuthRepository) UpdateDictionaryType(ctx context.Context, dictTypeID ui
 	}
 	affected, err := r.queries.UpdateDictionaryType(ctx, sqlcstore.UpdateDictionaryTypeParams{
 		Code: input.Code, Name: input.Name, DisplayType: input.DisplayType, Status: int16(input.Status), Remark: input.Remark, ID: int64(dictTypeID),
+		UpdatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return wrapDuplicate(err)
@@ -173,6 +175,7 @@ func (r *AuthRepository) UpdateDictionaryType(ctx context.Context, dictTypeID ui
 		if _, err := r.queries.RekeyDictTranslationsByPrefix(ctx, sqlcstore.RekeyDictTranslationsByPrefixParams{
 			OldPrefix: "dict." + current.Code + ".",
 			NewPrefix: "dict." + input.Code + ".",
+			Actor:     actorID(ctx),
 		}); err != nil {
 			return err
 		}
@@ -187,10 +190,12 @@ func (r *AuthRepository) DeleteDictionaryType(ctx context.Context, dictTypeID ui
 	if err != nil {
 		return err
 	}
-	if smallIntBool(checks.IsSystem) || checks.ItemCount > 0 {
+	if checks.IsSystem || checks.ItemCount > 0 {
 		return ErrDictHasItems
 	}
-	affected, err := r.queries.SoftDeleteDictionaryType(ctx, int64(dictTypeID))
+	affected, err := r.queries.SoftDeleteDictionaryType(ctx, sqlcstore.SoftDeleteDictionaryTypeParams{
+		ID: int64(dictTypeID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return wrapDuplicate(err)
 	}
@@ -223,7 +228,7 @@ func mapDictItems(rows []sqlcstore.ListDictionaryItemsRow) []DictionaryItem {
 		items = append(items, DictionaryItem{
 			ID: uint64(row.ID), DictTypeID: row.DictTypeID, Label: row.Label, Value: row.Value,
 			Color: row.Color, CSSClass: row.CssClass, Sort: int(row.Sort), Status: int8(row.Status),
-			IsDefault: smallIntBool(row.IsDefault), Remark: row.Remark, CreatedAt: row.CreatedAt,
+			IsDefault: row.IsDefault, Remark: row.Remark, CreatedAt: row.CreatedAt,
 		})
 	}
 	return items
@@ -235,7 +240,7 @@ func mapDictItemsEnabled(rows []sqlcstore.ListEnabledDictionaryItemsRow) []Dicti
 		items = append(items, DictionaryItem{
 			ID: uint64(row.ID), DictTypeID: row.DictTypeID, Label: row.Label, Value: row.Value,
 			Color: row.Color, CSSClass: row.CssClass, Sort: int(row.Sort), Status: int8(row.Status),
-			IsDefault: smallIntBool(row.IsDefault), Remark: row.Remark, CreatedAt: row.CreatedAt,
+			IsDefault: row.IsDefault, Remark: row.Remark, CreatedAt: row.CreatedAt,
 		})
 	}
 	return items
@@ -283,7 +288,8 @@ func (r *AuthRepository) CreateDictionaryItem(ctx context.Context, dictTypeID ui
 		id, err := r.queries.CreateDictionaryItem(ctx, sqlcstore.CreateDictionaryItemParams{
 			DictTypeID: dictTypeID, Label: input.Label, Value: input.Value, Color: input.Color,
 			CssClass: input.CSSClass, Sort: int32(input.Sort), Status: int16(input.Status),
-			IsDefault: boolSmallInt16(input.IsDefault), Remark: input.Remark,
+			IsDefault: input.IsDefault, Remark: input.Remark,
+			CreatedBy: actorID(ctx),
 		})
 		r.invalidateDictCache()
 		return uint64(id), wrapDuplicate(err)
@@ -300,7 +306,8 @@ func (r *AuthRepository) CreateDictionaryItem(ctx context.Context, dictTypeID ui
 	id, err := q.CreateDictionaryItem(ctx, sqlcstore.CreateDictionaryItemParams{
 		DictTypeID: dictTypeID, Label: input.Label, Value: input.Value, Color: input.Color,
 		CssClass: input.CSSClass, Sort: int32(input.Sort), Status: int16(input.Status),
-		IsDefault: boolSmallInt16(input.IsDefault), Remark: input.Remark,
+		IsDefault: input.IsDefault, Remark: input.Remark,
+		CreatedBy: actorID(ctx),
 	})
 	if err != nil {
 		return 0, wrapDuplicate(err)
@@ -348,8 +355,8 @@ func (r *AuthRepository) UpdateDictionaryItem(ctx context.Context, itemID uint64
 	update := func(q *sqlcstore.Queries) error {
 		affected, err := q.UpdateDictionaryItem(ctx, sqlcstore.UpdateDictionaryItemParams{
 			Label: input.Label, Value: input.Value, Color: input.Color, CssClass: input.CSSClass,
-			Sort: int32(input.Sort), Status: int16(input.Status), IsDefault: boolSmallInt16(input.IsDefault),
-			Remark: input.Remark, ID: int64(itemID),
+			Sort: int32(input.Sort), Status: int16(input.Status), IsDefault: input.IsDefault,
+			Remark: input.Remark, ID: int64(itemID), UpdatedBy: actorID(ctx),
 		})
 		if err != nil {
 			return wrapDuplicate(err)
@@ -398,7 +405,7 @@ func (r *AuthRepository) DictionaryItemByID(ctx context.Context, itemID uint64) 
 	return DictionaryItem{
 		ID: uint64(row.ID), DictTypeID: row.DictTypeID, Label: row.Label, Value: row.Value,
 		Color: row.Color, CSSClass: row.CssClass, Sort: int(row.Sort), Status: int8(row.Status),
-		IsDefault: smallIntBool(row.IsDefault), Remark: row.Remark,
+		IsDefault: row.IsDefault, Remark: row.Remark,
 	}, nil
 }
 
@@ -423,7 +430,9 @@ func (r *AuthRepository) DeleteDictionaryItem(ctx context.Context, itemID uint64
 			return ErrDictItemInUse
 		}
 	}
-	affected, err := r.queries.SoftDeleteDictionaryItem(ctx, int64(itemID))
+	affected, err := r.queries.SoftDeleteDictionaryItem(ctx, sqlcstore.SoftDeleteDictionaryItemParams{
+		ID: int64(itemID), UpdatedBy: actorID(ctx),
+	})
 	if err != nil {
 		return wrapDuplicate(err)
 	}

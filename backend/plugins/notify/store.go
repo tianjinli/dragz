@@ -136,15 +136,17 @@ func (r *repo) getChannel(ctx context.Context, id uint64) (ChannelRow, error) {
 func (r *repo) createChannel(ctx context.Context, channelType, name, configJSON string, enabled int16) (uint64, error) {
 	var id uint64
 	err := r.dbtx(ctx).QueryRowContext(ctx,
-		`INSERT INTO notify_channel (channel_type, name, enabled, config_json)
-		 VALUES ($1, $2, $3, $4) RETURNING id`, channelType, name, enabled, configJSON).Scan(&id)
+		`INSERT INTO notify_channel (channel_type, name, enabled, config_json, created_by, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $5) RETURNING id`,
+		channelType, name, enabled, configJSON, store.ActorID(ctx)).Scan(&id)
 	return id, wrapDuplicate(err)
 }
 
 func (r *repo) updateChannel(ctx context.Context, id uint64, channelType, name, configJSON string, enabled int16) error {
 	result, err := r.dbtx(ctx).ExecContext(ctx,
-		`UPDATE notify_channel SET channel_type=$2, name=$3, enabled=$4, config_json=$5, updated_at=NOW()
-		 WHERE id=$1 AND deleted_at IS NULL`, id, channelType, name, enabled, configJSON)
+		`UPDATE notify_channel SET channel_type=$2, name=$3, enabled=$4, config_json=$5, updated_at=NOW(),
+		   updated_by=$6
+		 WHERE id=$1 AND deleted_at IS NULL`, id, channelType, name, enabled, configJSON, store.ActorID(ctx))
 	if err != nil {
 		return wrapDuplicate(err)
 	}
@@ -153,7 +155,8 @@ func (r *repo) updateChannel(ctx context.Context, id uint64, channelType, name, 
 
 func (r *repo) deleteChannel(ctx context.Context, id uint64) error {
 	result, err := r.dbtx(ctx).ExecContext(ctx,
-		`UPDATE notify_channel SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
+		`UPDATE notify_channel SET deleted_at=NOW(), updated_at=NOW(), updated_by=$2
+		 WHERE id=$1 AND deleted_at IS NULL`, id, store.ActorID(ctx))
 	if err != nil {
 		return err
 	}
@@ -227,15 +230,18 @@ func (r *repo) findTemplate(ctx context.Context, channelType, code string) (Temp
 func (r *repo) createTemplate(ctx context.Context, channelType, code, name, subject, content string, status int16) (uint64, error) {
 	var id uint64
 	err := r.dbtx(ctx).QueryRowContext(ctx,
-		`INSERT INTO notify_template (channel_type, code, name, subject, content, status)
-		 VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, channelType, code, name, subject, content, status).Scan(&id)
+		`INSERT INTO notify_template (channel_type, code, name, subject, content, status, created_by, updated_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`,
+		channelType, code, name, subject, content, status, store.ActorID(ctx)).Scan(&id)
 	return id, wrapDuplicate(err)
 }
 
 func (r *repo) updateTemplate(ctx context.Context, id uint64, channelType, code, name, subject, content string, status int16) error {
 	result, err := r.dbtx(ctx).ExecContext(ctx,
-		`UPDATE notify_template SET channel_type=$2, code=$3, name=$4, subject=$5, content=$6, status=$7, updated_at=NOW()
-		 WHERE id=$1 AND deleted_at IS NULL`, id, channelType, code, name, subject, content, status)
+		`UPDATE notify_template SET channel_type=$2, code=$3, name=$4, subject=$5, content=$6, status=$7,
+		   updated_at=NOW(), updated_by=$8
+		 WHERE id=$1 AND deleted_at IS NULL`,
+		id, channelType, code, name, subject, content, status, store.ActorID(ctx))
 	if err != nil {
 		return wrapDuplicate(err)
 	}
@@ -244,7 +250,8 @@ func (r *repo) updateTemplate(ctx context.Context, id uint64, channelType, code,
 
 func (r *repo) deleteTemplate(ctx context.Context, id uint64) error {
 	result, err := r.dbtx(ctx).ExecContext(ctx,
-		`UPDATE notify_template SET deleted_at=NOW(), updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
+		`UPDATE notify_template SET deleted_at=NOW(), updated_at=NOW(), updated_by=$2
+		 WHERE id=$1 AND deleted_at IS NULL`, id, store.ActorID(ctx))
 	if err != nil {
 		return err
 	}

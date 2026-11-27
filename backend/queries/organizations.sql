@@ -1,7 +1,7 @@
 -- name: CreateDepartment :one
 INSERT INTO sys_department
-  (parent_id, ancestors, code, name, leader_user_id, sort, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (parent_id, ancestors, code, name, remark, leader_user_id, sort, status, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 RETURNING id;
 
 -- name: GetDepartmentParentInfo :one
@@ -10,20 +10,24 @@ WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateDepartment :execrows
 UPDATE sys_department SET parent_id = $1, ancestors = $2, code = $3,
-  name = $4, leader_user_id = $5, sort = $6, status = $7
-WHERE id = $8 AND deleted_at IS NULL;
+  name = $4, remark = $5, leader_user_id = $6, sort = $7,
+  status = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL;
 
 -- name: UpdateDepartmentStatus :execrows
-UPDATE sys_department SET status = $1
+UPDATE sys_department SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL;
 
 -- name: RewriteDepartmentAncestorsPrefix :exec
+-- Subtree maintenance for a move: the mover is the editor of every row whose
+-- path changed.
 UPDATE sys_department
-SET ancestors = CONCAT($1::text, SUBSTRING(ancestors, LENGTH($2::text) + 1))
+SET ancestors = CONCAT($1::text, SUBSTRING(ancestors, LENGTH($2::text) + 1)),
+    updated_by = $5
 WHERE deleted_at IS NULL AND (ancestors = $3 OR ancestors LIKE CONCAT($4::text, ',%'));
 
 -- name: DisableDepartmentDescendants :exec
-UPDATE sys_department SET status = 0
+UPDATE sys_department SET status = 0, updated_by = $3
 WHERE deleted_at IS NULL AND (ancestors = $1 OR ancestors LIKE CONCAT($2::text, ',%'));
 
 -- name: CountDepartmentChildrenAndUsers :one
@@ -32,7 +36,7 @@ SELECT
   (SELECT COUNT(*) FROM sys_user WHERE department_id = $2 AND deleted_at IS NULL) AS user_count;
 
 -- name: SoftDeleteDepartment :execrows
-UPDATE sys_department SET deleted_at = NOW(), status = 0
+UPDATE sys_department SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: GetDepartmentAncestorsStatus :one
@@ -43,7 +47,7 @@ WHERE id = $1 AND deleted_at IS NULL;
 SELECT id, name FROM sys_department WHERE deleted_at IS NULL;
 
 -- name: ListDepartmentsFiltered :many
-SELECT d.id, d.parent_id, d.ancestors, d.code, d.name,
+SELECT d.id, d.parent_id, d.ancestors, d.code, d.name, d.remark,
   d.leader_user_id, COALESCE(u.display_name, '') AS leader_name, d.sort, d.status, d.created_at
 FROM sys_department d
 LEFT JOIN sys_user u ON u.id = d.leader_user_id AND u.deleted_at IS NULL
@@ -53,17 +57,17 @@ WHERE d.deleted_at IS NULL
 ORDER BY d.ancestors, d.sort, d.id;
 
 -- name: CreatePosition :one
-INSERT INTO sys_position (code, name, sort, status, remark)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO sys_position (code, name, sort, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
 RETURNING id;
 
 -- name: UpdatePosition :execrows
 UPDATE sys_position SET code = $1, name = $2, sort = $3,
-  status = $4, remark = $5
-WHERE id = $6 AND deleted_at IS NULL;
+  status = $4, remark = $5, updated_by = $6
+WHERE id = $7 AND deleted_at IS NULL;
 
 -- name: UpdatePositionStatus :execrows
-UPDATE sys_position SET status = $1
+UPDATE sys_position SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL;
 
 -- name: CountPositionUsers :one
@@ -72,7 +76,7 @@ INNER JOIN sys_user u ON u.id = up.user_id
 WHERE up.position_id = $1 AND u.deleted_at IS NULL;
 
 -- name: SoftDeletePosition :execrows
-UPDATE sys_position SET deleted_at = NOW(), status = 0
+UPDATE sys_position SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: CountPositionsFiltered :one

@@ -353,10 +353,10 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotification
 }
 
 const upsertNotifyPref = `-- name: UpsertNotifyPref :exec
-INSERT INTO sys_user_notify_pref (user_id, channel, enabled, updated_at)
-VALUES ($1, $2, $3, NOW())
+INSERT INTO sys_user_notify_pref (user_id, channel, enabled, updated_at, updated_by)
+VALUES ($1, $2, $3, NOW(), $1)
 ON CONFLICT (user_id, channel) DO UPDATE
-SET enabled = EXCLUDED.enabled, updated_at = NOW()
+SET enabled = EXCLUDED.enabled, updated_at = NOW(), updated_by = EXCLUDED.updated_by
 `
 
 type UpsertNotifyPrefParams struct {

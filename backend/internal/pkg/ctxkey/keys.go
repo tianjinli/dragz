@@ -36,7 +36,26 @@ const (
 	// RLSBypass is true when the caller may see every tenant. Startup and the
 	// bootstrap administrator set it; request handlers do not.
 	RLSBypass
+	// MustChangePassword is set from the session user on every authenticated
+	// request. It is absent for API tokens, which never have an initial password.
+	MustChangePassword
 )
+
+// WithUserID stores the authenticated user id. The middleware chain sets it
+// once per request; audit columns read it through UserIDFrom.
+func WithUserID(ctx context.Context, id uint64) context.Context {
+	return context.WithValue(ctx, UserID, id)
+}
+
+// UserIDFrom reads the user id stored by WithUserID. A missing value reports
+// false, which audit columns treat as "no user context" and record as 0.
+func UserIDFrom(ctx context.Context) (uint64, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	id, ok := ctx.Value(UserID).(uint64)
+	return id, ok && id > 0
+}
 
 // WithTenantID stores the tenant the rest of the request should use.
 func WithTenantID(ctx context.Context, id uint64) context.Context {
@@ -124,4 +143,20 @@ func RLSBypassFrom(ctx context.Context) bool {
 	}
 	bypass, _ := ctx.Value(RLSBypass).(bool)
 	return bypass
+}
+
+// WithMustChangePassword records whether the session user still needs to
+// replace the initial password. Only the JWT authentication branch sets it.
+func WithMustChangePassword(ctx context.Context, required bool) context.Context {
+	return context.WithValue(ctx, MustChangePassword, required)
+}
+
+// MustChangePasswordFrom reports the flag stored by WithMustChangePassword.
+// ok is false for API tokens and unauthenticated requests.
+func MustChangePasswordFrom(ctx context.Context) (required bool, ok bool) {
+	if ctx == nil {
+		return false, false
+	}
+	required, ok = ctx.Value(MustChangePassword).(bool)
+	return required, ok
 }

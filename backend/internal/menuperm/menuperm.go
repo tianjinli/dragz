@@ -45,7 +45,6 @@ type Button struct {
 	PluginID  string
 	ParentID  uint64
 	ParentKey string
-	Sensitive bool
 	Sort      int
 }
 
@@ -91,7 +90,6 @@ func Build(routes []Route, menuIDs map[string]uint64) (buttons []Button, unresol
 				PluginID:  route.PluginID,
 				ParentID:  parentID,
 				ParentKey: parentKey,
-				Sensitive: route.Method != "GET",
 				Sort:      perParent[parentID] * 10,
 			})
 		}

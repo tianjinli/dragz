@@ -15,6 +15,7 @@ type saveDepartmentRequest struct {
 	ParentID     uint64  `json:"parentId"`
 	Code         string  `json:"code"`
 	Name         string  `json:"name"`
+	Remark       string  `json:"remark"`
 	LeaderUserID *uint64 `json:"leaderUserId"`
 	Sort         int     `json:"sort"`
 	Status       int8    `json:"status"`
@@ -113,6 +114,7 @@ func updateDepartmentHandler(ctx *app.Context) http.HandlerFunc {
 func departmentInput(req saveDepartmentRequest) store.SaveDepartmentInput {
 	return store.SaveDepartmentInput{
 		ParentID: req.ParentID, Code: strings.TrimSpace(req.Code), Name: strings.TrimSpace(req.Name),
+		Remark: strings.TrimSpace(req.Remark),
 		LeaderUserID: req.LeaderUserID, Sort: req.Sort, Status: req.Status,
 	}
 }

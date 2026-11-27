@@ -114,6 +114,9 @@ Frontend copy conventions: [`frontend/admin/README.md`](../../frontend/admin/REA
 - Engine: **postgresql only** for now (`sqlc.yaml`)
 - **Business SQL lives only in `queries/*.sql`** — run `sqlc generate`; do not embed `SELECT`/`INSERT`/`UPDATE`/`WITH` string literals in `internal/store/*.go` (except generated `sqlc/`)
 - Schema source should stay aligned with `migrations/` (see `schema/`)
+- Free-text "note" columns are named **`remark`**, never `description` (`sys_position`, `sys_department`, `sys_config`, `sys_plan`). The API/JSON field follows the column name. Legacy databases are migrated by `migrations/026_rename_description_to_remark.sql`, whose rename is repeated at the top of `bootstrapStatements` so a server upgrade does not need a manual `psql` step.
+- Flags named `is_*` are **BOOLEAN** (`DEFAULT FALSE`), never SMALLINT 0/1. SQL predicates use `TRUE`/`FALSE`. Other legacy flags that do not carry the `is_` prefix (`managed`, `enabled`, `success`, …) are still SMALLINT for now. `migrations/027_is_columns_to_boolean.sql` converts existing databases and its conversion is repeated at the top of `bootstrapStatements`.
+- `tenant_id BIGINT NOT NULL` never has a column default. The `app_fill_tenant_id` trigger only replaces NULL/0, so `DEFAULT 1` silently routes writes from other tenants into tenant 1. Bootstrap seeds name the tenant explicitly; `migrations/029_drop_tenant_id_default.sql` (and plugin migrations `004`) remove the old default from existing databases.
 - Docker Compose mounts `001_system_init.sql` (system base) for first-time Postgres init (`token_version` and `menu_parent_is_descendant` are in `001_system_init`). Existing named volumes do not re-run init — DBs that predate those objects need a one-off `ALTER` / `CREATE FUNCTION` (or recreate the volume); see `schema/tables.sql` for the canonical DDL. `migrations/` holds only scripts that participate in database creation (001 / 009). Retired business scripts have been removed from the tree; the rows they used to seed are deleted at startup by `retiredModuleStatements` in `internal/store/plugin.go`.
 - Adding another database: see [NORMS_GAP.md](NORMS_GAP.md) playbook — do not rewrite logic
 
@@ -165,8 +168,8 @@ separate permission table and no second grant tree.
   driven by `internal/menuperm`) upserts one button per code after every plugin
   migration has run. Adding a route therefore makes a permission grantable with
   no seed change.
-- **Owned vs editable.** `parent_id`, `method`, `path`, `is_sensitive`,
-  `plugin_id`, `status` and `code` belong to the sync. An administrator may only
+- **Owned vs editable.** `parent_id`, `method`, `path`, `plugin_id`, `status`
+  and `code` belong to the sync. An administrator may only
   change `name` and `sort`; `store.lockManagedMenuFields` overwrites everything
   else, and `UpdateMenuStatus` / `DeleteMenu` reject those rows outright.
 - **`sys_menu.managed` is the ownership flag.** The sync writes `1` for every
@@ -270,7 +273,7 @@ Layers: `plugins/ → platform/ → kernel/`. Dependencies point one way only;
 
 Plugins must not import each other. When one plugin needs a capability from
 another, it consumes a narrow interface from `platform/` through the shared
-`app.Context` (`ctx.Notifier`, `ctx.Billing`, …). The composition root in
+`app.Context` (`ctx.Notifier`, `ctx.Mailer`, …). The composition root in
 `api.RegisterRoutes` is the only place that names the provider implementation.
 
 For outbound notifications:
@@ -292,8 +295,8 @@ For outbound notifications:
 ### Bootstrap DDL vs migrations
 
 - Plugin tables (`sys_plugin`, `sys_plugin_migration`) and the `sys_menu`
-  columns `plugin_id`, `method`, `path`, `is_sensitive` are created by **runtime
-  bootstrap DDL** in `store.PluginRepository.Bootstrap` on every startup. This is
+  columns `plugin_id`, `method`, `path` are created by **runtime bootstrap DDL**
+  in `store.PluginRepository.Bootstrap` on every startup. This is
   deliberate: the Postgres image only runs `migrations/*.sql` on an empty
   PGDATA, so a new migration file would require a manual `psql` step on every
   existing database.

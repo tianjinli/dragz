@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS sys_example_item (
 -- plugin_id is what makes the menu disappear when the plugin is disabled.
 INSERT INTO sys_menu
   (id, parent_id, type, name, code, route_name, route_path, component, redirect, icon,
-   sort, status, visible, keep_alive, affix_tab, external_url, plugin_id)
+   sort, status, plugin_id)
 VALUES
   (1000, 0, 'page', '示例插件', 'example_page', 'ExamplePage', '/example', '/example/index',
-   '', 'lucide:box', 900, 1, 1, 0, 0, '', 'example')
+   '', 'lucide:box', 900, 1, 'example')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO sys_role_menu (role_id, menu_id)

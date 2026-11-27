@@ -43,10 +43,10 @@ SELECT COALESCE((
 ), TRUE)::boolean AS enabled;
 
 -- name: UpsertNotifyPref :exec
-INSERT INTO sys_user_notify_pref (user_id, channel, enabled, updated_at)
-VALUES (sqlc.arg(user_id), sqlc.arg(channel), sqlc.arg(enabled), NOW())
+INSERT INTO sys_user_notify_pref (user_id, channel, enabled, updated_at, updated_by)
+VALUES (sqlc.arg(user_id), sqlc.arg(channel), sqlc.arg(enabled), NOW(), sqlc.arg(user_id))
 ON CONFLICT (user_id, channel) DO UPDATE
-SET enabled = EXCLUDED.enabled, updated_at = NOW();
+SET enabled = EXCLUDED.enabled, updated_at = NOW(), updated_by = EXCLUDED.updated_by;
 
 -- name: ListNotifyPrefsForUser :many
 SELECT user_id, channel, enabled, updated_at

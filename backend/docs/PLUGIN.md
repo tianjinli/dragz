@@ -179,7 +179,7 @@ Four rules:
 
 1. **Never write `sys_menu.id`.** The sequence allocates it, so a plugin needs no reserved range and cannot collide with another plugin. `plugin_id` is filled in from `Meta.ID`.
 2. **`Code` is the unique key**, in the same namespace as core menus. A collision **fails startup or enable** (`ErrMenuCodeTaken`) instead of being swallowed by `ON CONFLICT DO NOTHING`, which used to leave a plugin "enabled" with no menu at all.
-3. **Structure is re-applied, presentation is written once.** Parent, type, route and icon follow the declaration; `Name` / `NameEn` / `Sort` / `Hidden` / `KeepAlive` are only written on the first insert, so an administrator's edits survive.
+3. **Structure is re-applied, presentation is written once.** Parent, type, route and icon follow the declaration; `Name` / `NameEn` / `Sort` are only written on the first insert, so an administrator's edits survive.
 4. **The declaration is the whole truth.** Drop a `Code` from `Menus` and the row is soft deleted on the next enable (the sidebar entry disappears) while its `sys_role_menu` grants are kept; add it back and the same row is revived with the same id and grants. Menus created by hand in the admin UI always have an empty `plugin_id`, so they never fall into a plugin's retirement scope.
 
 `ParentCode` may point at a core menu or at another plugin's menu, so plugins can hang off the core tree. Pointing at a code that does not exist raises `ErrMenuParentMissing` — a typo never turns into a top-level menu.
@@ -307,7 +307,7 @@ When `DRAGZ_VERIFY_DSN` is not set these cases are skipped automatically, so `go
 | `menu code already taken` at startup or enable | Two plugins declare the same `Code`, or it collides with a core menu |
 | `declared menu parent does not exist` | `ParentCode` is a typo, or the parent belongs to a plugin that is not enabled |
 | After disabling, the API returns 401 instead of 404 | The route gate was placed inside authentication. `Gate` must be outside `Authenticate` |
-| The menu exists but the sidebar does not show it | The menu has `status != 1`, `visible = 0`, or its parent menu is disabled |
+| The menu exists but the sidebar does not show it | The menu has `status != 1`, or its parent menu is disabled |
 | Plugin buttons were "deleted" by a restart | Manually created buttons have `managed = 0` and are not retired; only synced ones are. Check whether the code was taken over by the sync |
 | The table is still there after uninstall | It is not declared in `Meta.DropTables`, or the name is invalid (uppercase / schema-qualified / quoted names are rejected and the whole thing rolls back) |
 | Uninstall returns 409 `enabled_cannot_uninstall` | Disable first, then uninstall; the two steps are kept separate so that "stopping the service" and "throwing data away" do not become one click |

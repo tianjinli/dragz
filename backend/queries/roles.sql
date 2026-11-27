@@ -1,16 +1,16 @@
 -- name: CreateRole :one
-INSERT INTO sys_role (code, name, data_scope, sort, status, remark)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO sys_role (code, name, data_scope, sort, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 RETURNING id;
 
 -- name: UpdateRole :execrows
 UPDATE sys_role SET code = $1, name = $2, data_scope = $3,
-  sort = $4, status = $5, remark = $6
-WHERE id = $7 AND deleted_at IS NULL AND is_system = 0;
+  sort = $4, status = $5, remark = $6, updated_by = $7
+WHERE id = $8 AND deleted_at IS NULL AND is_system = FALSE;
 
 -- name: UpdateRoleStatus :execrows
-UPDATE sys_role SET status = $1
-WHERE id = $2 AND deleted_at IS NULL AND is_system = 0;
+UPDATE sys_role SET status = $1, updated_by = $3
+WHERE id = $2 AND deleted_at IS NULL AND is_system = FALSE;
 
 -- name: GetRoleDeleteChecks :one
 SELECT r.is_system,
@@ -20,7 +20,7 @@ FROM sys_role r
 WHERE r.id = $1 AND r.deleted_at IS NULL;
 
 -- name: SoftDeleteRole :execrows
-UPDATE sys_role SET deleted_at = NOW(), status = 0
+UPDATE sys_role SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: GetRoleDataScope :one
@@ -30,7 +30,7 @@ SELECT data_scope FROM sys_role WHERE id = $1 AND deleted_at IS NULL;
 SELECT is_system FROM sys_role WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateRoleDataScope :exec
-UPDATE sys_role SET data_scope = $1 WHERE id = $2;
+UPDATE sys_role SET data_scope = $1, updated_by = $3 WHERE id = $2;
 
 -- name: ListRoleMenuIDs :many
 SELECT menu_id FROM sys_role_menu WHERE role_id = $1 ORDER BY menu_id;
@@ -64,8 +64,7 @@ ORDER BY r.sort, r.id;
 
 -- name: ListMenuResources :many
 SELECT id, parent_id, type, name, code, route_name,
-  route_path, component, redirect, icon, method, path, is_sensitive, managed, sort, status, visible, keep_alive,
-  affix_tab, external_url, created_at
+  route_path, component, redirect, icon, method, path, managed, sort, status, created_at
 FROM sys_menu
 WHERE deleted_at IS NULL
 ORDER BY sort, id;
@@ -75,8 +74,8 @@ ORDER BY sort, id;
 -- startup sync sets managed = 1, and only for codes the route table declares.
 INSERT INTO sys_menu
   (parent_id, type, name, code, route_name, route_path, component, redirect, icon,
-   method, path, is_sensitive, managed, sort, status, visible, keep_alive, affix_tab, external_url)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, $13, $14, $15, $16, $17, $18)
+   method, path, managed, sort, status, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $14)
 RETURNING id;
 
 -- name: MenuParentIsDescendant :one
@@ -85,19 +84,20 @@ SELECT menu_parent_is_descendant(sqlc.arg(menu_id), sqlc.arg(parent_id));
 -- name: UpdateMenu :execrows
 UPDATE sys_menu SET parent_id = $1, type = $2, name = $3,
   code = $4, route_name = $5, route_path = $6, component = $7, redirect = $8, icon = $9,
-  method = $10, path = $11, is_sensitive = $12,
-  sort = $13, status = $14, visible = $15, keep_alive = $16, affix_tab = $17, external_url = $18
-WHERE id = $19 AND deleted_at IS NULL;
+  method = $10, path = $11,
+  sort = $12, status = $13,
+  updated_by = $14
+WHERE id = $15 AND deleted_at IS NULL;
 
 -- name: UpdateMenuStatus :execrows
-UPDATE sys_menu SET status = $1
+UPDATE sys_menu SET status = $1, updated_by = $3
 WHERE id = $2 AND deleted_at IS NULL;
 
 -- name: CountMenuChildren :one
 SELECT COUNT(*) FROM sys_menu WHERE parent_id = $1 AND deleted_at IS NULL;
 
 -- name: SoftDeleteMenu :execrows
-UPDATE sys_menu SET deleted_at = NOW(), status = 0
+UPDATE sys_menu SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: DeleteRoleMenusByMenu :exec

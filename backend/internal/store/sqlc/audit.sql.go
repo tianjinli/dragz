@@ -160,10 +160,11 @@ func (q *Queries) CountSessionsFiltered(ctx context.Context, keywordPattern sql.
 
 const createAPIToken = `-- name: CreateAPIToken :one
 INSERT INTO sys_api_token
-  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at)
+  (tenant_id, user_id, name, token_prefix, token_hash, scopes, ip_allowlist, expires_at, created_by)
 VALUES (
   $1, $2, $3, $4,
-  $5, $6, $7, $8
+  $5, $6, $7, $8,
+  $2
 )
 RETURNING id
 `
@@ -250,9 +251,10 @@ func (q *Queries) GetDashboardSummary(ctx context.Context, userID uint64) (GetDa
 
 const insertErrorLog = `-- name: InsertErrorLog :exec
 INSERT INTO sys_error_log
-  (request_id, user_id, module, method, path, error_code, message, ip)
+  (request_id, user_id, module, method, path, error_code, message, ip, created_by)
 VALUES ($1, NULLIF($2::bigint, 0), $3, $4,
-  $5, $6, $7, $8)
+  $5, $6, $7, $8,
+  COALESCE($2::bigint, 0))
 `
 
 type InsertErrorLogParams struct {
@@ -284,12 +286,12 @@ const insertOperationLog = `-- name: InsertOperationLog :exec
 INSERT INTO sys_operation_log
   (user_id, username, module, action, permission, method, path, target_type,
    target_id, request_id, ip, user_agent, success, status_code, duration_ms,
-   error_code, error_message)
+   error_code, error_message, created_by)
 VALUES (NULLIF($1::bigint, 0), $2, $3, $4,
   $5, $6, $7, $8,
   $9, $10, $11, $12,
   $13, $14, $15,
-  $16, $17)
+  $16, $17, COALESCE($1::bigint, 0))
 `
 
 type InsertOperationLogParams struct {
@@ -526,7 +528,7 @@ type ListLoginLogsFilteredRow struct {
 	Ip            string        `json:"ip"`
 	Location      string        `json:"location"`
 	UserAgent     string        `json:"user_agent"`
-	IsSuspicious  int16         `json:"is_suspicious"`
+	IsSuspicious  bool          `json:"is_suspicious"`
 	CreatedAt     time.Time     `json:"created_at"`
 }
 

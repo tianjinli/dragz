@@ -83,14 +83,9 @@ type routeNode struct {
 }
 
 type routeMeta struct {
-	Title       string `json:"title"`
-	Icon        string `json:"icon,omitempty"`
-	Order       int    `json:"order"`
-	HideInMenu  bool   `json:"hideInMenu,omitempty"`
-	KeepAlive   bool   `json:"keepAlive,omitempty"`
-	AffixTab    bool   `json:"affixTab,omitempty"`
-	TabClosable *bool  `json:"tabClosable,omitempty"`
-	Link        string `json:"link,omitempty"`
+	Title string `json:"title"`
+	Icon  string `json:"icon,omitempty"`
+	Order int    `json:"order"`
 }
 
 func loginHandler(ctx *app.Context) http.HandlerFunc {
@@ -575,7 +570,7 @@ func menusHandler(ctx *app.Context) http.HandlerFunc {
 					m.Name = s
 				}
 			})
-		ok(w, r, buildRouteTree(menus, user.IsSuperAdmin))
+		ok(w, r, buildRouteTree(menus))
 	}
 }
 
@@ -602,22 +597,12 @@ func clearRefreshCookie(w http.ResponseWriter, ctx *app.Context) {
 	})
 }
 
-func buildRouteTree(menus []store.Menu, superAdmin bool) []*routeNode {
+func buildRouteTree(menus []store.Menu) []*routeNode {
 	nodes := make(map[uint64]*routeNode, len(menus))
 	ordered := make([]*routeNode, 0, len(menus))
 	for _, menu := range menus {
-		hideInMenu := !menu.Visible
-		if superAdmin {
-			hideInMenu = false
-		}
 		meta := routeMeta{
-			Title: menu.Name, Icon: menu.Icon, Order: menu.Sort, HideInMenu: hideInMenu,
-			KeepAlive: menu.KeepAlive, AffixTab: menu.AffixTab, Link: menu.ExternalURL,
-		}
-		// Affixed tabs (e.g. 工作台) must stay open: hide close/unpin controls.
-		if menu.AffixTab {
-			closable := false
-			meta.TabClosable = &closable
+			Title: menu.Name, Icon: menu.Icon, Order: menu.Sort,
 		}
 		node := &routeNode{
 			ID: menu.ID, ParentID: menu.ParentID, Path: menu.RoutePath, Name: menu.RouteName,
@@ -644,23 +629,7 @@ func buildRouteTree(menus []store.Menu, superAdmin bool) []*routeNode {
 			node.Component = ""
 		}
 	}
-	for _, node := range root {
-		keepParentVisibleForChildren(node)
-	}
 	return root
-}
-
-func keepParentVisibleForChildren(node *routeNode) bool {
-	hasVisibleChild := false
-	for _, child := range node.Children {
-		if keepParentVisibleForChildren(child) {
-			hasVisibleChild = true
-		}
-	}
-	if hasVisibleChild {
-		node.Meta.HideInMenu = false
-	}
-	return !node.Meta.HideInMenu
 }
 
 func currentUserID(ctx context.Context) (uint64, bool) {

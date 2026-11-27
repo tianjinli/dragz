@@ -84,10 +84,6 @@ type Menu struct {
 	Redirect    string
 	Icon        string
 	Sort        int
-	Visible     bool
-	KeepAlive   bool
-	AffixTab    bool
-	ExternalURL string
 }
 
 // NewAuthRepository binds the generated queries to a database handle.
@@ -126,7 +122,9 @@ func (r *AuthRepository) CreateBootstrapAdmin(username, passwordHash string) err
 	// The bootstrap administrator administers that tenant and is the platform
 	// operator, which is what the default deployment is.
 	if err := q.UpsertTenantMember(ctx, sqlcstore.UpsertTenantMemberParams{
-		TenantID: 1, UserID: uint64(userID), IsTenantAdmin: 1, IsPlatformOperator: true, Status: 1,
+		TenantID: 1, UserID: uint64(userID), IsTenantAdmin: true, IsPlatformOperator: true, Status: 1,
+		// Bootstrap runs before any request exists, so there is no actor.
+		Actor: ActorUnknown,
 	}); err != nil {
 		return err
 	}
@@ -155,7 +153,7 @@ func (r *AuthRepository) FindUserByID(ctx context.Context, userID uint64) (User,
 func (r *AuthRepository) UpdateSelfProfile(ctx context.Context, userID uint64, displayName, email, mobile string, avatarFileID sql.NullInt64) error {
 	affected, err := r.queries.UpdateSelfProfile(ctx, sqlcstore.UpdateSelfProfileParams{
 		DisplayName: displayName, Email: email, Mobile: mobile,
-		AvatarFileID: avatarFileID, ID: int64(userID),
+		AvatarFileID: avatarFileID, UpdatedBy: actorID(ctx), ID: int64(userID),
 	})
 	if err != nil {
 		return err
@@ -419,8 +417,6 @@ func (r *AuthRepository) Menus(ctx context.Context, userID uint64, superAdmin bo
 				ID: uint64(row.ID), ParentID: row.ParentID, Type: row.Type, Name: row.Name, Code: row.Code,
 				RouteName: row.RouteName, RoutePath: row.RoutePath, Component: row.Component, Redirect: row.Redirect,
 				Icon: row.Icon, Sort: int(row.Sort),
-				Visible: smallIntBool(row.Visible), KeepAlive: smallIntBool(row.KeepAlive),
-				AffixTab: smallIntBool(row.AffixTab), ExternalURL: row.ExternalUrl,
 			})
 		}
 		return menus, nil
@@ -436,8 +432,6 @@ func (r *AuthRepository) Menus(ctx context.Context, userID uint64, superAdmin bo
 			ID: uint64(row.ID), ParentID: row.ParentID, Type: row.Type, Name: row.Name, Code: row.Code,
 			RouteName: row.RouteName, RoutePath: row.RoutePath, Component: row.Component, Redirect: row.Redirect,
 			Icon: row.Icon, Sort: int(row.Sort),
-			Visible: smallIntBool(row.Visible), KeepAlive: smallIntBool(row.KeepAlive),
-			AffixTab: smallIntBool(row.AffixTab), ExternalURL: row.ExternalUrl,
 		})
 	}
 	if menus == nil {

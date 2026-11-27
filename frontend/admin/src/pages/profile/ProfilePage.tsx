@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Avatar, Button, Card, Descriptions, Form, Input, List, Segmented, Switch, Tabs, Tag, Typography, message } from 'antd';
 import { Bell, Shield, UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { changePasswordApi, updateProfileApi } from '@/api/auth';
 import { Page } from '@/components/Page';
 import { useAccessStore } from '@/stores/access';
@@ -10,9 +11,19 @@ import { emailError, formValidator, mobileError, passwordError } from '@/utils/u
 
 export function ProfilePage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const user = useAccessStore((state) => state.userInfo); const passwordMinLength = user?.passwordMinLength ?? 8; const loadAccess = useAuthStore((state) => state.loadAccess); const [active, setActive] = useState('base');
   const saveProfile = async (values: { email?: string; mobile?: string; realName: string }) => { await updateProfileApi(values); await loadAccess(); void message.success(t('pages.profile.profileUpdated')); };
-  const changePassword = async (values: { confirm: string; newPassword: string; oldPassword: string }) => { await changePasswordApi(values); void message.success(t('pages.profile.passwordChanged')); };
+  const changePassword = async (values: { confirm: string; newPassword: string; oldPassword: string }) => {
+    const result = await changePasswordApi(values);
+    if (result.reloginRequired !== false) {
+      await useAuthStore.getState().logout();
+      navigate('/auth/login', { replace: true });
+      void message.success(t('auth.passwordChangedRelogin'));
+      return;
+    }
+    void message.success(t('pages.profile.passwordChanged'));
+  };
   const items = [
     { key:'base', label:t('pages.profile.baseTab'), children:<Form layout="vertical" initialValues={user || {}} onFinish={(v) => void saveProfile(v)}><Form.Item label={t('pages.profile.realName')} name="realName" rules={[{required:true}]}><Input/></Form.Item><Form.Item label={t('pages.profile.email')} name="email" rules={[{validator:formValidator(emailError)}]}><Input/></Form.Item><Form.Item label={t('pages.profile.mobile')} name="mobile" rules={[{validator:formValidator(mobileError)}]}><Input/></Form.Item><Button type="primary" htmlType="submit">{t('pages.profile.saveSettings')}</Button></Form> },
     { key:'password', label:t('pages.profile.passwordTab'), children:<Form layout="vertical" onFinish={(v) => void changePassword(v)}><Form.Item label={t('pages.profile.currentPassword')} name="oldPassword" rules={[{required:true}]}><Input.Password/></Form.Item><Form.Item label={t('pages.profile.newPassword')} name="newPassword" extra={t('pages.profile.passwordHint', { min: passwordMinLength })} rules={[{required:true},{validator:formValidator((value)=>passwordError(value||'',passwordMinLength,user?.username))}]}><Input.Password/></Form.Item><Form.Item label={t('pages.profile.confirmPassword')} name="confirm" dependencies={['newPassword']} rules={[{required:true},({getFieldValue})=>({validator:(_,value)=>value===getFieldValue('newPassword')?Promise.resolve():Promise.reject(new Error(t('validation.passwordMismatch')))})]}><Input.Password/></Form.Item><Button type="primary" htmlType="submit">{t('pages.profile.changePassword')}</Button></Form> },

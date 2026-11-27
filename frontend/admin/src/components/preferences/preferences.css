@@ -139,6 +139,7 @@
   cursor: help;
 }
 .pref-tip:hover { color: var(--primary); }
+.pref-tooltip .ant-tooltip-inner { font-size: 0.6875rem !important; }
 .pref-row-control { display: flex; flex: 0 0 auto; align-items: center; }
 .pref-shortcut { color: color-mix(in srgb, currentColor 55%, transparent); font-size: 0.6875rem; white-space: nowrap; }
 .pref-shortcut kbd { min-width: 18px; margin-left: 2px; padding: 1px 4px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: calc(var(--radius) * 0.5); background: color-mix(in srgb, currentColor 5%, transparent); font-family: inherit; }

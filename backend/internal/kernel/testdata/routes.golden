@@ -1,13 +1,15 @@
-# routes.golden - P0 路由基线（185 条 = 20 公开 + 165 受保护）
+# routes.golden - P0 路由基线（180 条 = 18 公开 + 162 受保护）
+# 2026-11-27: 删除租户侧「我的账单」：GET /api/billing/summary、GET /api/billing/usage（-2 受保护）。
+#            同步前期已删代码残留的三条路由：GET /api/platform/tenants/:id/invoices、
+#            GET /api/platform/invoices、POST /api/billing/webhook/:provider。
 # 2026-11-23: 可观测性。GET /api/metrics（public，metrics.enabled 关闭时 404），公开路由 +1。
 #            成员管理页 system_member 独立成群，权限按钮从中挪出（路由本身未变）。
 # 2026-11-23: P1 自助闭环。自助注册 signup-status/register（public，限流 5/min）、
 #            邀请预览与接受（预览 public）、租户成员与邀请 6 条（system:member:*）、
-#            平台人员 3 条（auth=platform，不产生按钮）、GET /api/billing/usage、POST /api/billing/webhook/:provider（public，签名校验+幂等）。
+#            平台人员 3 条（auth=platform，不产生按钮）。
 # 2026-11-22: 域名租户识别。GET /api/auth/tenant-context（public）与
 #            /api/platform/tenants/:id/slug|domains* 五条（auth=platform）。
-# 2026-11-21: 套餐 CRUD 三条 /api/platform/plans*（auth=platform）与
-#            GET /api/billing/summary（仅登录，当前租户账单）。
+# 2026-11-21: 套餐 CRUD 三条 /api/platform/plans*（auth=platform）。
 # 2026-11-21: 开放 API /api/open/v1/{me,tenant,ping}，auth=open.*（仅 API 令牌；JWT 返回 401）。
 # 2026-11-21: 账单与租户导出/清除五条 /api/platform/*，auth=platform，不产生权限按钮。
 # 2026-11-21: 平台运营 /api/platform/* 六条，auth=platform（超管或平台运营），不产生权限按钮。
@@ -171,15 +173,12 @@ PUT|/api/platform/tenants/:id/status|platform|-|platform|protected
 GET|/api/platform/plans|platform|-|-|protected
 PUT|/api/platform/tenants/:id/subscription|platform|-|platform|protected
 POST|/api/platform/tenants/:id/impersonate|platform|-|platform|protected
-GET|/api/platform/tenants/:id/invoices|platform|-|-|protected
-GET|/api/platform/invoices|platform|-|-|protected
 POST|/api/platform/tenants/:id/export|platform|-|platform|protected
 POST|/api/platform/tenants/:id/schedule-purge|platform|-|platform|protected
 POST|/api/platform/tenants/:id/cancel-purge|platform|-|platform|protected
 POST|/api/platform/plans|platform|-|platform|protected
 PUT|/api/platform/plans/:id|platform|-|platform|protected
 PUT|/api/platform/plans/:id/status|platform|-|platform|protected
-GET|/api/billing/summary|-|-|-|protected
 GET|/api/open/v1/me|open.me|-|-|protected
 GET|/api/open/v1/tenant|open.tenant|-|-|protected
 GET|/api/open/v1/ping|open.ping|-|-|protected
@@ -202,8 +201,6 @@ DELETE|/api/tenant/invites/:id|system:member:invite|-|system:member:invite|prote
 GET|/api/platform/operators|platform|-|-|protected
 POST|/api/platform/operators|platform|-|platform|protected
 DELETE|/api/platform/operators/:id|platform|-|platform|protected
-GET|/api/billing/usage|-|-|-|protected
-POST|/api/billing/webhook/:provider|-|-|-|public
 GET|/api/example/ping|example:ping|-|-|protected
 GET|/api/notify/channels|notify:channel:query|-|-|protected
 GET|/api/notify/channels/:id|notify:channel:query|-|-|protected

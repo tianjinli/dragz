@@ -49,8 +49,9 @@ func (q *Queries) FindRefreshSession(ctx context.Context, tokenHash string) (Fin
 
 const insertExternalRefreshToken = `-- name: InsertExternalRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, tenant_id, token_hash, family_id, login_method, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  (user_id, tenant_id, token_hash, family_id, login_method, ip, user_agent, expires_at,
+   created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $1)
 `
 
 type InsertExternalRefreshTokenParams struct {
@@ -80,8 +81,9 @@ func (q *Queries) InsertExternalRefreshToken(ctx context.Context, arg InsertExte
 
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
 INSERT INTO sys_refresh_token
-  (user_id, tenant_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (user_id, tenant_id, token_hash, family_id, device_id, device_name, ip, user_agent, expires_at,
+   created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $1)
 `
 
 type InsertRefreshTokenParams struct {

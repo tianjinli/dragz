@@ -32,7 +32,7 @@ Auth:
 Bootstrap:
   AdminUsername: admin
   # Must equal the password hashed in migrations/001_system_init.sql.
-  AdminPassword: Dragz!7xZ
+  AdminPassword: Dragz123
 
 Security:
   # Development-only key. Production must inject a unique random 32-byte key.

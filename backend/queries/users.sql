@@ -22,12 +22,13 @@ VALUES (1, $1, $2, 'Administrator', 1, 1, 1)
 RETURNING id;
 
 -- name: InsertUserRole :exec
-INSERT INTO sys_user_role (user_id, role_id) VALUES ($1, $2);
+INSERT INTO sys_user_role (user_id, role_id, created_by) VALUES ($1, $2, $3);
 
 -- name: UpdateSelfProfile :execrows
 UPDATE sys_user
-SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW()
-WHERE id = $5 AND deleted_at IS NULL;
+SET display_name = $1, email = $2, mobile = $3, avatar_file_id = $4, updated_at = NOW(),
+  updated_by = $5
+WHERE id = $6 AND deleted_at IS NULL;
 
 -- name: ChangeSelfPassword :execrows
 UPDATE sys_user
@@ -52,12 +53,12 @@ INSERT INTO sys_login_log (username, login_method, success, failure_reason, ip, 
 VALUES ($1, 'password', 0, $2, $3, $4);
 
 -- name: InsertLoginLogSuccess :exec
-INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent)
-VALUES ($1, $2, 'password', 1, $3, $4);
+INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent, created_by)
+VALUES ($1, $2, 'password', 1, $3, $4, $1);
 
 -- name: InsertLoginLogOAuth :exec
-INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent)
-VALUES ($1, $2, $3, 1, $4, $5);
+INSERT INTO sys_login_log (user_id, username, login_method, success, ip, user_agent, created_by)
+VALUES ($1, $2, $3, 1, $4, $5, $1);
 
 -- name: GetUserDetail :one
 -- sys_user is global, so the tenant boundary is membership. A non-null
@@ -87,28 +88,32 @@ SELECT position_id FROM sys_user_position WHERE user_id = $1 ORDER BY position_i
 -- name: CreateUser :one
 INSERT INTO sys_user
   (department_id, username, password_hash, display_name, email, mobile, gender, status,
-   must_change_password, remark)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+   must_change_password, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
 RETURNING id;
 
 -- name: UpdateUser :execrows
+-- updated_by is the editor. Credential operations (password reset, token
+-- version, login state) deliberately leave it alone: they are recorded in the
+-- operation log, and stamping them here would replace the last real editor.
 UPDATE sys_user SET department_id = $1, display_name = $2,
-  email = $3, mobile = $4, gender = $5, status = $6, must_change_password = $7, remark = $8
-WHERE id = $9 AND deleted_at IS NULL AND is_super_admin = 0;
+  email = $3, mobile = $4, gender = $5, status = $6, must_change_password = $7, remark = $8,
+  updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL AND is_super_admin = FALSE;
 
 -- name: UpdateUserStatus :execrows
-UPDATE sys_user SET status = $1, updated_at = NOW()
-WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = 0;
+UPDATE sys_user SET status = $1, updated_at = NOW(), updated_by = $3
+WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = FALSE;
 
 -- name: SoftDeleteUser :execrows
-UPDATE sys_user SET deleted_at = NOW(), status = 0
-WHERE id = $1 AND deleted_at IS NULL AND is_super_admin = 0;
+UPDATE sys_user SET deleted_at = NOW(), status = 0, updated_by = $2
+WHERE id = $1 AND deleted_at IS NULL AND is_super_admin = FALSE;
 
 -- name: ResetUserPassword :execrows
 UPDATE sys_user SET password_hash = $1, must_change_password = 1,
   password_changed_at = NOW(), failed_login_count = 0, locked_until = NULL,
   token_version = token_version + 1
-WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = 0;
+WHERE id = $2 AND deleted_at IS NULL AND is_super_admin = FALSE;
 
 -- name: ClearFailedLogin :exec
 UPDATE sys_user SET failed_login_count = 0, locked_until = NULL, updated_at = NOW()
@@ -125,7 +130,7 @@ DELETE FROM sys_user_role WHERE user_id = $1;
 DELETE FROM sys_user_position WHERE user_id = $1;
 
 -- name: InsertUserPosition :exec
-INSERT INTO sys_user_position (user_id, position_id) VALUES ($1, $2);
+INSERT INTO sys_user_position (user_id, position_id, created_by) VALUES ($1, $2, $3);
 
 -- name: GetUserDepartmentID :one
 SELECT department_id FROM sys_user WHERE id = $1 AND deleted_at IS NULL;
@@ -155,8 +160,8 @@ VALUES (1, $1, $2, $3, $4, $5, 1, 0, NOW())
 RETURNING id;
 
 -- name: InsertUserRoleIfActive :exec
-INSERT INTO sys_user_role (user_id, role_id)
-SELECT $1, id FROM sys_role WHERE id = $2 AND status = 1 AND deleted_at IS NULL;
+INSERT INTO sys_user_role (user_id, role_id, created_by)
+SELECT $1, id, $1 FROM sys_role WHERE id = $2 AND status = 1 AND deleted_at IS NULL;
 
 -- name: ClearLoginState :exec
 UPDATE sys_user SET failed_login_count = 0, locked_until = NULL,
@@ -181,6 +186,8 @@ WHERE u.deleted_at IS NULL
     OR u.mobile LIKE sqlc.narg('keyword_pattern')))
   AND (sqlc.narg('department_id')::bigint IS NULL OR u.department_id = sqlc.narg('department_id'))
   AND (sqlc.narg('status')::smallint IS NULL OR u.status = sqlc.narg('status'))
+  AND (sqlc.narg('created_from')::timestamptz IS NULL OR u.created_at >= sqlc.narg('created_from'))
+  AND (sqlc.narg('created_to')::timestamptz IS NULL OR u.created_at <= sqlc.narg('created_to'))
   AND (
     sqlc.arg('scope_all')::boolean
     OR (sqlc.narg('self_user_id')::bigint IS NOT NULL AND u.id = sqlc.narg('self_user_id'))
@@ -227,6 +234,8 @@ WHERE u.deleted_at IS NULL
     OR u.mobile LIKE sqlc.narg('keyword_pattern')))
   AND (sqlc.narg('department_id')::bigint IS NULL OR u.department_id = sqlc.narg('department_id'))
   AND (sqlc.narg('status')::smallint IS NULL OR u.status = sqlc.narg('status'))
+  AND (sqlc.narg('created_from')::timestamptz IS NULL OR u.created_at >= sqlc.narg('created_from'))
+  AND (sqlc.narg('created_to')::timestamptz IS NULL OR u.created_at <= sqlc.narg('created_to'))
   AND (
     sqlc.arg('scope_all')::boolean
     OR (sqlc.narg('self_user_id')::bigint IS NOT NULL AND u.id = sqlc.narg('self_user_id'))

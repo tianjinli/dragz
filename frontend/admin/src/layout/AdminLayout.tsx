@@ -21,7 +21,7 @@ import { CheckUpdates } from '@/components/CheckUpdates';
 import { NoticeRealtimeAlerts } from '@/components/NoticeRealtimeAlerts';
 import { PreferencesDrawer } from '@/components/preferences/PreferencesDrawer';
 import { useMixedMenu } from '@/hooks/useMixedMenu';
-import { findMenu, firstLeafPath, flattenMenus, iconNode, menuAncestors, menuIcon, menuItems } from '@/router/menu-utils';
+import { findMenu, firstLeafPath, flattenMenus, iconNode, isExternalPath, menuAncestors, menuIcon, menuItems, openExternalPath } from '@/router/menu-utils';
 import { LOGOUT_REDIRECT_FLAG, useAuthStore } from '@/stores/auth';
 import { useAccessStore } from '@/stores/access';
 import { useLockScreenStore } from '@/stores/lock-screen';
@@ -223,7 +223,8 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
           <List.Item
             className="search-result"
             onClick={() => {
-              navigate(menu.path);
+              if (isExternalPath(menu.path)) openExternalPath(menu.path);
+              else navigate(menu.path);
               onClose();
             }}
           >
@@ -378,6 +379,12 @@ export function AdminLayout() {
   const siderWidthRef = useRef(siderWidth);
   siderWidthRef.current = siderWidth;
   const mixed = useMixedMenu();
+  // Off-site menu targets (routePath = https://…) open in a new tab; every other
+  // path is an in-app route.
+  const goTo = (path: string) => {
+    if (isExternalPath(path)) openExternalPath(path);
+    else navigate(path);
+  };
   const sideMixed = mixed.isSidebarMixedNav || mixed.isHeaderMixedNav;
 
   const currentMenu = findMenu(menus, location.pathname);
@@ -482,10 +489,8 @@ export function AdminLayout() {
     const title = currentMenu?.meta?.title || (location.pathname === '/profile' ? t('profile') : t('shell.page'));
     addTab(
       {
-        affix: !!currentMenu?.meta?.affixTab,
         icon: currentMenu?.meta?.icon || (location.pathname === '/profile' ? 'lucide:user-round' : undefined),
         key: fullPath,
-        keepAlive: currentMenu?.meta?.keepAlive !== false,
         path: fullPath,
         title,
       },
@@ -494,9 +499,7 @@ export function AdminLayout() {
     document.title = prefs.app.dynamicTitle ? `${title} - ${prefs.app.name}` : prefs.app.name;
   }, [
     addTab,
-    currentMenu?.meta?.affixTab,
     currentMenu?.meta?.icon,
-    currentMenu?.meta?.keepAlive,
     currentMenu?.meta?.title,
     fullPath,
     location.pathname,
@@ -608,8 +611,8 @@ export function AdminLayout() {
     const latest = keys.find((key) => !openKeys.includes(key));
     if (latest && prefs.sidebar.autoActivateChild) {
       const menu = findMenu(menus, latest);
-      if (menu?.children?.some((child) => !child.meta?.hideInMenu)) {
-        navigate(firstLeafPath(menu));
+      if (menu?.children?.length) {
+        goTo(firstLeafPath(menu));
       }
     }
     const applyKeys = (next: string[]) => {
@@ -643,19 +646,19 @@ export function AdminLayout() {
       mixed.needSplit &&
       mixed.headerMenus.some((menu) => menu.path === key)
     ) {
-      navigate(mixed.resolveRootNavigation(key));
+      goTo(mixed.resolveRootNavigation(key));
       setMobileOpen(false);
       return;
     }
     if (prefs.sidebar.autoActivateChild) {
       const menu = findMenu(menus, key);
-      if (menu?.children?.some((child) => !child.meta?.hideInMenu)) {
-        navigate(firstLeafPath(menu));
+      if (menu?.children?.length) {
+        goTo(firstLeafPath(menu));
         setMobileOpen(false);
         return;
       }
     }
-    navigate(key);
+    goTo(key);
     setMobileOpen(false);
   };
 
@@ -846,7 +849,7 @@ export function AdminLayout() {
                         className={mixed.activeRailPath === item.path ? 'active' : ''}
                         key={item.path}
                         type="button"
-                        onClick={() => navigate(mixed.resolveRootNavigation(item.path))}
+                        onClick={() => goTo(mixed.resolveRootNavigation(item.path))}
                       >
                         {menuIcon(item, true)}
                         {/* 双列 / 混合双列: always show icon+label; other rails follow collapsedShowTitle. */}

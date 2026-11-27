@@ -30,11 +30,24 @@ export interface FormDrawerProps {
 }
 
 /**
+ * Serialized form values, used to tell "edited" from "typed and typed back".
+ * JSON is enough here: antd values are primitives, arrays and Dayjs (which
+ * serializes to ISO through its own `toJSON`).
+ */
+function valuesSignature(form?: FormInstance): string | null {
+  if (!form) return null;
+  try {
+    return JSON.stringify(form.getFieldsValue());
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create/edit form side drawer: maximize in the header, no X close,
- * sticky Cancel + Save footer. Closing via Cancel or mask.
- *
- * Every way out of the drawer — Cancel, mask, Esc, browser refresh — runs
- * through the same guard, so a half-filled form cannot disappear by accident.
+ * sticky Cancel + Save footer. Closing via Cancel or Esc asks first when the
+ * form holds unsaved edits; clicking the mask is ignored so a stray click can
+ * neither discard input nor pop the confirmation.
  */
 export function FormDrawer({
   cancelText,
@@ -62,9 +75,39 @@ export function FormDrawer({
 
   // Read on demand rather than rendered: isFieldsTouched() is not reactive, and
   // a value captured at render time would be one keystroke stale at close time.
+  //
+  // Three gates, cheapest first:
+  //  1. nothing typed → no prompt (an untouched form is never "unsaved", even
+  //     when the opener pre-filled create defaults or an edit record);
+  //  2. typed but the values match what the drawer opened with → no prompt
+  //     (changed a field and changed it back);
+  //  3. otherwise → prompt.
+  const openedValuesRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      openedValuesRef.current = null;
+      return;
+    }
+    // The child <Form>'s `initialValues` land in the store from its own effect,
+    // so the parent effect still sees an empty form. Capture now, then once
+    // more on the next task — but never after the operator has touched the
+    // form, otherwise their input would become the baseline.
+    const capture = () => {
+      if (form && !form.isFieldsTouched())
+        openedValuesRef.current = valuesSignature(form);
+    };
+    capture();
+    const timer = window.setTimeout(capture, 0);
+    return () => window.clearTimeout(timer);
+  }, [form, open]);
+
   const hasUnsavedChanges = () => {
     if (dirty !== undefined) return dirty;
-    return form ? form.isFieldsTouched() : false;
+    if (!form) return false;
+    if (!form.isFieldsTouched()) return false;
+    const current = valuesSignature(form);
+    if (current === null || openedValuesRef.current === null) return true;
+    return current !== openedValuesRef.current;
   };
   // The unload handler outlives a render, so it reads the latest check through
   // a ref instead of a captured closure.
@@ -135,7 +178,9 @@ export function FormDrawer({
           </Space>
         </div>
       }
-      mask={{ closable: true }}
+      // Clicking the mask does nothing: it used to run the discard guard, which
+      // turned a stray click into a "放弃未保存的修改？" prompt.
+      mask={{ closable: false }}
       onClose={() => void handleClose()}
       open={open}
       placement="right"

@@ -20,7 +20,7 @@ Once up:
 
 - Admin UI <http://127.0.0.1:5279>
 - API health check <http://127.0.0.1:5280/api/health>
-- Default account `admin` / `Dragz!7xZ` (seeded by `migrations/001_system_init.sql`; change the password on first login)
+- Default account `admin` / `Dragz123` (seeded by `migrations/001_system_init.sql`; change the password on first login)
 
 `up.sh` is idempotent: re-running it only rebuilds the image layers that changed.
 

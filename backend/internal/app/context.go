@@ -24,8 +24,8 @@ import (
 	"dragz-admin/backend/internal/security"
 	"dragz-admin/backend/internal/store"
 	"dragz-admin/backend/internal/ws"
-	"dragz-admin/backend/platform/billing"
 	"dragz-admin/backend/platform/eventbus"
+	"dragz-admin/backend/platform/mailer"
 	"dragz-admin/backend/platform/notifier"
 	redisstore "github.com/zeromicro/go-zero/core/stores/redis"
 )
@@ -46,16 +46,16 @@ type Context struct {
 	Tenants    *store.TenantRepository
 	Tokens     *security.TokenManager
 	Secrets    *security.SecretBox
-	Cache      *redisstore.Redis
-	// Billing verifies and normalizes payment provider webhooks. It is nil when
-	// the provider configuration is invalid, which the webhook handler treats as
-	// "not accepting callbacks".
-	Billing billing.Verifier
+	Cache *redisstore.Redis
 	// Notifier is the outbound notification capability contributed by the
 	// notify plugin. NewContext installs notifier.Noop; RegisterRoutes replaces
 	// it with the live provider after the plugin catalog is up. Other plugins
 	// depend on this interface, never on plugins/notify.
 	Notifier notifier.Notifier
+	// Mailer is the system-level SMTP sender (platform/mailer). Unlike
+	// Notifier it never depends on a plugin: NewContext wires the config
+	// reader and it returns mailer.ErrUnconfigured when mail.* is unset.
+	Mailer mailer.Sender
 	// RateLimit enforces per-route request budgets. It is backed by Cache and
 	// falls back to a per-process counter when Redis is unavailable.
 	RateLimit *ratelimit.Limiter
@@ -199,14 +199,6 @@ func NewContext(c config.Config) (*Context, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("start notification hub: %w", err)
 	}
-	billingVerifier, err := billing.NewVerifier(
-		c.Billing.Provider, c.Billing.WebhookSecret, c.Billing.SignatureHeader,
-		c.Billing.EventIDHeader, time.Duration(c.Billing.ToleranceSeconds)*time.Second,
-	)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("initialize billing provider: %w", err)
-	}
 	appCtx := &Context{
 		Config: ConfigView{
 			AccessSecret:      c.Auth.AccessSecret,
@@ -228,10 +220,10 @@ func NewContext(c config.Config) (*Context, error) {
 		Tokens:          security.NewTokenManager(c.Auth.AccessSecret, c.Auth.Issuer, c.Auth.AccessExpire, c.Auth.RefreshExpire),
 		Secrets:         secretBox,
 		Cache:           cache,
-		RateLimit:       ratelimit.New(cache),
-		Metrics:         metricsFor(c),
-		Billing:         billingVerifier,
-		Notifier:        notifier.Noop{},
+		RateLimit: ratelimit.New(cache),
+		Metrics:   metricsFor(c),
+		Notifier:  notifier.Noop{},
+		Mailer:          NewConfigMailer(authRepo, secretBox),
 		Jobs:            jobService,
 		Translator:      translator,
 		Translate:       translateClient,

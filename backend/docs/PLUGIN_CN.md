@@ -195,7 +195,7 @@ Menus: []plugin.Menu{
 
 1. **不要写 `sys_menu.id`。** id 由序列分配，插件既不用预留号段，也不会和别的插件撞号。`plugin_id` 由平台按 `Meta.ID` 自动填。
 2. **`Code` 是唯一键**，和核心菜单共用同一个命名空间。撞了会在启动或启用时**直接报错**（`ErrMenuCodeTaken`），而不是像 `ON CONFLICT DO NOTHING` 那样静默跳过、留下一个"启用成功但没菜单"的插件。
-3. **结构字段每次同步，展示字段只写一次。** 父级、类型、路由、图标随声明更新；`Name` / `NameEn` / `Sort` / `Hidden` / `KeepAlive` 只在首次插入时写入，管理员改过之后不会被回写。
+3. **结构字段每次同步，展示字段只写一次。** 父级、类型、路由、图标随声明更新；`Name` / `NameEn` / `Sort` 只在首次插入时写入，管理员改过之后不会被回写。
 4. **声明就是全部真相。** 从 `Menus` 里删掉一个 `Code`，下次启用时那一行会被软删（侧边栏消失），但 `sys_role_menu` 的授权保留；再加回来时复活的是同一行，id 和授权都不变。后台手工建的菜单 `plugin_id` 恒为空，不在任何插件的回收范围里，不会被误删。
 
 `ParentCode` 可以指向核心菜单或另一个插件的菜单，所以插件也能挂进核心目录树。指向不存在的 code 会报 `ErrMenuParentMissing`——拼错不会悄悄变成顶级菜单。
@@ -328,7 +328,7 @@ docker stop dragz-verify-pg
 | 启动/启用报 `menu code already taken` | 两个插件声明了同一个 `Code`，或撞了核心菜单的 code |
 | 报 `declared menu parent does not exist` | `ParentCode` 拼错了，或者父菜单属于一个还没启用的插件 |
 | 停用后接口返回 401 而不是 404 | 路由闸门被放到了认证内层。`Gate` 必须在 `Authenticate` 外层 |
-| 菜单出现了但侧边栏不显示 | 菜单 `status != 1`、`visible = 0`，或父菜单被停用 |
+| 菜单出现了但侧边栏不显示 | 菜单 `status != 1`，或父菜单被停用 |
 | 插件按钮被重启"删掉"了 | 手工建的按钮 `managed = 0` 不会被退役；同步建的才会。检查是不是码被同步接管了 |
 | 卸载后表还在 | `Meta.DropTables` 没声明，或名字不合法（大写/带 schema/带引号会被拒绝并整体回滚） |
 | 卸载报 409 `enabled_cannot_uninstall` | 先停用再卸载；两步分开是为了不让"停服务"和"扔数据"变成一次点击 |

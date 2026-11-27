@@ -29,7 +29,7 @@ export interface PlatformPlan {
   id: number;
   code: string;
   name: string;
-  description: string;
+  remark: string;
   status: number;
   sort: number;
   entitlements: PlanEntitlement[];
@@ -56,7 +56,7 @@ export const listPlans = () => apiGet<PlatformPlan[]>("/platform/plans");
 export interface PlanWrite {
   code: string;
   name: string;
-  description?: string;
+  remark?: string;
   status?: number;
   sort?: number;
   entitlements?: PlanEntitlement[];
@@ -69,26 +69,6 @@ export const updatePlan = (id: number, data: PlanWrite) =>
 
 export const updatePlanStatus = (id: number, status: number) =>
   apiPut<{ success: boolean }>(`/platform/plans/${id}/status`, { status });
-
-export interface PlatformInvoice {
-  id: number;
-  tenantId: number;
-  subscriptionId?: number;
-  kind: string;
-  status: string;
-  amountCents: number;
-  currency: string;
-  periodStart?: string | null;
-  periodEnd?: string | null;
-  memo: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const listInvoices = () => apiGet<PlatformInvoice[]>("/platform/invoices");
-
-export const listTenantInvoices = (id: number) =>
-  apiGet<PlatformInvoice[]>(`/platform/tenants/${id}/invoices`);
 
 export const updateTenantSubscription = (
   id: number,
@@ -118,7 +98,7 @@ export interface TenantDomain {
   tenantId: number;
   host: string;
   verifiedAt?: string | null;
-  isPrimary: number;
+  isPrimary: boolean;
   createdAt: string;
 }
 

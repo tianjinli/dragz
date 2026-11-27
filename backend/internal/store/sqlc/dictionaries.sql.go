@@ -12,8 +12,8 @@ import (
 )
 
 const clearDictionaryDefault = `-- name: ClearDictionaryDefault :execrows
-UPDATE sys_dict_item SET is_default = 0, updated_at = NOW()
-WHERE dict_type_id = $1 AND is_default = 1 AND deleted_at IS NULL
+UPDATE sys_dict_item SET is_default = FALSE, updated_at = NOW()
+WHERE dict_type_id = $1 AND is_default = TRUE AND deleted_at IS NULL
 `
 
 // Step one of the two-step default switch (see uk_dict_item_default): drop
@@ -30,8 +30,9 @@ func (q *Queries) ClearDictionaryDefault(ctx context.Context, dictTypeID uint64)
 
 const createDictionaryItem = `-- name: CreateDictionaryItem :one
 INSERT INTO sys_dict_item
-  (dict_type_id, label, value, color, css_class, sort, status, is_default, remark)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  (dict_type_id, label, value, color, css_class, sort, status, is_default, remark,
+   created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 RETURNING id
 `
 
@@ -43,8 +44,9 @@ type CreateDictionaryItemParams struct {
 	CssClass   string `json:"css_class"`
 	Sort       int32  `json:"sort"`
 	Status     int16  `json:"status"`
-	IsDefault  int16  `json:"is_default"`
+	IsDefault  bool   `json:"is_default"`
 	Remark     string `json:"remark"`
+	CreatedBy  uint64 `json:"created_by"`
 }
 
 func (q *Queries) CreateDictionaryItem(ctx context.Context, arg CreateDictionaryItemParams) (int64, error) {
@@ -58,6 +60,7 @@ func (q *Queries) CreateDictionaryItem(ctx context.Context, arg CreateDictionary
 		arg.Status,
 		arg.IsDefault,
 		arg.Remark,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -65,8 +68,8 @@ func (q *Queries) CreateDictionaryItem(ctx context.Context, arg CreateDictionary
 }
 
 const createDictionaryType = `-- name: CreateDictionaryType :one
-INSERT INTO sys_dict_type (code, name, display_type, status, remark)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO sys_dict_type (code, name, display_type, status, remark, created_by, updated_by)
+VALUES ($1, $2, $3, $4, $5, $6, $6)
 RETURNING id
 `
 
@@ -76,6 +79,7 @@ type CreateDictionaryTypeParams struct {
 	DisplayType string `json:"display_type"`
 	Status      int16  `json:"status"`
 	Remark      string `json:"remark"`
+	CreatedBy   uint64 `json:"created_by"`
 }
 
 func (q *Queries) CreateDictionaryType(ctx context.Context, arg CreateDictionaryTypeParams) (int64, error) {
@@ -85,6 +89,7 @@ func (q *Queries) CreateDictionaryType(ctx context.Context, arg CreateDictionary
 		arg.DisplayType,
 		arg.Status,
 		arg.Remark,
+		arg.CreatedBy,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -107,7 +112,7 @@ type GetDictionaryItemByIDRow struct {
 	CssClass   string `json:"css_class"`
 	Sort       int32  `json:"sort"`
 	Status     int16  `json:"status"`
-	IsDefault  int16  `json:"is_default"`
+	IsDefault  bool   `json:"is_default"`
 	Remark     string `json:"remark"`
 }
 
@@ -141,7 +146,7 @@ type GetDictionaryTypeByIDRow struct {
 	Name        string `json:"name"`
 	DisplayType string `json:"display_type"`
 	Status      int16  `json:"status"`
-	IsSystem    int16  `json:"is_system"`
+	IsSystem    bool   `json:"is_system"`
 	Remark      string `json:"remark"`
 }
 
@@ -168,7 +173,7 @@ WHERE d.id = $1 AND d.deleted_at IS NULL
 `
 
 type GetDictionaryTypeDeleteChecksRow struct {
-	IsSystem  int16 `json:"is_system"`
+	IsSystem  bool  `json:"is_system"`
 	ItemCount int64 `json:"item_count"`
 }
 
@@ -208,7 +213,7 @@ type ListDictionaryItemsRow struct {
 	CssClass   string    `json:"css_class"`
 	Sort       int32     `json:"sort"`
 	Status     int16     `json:"status"`
-	IsDefault  int16     `json:"is_default"`
+	IsDefault  bool      `json:"is_default"`
 	Remark     string    `json:"remark"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -271,7 +276,7 @@ type ListDictionaryTypesFilteredRow struct {
 	Name        string    `json:"name"`
 	DisplayType string    `json:"display_type"`
 	Status      int16     `json:"status"`
-	IsSystem    int16     `json:"is_system"`
+	IsSystem    bool      `json:"is_system"`
 	Remark      string    `json:"remark"`
 	ItemCount   int64     `json:"item_count"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -327,7 +332,7 @@ type ListEnabledDictionaryItemsRow struct {
 	CssClass   string    `json:"css_class"`
 	Sort       int32     `json:"sort"`
 	Status     int16     `json:"status"`
-	IsDefault  int16     `json:"is_default"`
+	IsDefault  bool      `json:"is_default"`
 	Remark     string    `json:"remark"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -368,12 +373,17 @@ func (q *Queries) ListEnabledDictionaryItems(ctx context.Context, dictTypeID uin
 }
 
 const softDeleteDictionaryItem = `-- name: SoftDeleteDictionaryItem :execrows
-UPDATE sys_dict_item SET deleted_at = NOW(), status = 0
+UPDATE sys_dict_item SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteDictionaryItem(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteDictionaryItem, id)
+type SoftDeleteDictionaryItemParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteDictionaryItem(ctx context.Context, arg SoftDeleteDictionaryItemParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteDictionaryItem, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -381,12 +391,17 @@ func (q *Queries) SoftDeleteDictionaryItem(ctx context.Context, id int64) (int64
 }
 
 const softDeleteDictionaryType = `-- name: SoftDeleteDictionaryType :execrows
-UPDATE sys_dict_type SET deleted_at = NOW(), status = 0
+UPDATE sys_dict_type SET deleted_at = NOW(), status = 0, updated_by = $2
 WHERE id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteDictionaryType(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, softDeleteDictionaryType, id)
+type SoftDeleteDictionaryTypeParams struct {
+	ID        int64  `json:"id"`
+	UpdatedBy uint64 `json:"updated_by"`
+}
+
+func (q *Queries) SoftDeleteDictionaryType(ctx context.Context, arg SoftDeleteDictionaryTypeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteDictionaryType, arg.ID, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -395,8 +410,8 @@ func (q *Queries) SoftDeleteDictionaryType(ctx context.Context, id int64) (int64
 
 const updateDictionaryItem = `-- name: UpdateDictionaryItem :execrows
 UPDATE sys_dict_item SET label = $1, value = $2, color = $3,
-  css_class = $4, sort = $5, status = $6, is_default = $7, remark = $8
-WHERE id = $9 AND deleted_at IS NULL
+  css_class = $4, sort = $5, status = $6, is_default = $7, remark = $8, updated_by = $9
+WHERE id = $10 AND deleted_at IS NULL
 `
 
 type UpdateDictionaryItemParams struct {
@@ -406,8 +421,9 @@ type UpdateDictionaryItemParams struct {
 	CssClass  string `json:"css_class"`
 	Sort      int32  `json:"sort"`
 	Status    int16  `json:"status"`
-	IsDefault int16  `json:"is_default"`
+	IsDefault bool   `json:"is_default"`
 	Remark    string `json:"remark"`
+	UpdatedBy uint64 `json:"updated_by"`
 	ID        int64  `json:"id"`
 }
 
@@ -421,6 +437,7 @@ func (q *Queries) UpdateDictionaryItem(ctx context.Context, arg UpdateDictionary
 		arg.Status,
 		arg.IsDefault,
 		arg.Remark,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
@@ -430,8 +447,9 @@ func (q *Queries) UpdateDictionaryItem(ctx context.Context, arg UpdateDictionary
 }
 
 const updateDictionaryType = `-- name: UpdateDictionaryType :execrows
-UPDATE sys_dict_type SET code = $1, name = $2, display_type = $3, status = $4, remark = $5
-WHERE id = $6 AND deleted_at IS NULL
+UPDATE sys_dict_type SET code = $1, name = $2, display_type = $3, status = $4, remark = $5,
+  updated_by = $6
+WHERE id = $7 AND deleted_at IS NULL
 `
 
 type UpdateDictionaryTypeParams struct {
@@ -440,6 +458,7 @@ type UpdateDictionaryTypeParams struct {
 	DisplayType string `json:"display_type"`
 	Status      int16  `json:"status"`
 	Remark      string `json:"remark"`
+	UpdatedBy   uint64 `json:"updated_by"`
 	ID          int64  `json:"id"`
 }
 
@@ -450,6 +469,7 @@ func (q *Queries) UpdateDictionaryType(ctx context.Context, arg UpdateDictionary
 		arg.DisplayType,
 		arg.Status,
 		arg.Remark,
+		arg.UpdatedBy,
 		arg.ID,
 	)
 	if err != nil {
